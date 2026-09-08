@@ -1,0 +1,45 @@
+name: Stage GitLab Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Commit SHA (40 hex) to stage packages from'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stage-gitlab-packages-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Stage packages to GitLab Generic Package Registry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout trusted main script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: Run stage packages script
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLAB_PACKAGE_TOKEN: ${{ secrets.GITLAB_PACKAGE_TOKEN }}
+          GITLAB_URL: ${{ vars.GITLAB_URL || 'https://gitlab.tju.edu.cn' }}
+          GITLAB_PROJECT_ID: ${{ vars.GITLAB_PROJECT_ID || '145' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/stage-gitlab-packages.mjs

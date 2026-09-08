@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const profile = process.argv[2];
-if (!['linux', 'android', 'integration', 'windows', 'portable'].includes(profile)) {
-  throw new Error('Usage: node scripts/ci-preflight.mjs linux|android|integration|windows|portable');
+if (!['linux', 'android', 'windows', 'portable'].includes(profile)) {
+  throw new Error('Usage: node scripts/ci-preflight.mjs linux|android|windows|portable');
 }
 const root = new URL('../', import.meta.url);
 const pkg = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'));
@@ -26,11 +26,7 @@ const pnpm = command('pnpm', ['--version']).trim();
 check('pnpm matches packageManager', `pnpm@${pnpm}` === pkg.packageManager);
 command('task', ['--version'], /\b(?:v)?3\.49\.1\b/);
 command('git', ['--version']);
-if (profile !== 'android' && profile !== 'windows') {
-  const goVersion = readFileSync(new URL('backend/go.mod', root), 'utf8').match(/^go (\d+\.\d+)/m)[1];
-  command('go', ['version'], new RegExp(`go${goVersion.replace('.', '\\.')}\\.`));
-}
-if (profile !== 'integration' && profile !== 'portable') {
+if (profile !== 'portable') {
   command('rustc', ['--version']);
   command('cargo', ['--version']);
   command('rustup', ['--version']);
@@ -52,10 +48,6 @@ if (profile === 'android') {
     existsSync(join(ndk, 'source.properties')) &&
     /Pkg\.Revision\s*=\s*27\.2\.12479018\b/.test(readFileSync(join(ndk, 'source.properties'), 'utf8'))));
   command('rustup', ['target', 'list', '--installed'], /^aarch64-linux-android$/m);
-}
-if (profile === 'integration') {
-  command('docker', ['info']);
-  command('docker', ['compose', 'version']);
 }
 if (profile === 'windows') {
   command('rustc', ['-vV'], /host: x86_64-pc-windows-msvc/);

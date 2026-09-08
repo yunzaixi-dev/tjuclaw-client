@@ -12,7 +12,7 @@ const rustup = join(bin, process.platform === 'win32' ? 'rustup.exe' : 'rustup')
 const env = existsSync(rustup) ? prependToolPath(process.env, bin) : { ...process.env };
 const command = tool === 'tauri' ? process.execPath : tool;
 if (tool === 'tauri') {
-  args.unshift(fileURLToPath(new URL('../frontend/node_modules/@tauri-apps/cli/tauri.js', import.meta.url)));
+  args.unshift(fileURLToPath(new URL('../node_modules/@tauri-apps/cli/tauri.js', import.meta.url)));
 }
 const result = spawnSync(command, args, { env, stdio: 'inherit' });
 if (result.error) throw result.error;

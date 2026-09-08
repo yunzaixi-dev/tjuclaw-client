@@ -17,7 +17,8 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {},
   },
   webServer: {
-    command: 'pnpm --filter @tjuclaw/client exec vite preview --host 127.0.0.1 --port 1422 --strictPort',
+    cwd: '..',
+    command: 'pnpm exec vite preview --host 127.0.0.1 --port 1422 --strictPort',
     url: 'http://127.0.0.1:1422',
     reuseExistingServer: false,
   },

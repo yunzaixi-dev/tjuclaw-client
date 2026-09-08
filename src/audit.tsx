@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useRef, useState } from 'react';
-import { version } from '../../package.json';
+import { version } from '../package.json';
 import { viewports, type Manifest, type Screen } from './audit-types';
 import { AuthAudit } from './audit-auth';
 import './styles.css';

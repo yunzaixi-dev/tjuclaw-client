@@ -17,11 +17,10 @@ concurrency:
 
 env:
   CI: 'true'
-  NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
   check:
-    name: Portable checks and Go race tests
+    name: Portable checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -37,11 +36,6 @@ jobs:
 
       - name: Run portable checks
         run: task check
-
-      - name: Run Go race tests
-        run: |
-          cd backend
-          go test -race ./...
 
   browser:
     name: Browser UI and workspace regression
@@ -66,43 +60,8 @@ jobs:
           task ui:test
           task workspace:test
 
-  integration:
-    name: Local auth integration regression
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up toolchain
-        uses: ./.github/actions/setup
-        with:
-          profile: integration
-
-      - name: Validate Compose configuration and context
-        run: |
-          task compose:config
-          task compose:context
-
-      - name: Install Chromium with system dependencies
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Pre-pull exact auth test Compose images
-        run: |
-          docker compose -p tjuclaw-auth-test -f ops/auth/compose.yaml pull
-
-      - name: Run real auth regression
-        run: task auth:test
-
-      - name: Clean up exact test stack
-        if: always()
-        run: |
-          docker compose -p tjuclaw-auth-test -f ops/auth/compose.yaml down --volumes --remove-orphans || true
-
   build-artifacts:
-    name: Build Web, Docs, API and CLI
+    name: Build Web Client
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -119,36 +78,11 @@ jobs:
       - name: Build Web
         run: task web:build
 
-      - name: Build Docs
-        run: task docs:build
-
-      - name: Build API
-        run: task api:build
-
-      - name: Build CLI
-        run: task cli:build
-
       - name: Upload Web artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web-${{ github.sha }}
-          path: frontend/dist/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload API artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: api-${{ github.sha }}
-          path: backend/bin/api
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload CLI artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: tjucli-${{ github.sha }}
-          path: backend/bin/tjucli
+          path: dist/
           if-no-files-found: error
           retention-days: 7
 
@@ -182,7 +116,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-${{ github.sha }}
-          path: frontend/src-tauri/target/release/bundle/deb/*.deb
+          path: src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -229,7 +163,7 @@ jobs:
       - name: Set up Go for Task installation
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version-file: backend/go.mod
+          go-version: '1.26.x'
           cache: false
 
       - name: Install Task 3.49.1
@@ -256,6 +190,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-debug-${{ github.sha }}
-          path: frontend/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 7

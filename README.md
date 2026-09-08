@@ -1,54 +1,58 @@
-# Client
+# TJUClaw Client
 
-React + Vite + Tailwind / shadcn-compatible components, shared by Web and Tauri 2.
-`src/` is shared UI; `src-tauri/` contains the native host and its capability policy.
-The product opens an email authentication entry with real Kratos browser flows.
-Campus/agent services are not yet connected. The original appearance preview is
-at `/preview/appearance`. See `UI.md` and root `DEVELOPMENT.md` for UI/API rules,
-and `ops/auth/README.md` for local identity services. Browser authentication does
-not yet implement Tauri's native session transport.
-The separate `task audit:dev` mode provides local visual comparison tooling;
-its private evidence dataset is not included in the normal client build.
+天津大学校园行动智能体的共享客户端，使用 React、Vite 和 Tauri。
+同一份界面面向 Web、Linux、Windows 与 Android。
 
-The audit desk opens an email-login review with state selection, four viewport
-sizes, light/dark captures, reference comparison and product interaction paths.
-Run `task audit:auth` to run the isolated auth suite and import its evidence;
-`task audit:auth:import` imports an already passing complete run. Local mappings
-must exist in ignored `private/audit/auth-config.json`; screenshots and generated
-manifests remain there, never in the client bundle. Missing references and
-captures remain explicit gaps. The capture time and test scope are shown, and
-injected HTTP errors are distinguished from real Kratos responses. OTP fields
-are masked in audit captures. This does not certify native auth or production
-email delivery. Do not run this alongside other tests that rebuild `frontend/dist`.
-Use `task audit:ui` to check the audit desk itself at four responsive widths,
-including comparison controls, image zoom, state navigation and missing evidence.
+本仓库独立管理依赖、版本与多平台构建。服务端和校园 CLI 分别维护；
+集成仓库通过 Git submodule 锁定组合版本。
 
-Run tasks from the repository root:
+## 开发
+
+需要 Node 24、pnpm 11.3.0 和 Task 3.49.1。
 
 ```bash
-rtk task web:dev
-rtk task desktop:dev
-rtk task native:info
-rtk task linux:build
-rtk task windows:build
-rtk task android:build
+pnpm install --frozen-lockfile
+task web:dev
+task check
+task ui:install
+task ui:test
+task workspace:test
 ```
 
-Windows builds run on Windows with MSVC, WebView2 and NSIS prerequisites.
-Linux builds produce `.deb` on Linux; use a supported Debian/Ubuntu runner for
-distributable packages rather than treating an Arch build as a portability test.
-Android needs JDK 17+, SDK command-line tools, platform/build-tools, NDK and
-Rust Android targets. See `ops/runbooks/development.md`.
+开发地址为 `http://127.0.0.1:1420`。`/api` 默认代理到
+`http://127.0.0.1:8080`，可通过服务端环境变量 `API_PROXY_TARGET` 调整。
+邮箱认证和任务草稿保存需要可用的 API；独立 UI/工作区测试使用明确的浏览器 mock。
+真实 Kratos 认证与任务归属回归由私有集成仓库执行。
 
-Android Gradle projects are generated with `task android:init`, not committed.
-Persistent Gradle/manifest changes must be applied by a reviewed source-controlled
-configuration or patch before relying on regeneration. Debug APKs are installable
-test builds, not release-signed packages; Windows installers are unsigned.
+主题、组件与响应式规范见 [UI.md](UI.md)。
+外观预览位于 `/preview/appearance`。本地 audit 模式只读取开发者的本地证据，
+不携带或发布私有截图、研究资料和凭据。
 
-Root `package.json` supplies the UI and Tauri product version. Rust's `0.0.0`
-crate version is internal, unpublished build metadata. Commit `Cargo.lock` and
-the workspace `pnpm-lock.yaml`; ignore native targets, SDK state and signing keys.
+## 构建
 
-`components.json` configures shadcn; add components when used rather than importing
-an entire component catalogue. Native capabilities currently allow only app
-version reads, not filesystem access or shell execution.
+```bash
+task web:build
+task linux:build
+task windows:build
+task android:targets
+task android:build
+```
+
+原生构建需要 Rust 和对应平台 SDK。Linux 需要 GTK 3、WebKitGTK 4.1、
+AppIndicator 和 patchelf；Windows 需要 MSVC；Android 使用 Java 17、SDK 36、
+Build Tools 35/36 和 NDK 27.2.12479018。具体安装步骤以 `.github/workflows/` 为准。
+
+`package.json` 决定客户端安装包版本。Windows 输出未签名 NSIS 安装程序，
+Android 输出 arm64 调试 APK。构建通过不代表已完成真机安装、原生登录或生产签名验收。
+
+## CI 与比赛产物
+
+GitHub Actions 分别运行检查、外观/工作区回归及各平台构建，产物按提交 SHA 命名。
+日常构建不自动发布 Release。
+
+维护者可在 main 上手动执行 **Stage GitLab Packages**，指定已通过 CI 与 Windows
+构建的客户端 SHA。流程验证 GitHub ZIP 摘要，将安装包和校验清单上传到 GitLab
+包仓库。随后由私有集成仓库验证组件组合并创建比赛 Release。
+客户端仅持有包仓库权限，不持有私有服务端源码的访问凭据。
+
+源码可公开查看，但本项目尚未授予开源许可证；第三方依赖按各自许可证使用。
