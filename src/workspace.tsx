@@ -1,8 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, Clock, Info, Loader2, Moon, RefreshCw, Sparkles, Sun, User } from 'lucide-react';
 import { Button } from './components/ui/button';
+import { RunSection } from './components/run-section';
 import { setAppearance, useAppearance } from './lib/appearance';
 import { logout, readSession, type IdentitySession } from './lib/auth';
+import { listRuns, type Run } from './lib/runs';
 import { createTask, describeTaskError, getTask, listTasks, type Task } from './lib/tasks';
 import './product.css';
 import './workspace.css';
@@ -21,6 +23,10 @@ export default function Workspace() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
 
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState('');
+
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -34,20 +40,27 @@ export default function Workspace() {
   const listSeqRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
   const detailSeqRef = useRef(0);
+  const runsAbortRef = useRef<AbortController | null>(null);
+  const runsSeqRef = useRef(0);
   const createAbortRef = useRef<AbortController | null>(null);
   const createSeqRef = useRef(0);
 
   function resetPrivateState(clearPrompt = true) {
     listAbortRef.current?.abort();
     detailAbortRef.current?.abort();
+    runsAbortRef.current?.abort();
     createAbortRef.current?.abort();
     listSeqRef.current++;
     detailSeqRef.current++;
+    runsSeqRef.current++;
     createSeqRef.current++;
 
     setTasks([]);
     setSelectedTaskId(null);
     setSelectedTask(null);
+    setRuns([]);
+    setRunsError('');
+    setRunsLoading(false);
     setTasksError('');
     setTasksLoading(false);
     setDetailLoading(false);
@@ -158,6 +171,51 @@ export default function Workspace() {
       });
   }
 
+  function loadRuns(taskId: string) {
+    if (closingRef.current) return;
+    runsAbortRef.current?.abort();
+    const controller = new AbortController();
+    runsAbortRef.current = controller;
+    const seq = ++runsSeqRef.current;
+    const currentUserId = activeUserIdRef.current;
+
+    setRunsLoading(true);
+    setRunsError('');
+
+    listRuns(taskId, controller.signal)
+      .then(res => {
+        if (controller.signal.aborted || seq !== runsSeqRef.current || currentUserId !== activeUserIdRef.current) {
+          return;
+        }
+        setRuns(res);
+      })
+      .catch(err => {
+        if (controller.signal.aborted || seq !== runsSeqRef.current || currentUserId !== activeUserIdRef.current) {
+          return;
+        }
+        // If 404, or feature not ready, gracefully handle
+        if (typeof err === 'object' && err !== null && 'status' in err) {
+          const status = (err as { status: number }).status;
+          if (status === 401) {
+            resetPrivateState(true);
+            location.replace('/auth/login');
+            return;
+          }
+          if (status === 404) {
+            // Task not found or runs route not implemented yet
+            setRuns([]);
+            return;
+          }
+        }
+        setRunsError('获取执行列表失败');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && seq === runsSeqRef.current && currentUserId === activeUserIdRef.current) {
+          setRunsLoading(false);
+        }
+      });
+  }
+
   function selectTask(id: string) {
     if (closingRef.current) return;
     setSelectedTaskId(id);
@@ -174,6 +232,9 @@ export default function Workspace() {
 
     setDetailLoading(true);
     setDetailError('');
+
+    // Also fetch runs for this task
+    loadRuns(id);
 
     getTask(id, controller.signal)
       .then(task => {
@@ -505,6 +566,20 @@ export default function Workspace() {
                       </p>
                     </div>
                   </div>
+
+                  <RunSection
+                    taskId={selectedTask.id}
+                    runs={runs}
+                    loading={runsLoading}
+                    error={runsError}
+                    onRefresh={() => loadRuns(selectedTask.id)}
+                    onRunUpdated={updated => {
+                      setRuns(prev => prev.map(r => (r.id === updated.id ? updated : r)));
+                    }}
+                    onRunCreated={created => {
+                      setRuns(prev => [created, ...prev]);
+                    }}
+                  />
                 </div>
               </div>
             ) : (

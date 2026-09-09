@@ -14,6 +14,5 @@ This repository is the standalone client frontend and native shell for TJUClaw.
 - Do not add backend Go dependencies or private audit fixtures to build inputs.
 - Use explicit-path staging and `EMOJI [vVERSION] type(scope): summary` commit subjects;
   VERSION comes from the staged package.json. Do not commit or push without task authorization.
-- Prefix agent-session shell commands with `rtk` (`rtk proxy` for raw output).
 - Client build jobs receive no private-component credentials. The explicit main-only
   package staging workflow may use a package-scoped GitLab deploy token.

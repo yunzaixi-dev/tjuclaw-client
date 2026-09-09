@@ -260,11 +260,171 @@ test.describe('Workspace mocked contract suite', () => {
       body: JSON.stringify({ task: syntheticTasksUserA[0] }),
     }));
 
+    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runs: [] }),
+    }));
+
     await page.goto('/workspace');
     await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
     await expect(page.locator('.workspace-detail-panel').getByText('Line 2 details')).toBeVisible();
     await expect(page.locator('.workspace-detail-panel').getByText('已保存', { exact: true })).toBeVisible();
     await expect(page.getByText('草稿捕获阶段')).toBeVisible();
+  });
+
+  test('displays Run list, active status, and supports cancelling run', async ({ page }) => {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(syntheticSessionA),
+    }));
+
+    await page.route('**/api/tasks', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: syntheticTasksUserA }),
+    }));
+
+    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
+    }));
+
+    const runId1 = '1'.repeat(32);
+    const mockRunningRun = {
+      id: runId1,
+      task_id: taskIdA1,
+      status: 'running',
+      created_at: '2026-09-09T10:00:00Z',
+      started_at: '2026-09-09T10:00:01Z',
+    };
+
+    const mockCancelledRun = {
+      ...mockRunningRun,
+      status: 'cancelled',
+      finished_at: '2026-09-09T10:01:00Z',
+    };
+
+    let runsState = [mockRunningRun];
+
+    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ runs: runsState }),
+        });
+      }
+      if (route.request().method() === 'POST') {
+        const newRunId = '2'.repeat(32);
+        const createdRun = {
+          id: newRunId,
+          task_id: taskIdA1,
+          status: 'queued',
+          created_at: new Date().toISOString(),
+        };
+        runsState = [createdRun, ...runsState];
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ run: createdRun }),
+        });
+      }
+    });
+
+    await page.route(`**/api/runs/${runId1}/cancel`, route => {
+      runsState = [mockCancelledRun];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ run: mockCancelledRun }),
+      });
+    });
+
+    await page.goto('/workspace');
+    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
+
+    // Check Run list header and running status badge
+    await expect(page.getByRole('heading', { level: 3, name: '执行记录与运行 (Runs)' })).toBeVisible();
+    await expect(page.locator(`[data-testid="run-card-${runId1}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="run-card-${runId1}"]`).getByText('执行中')).toBeVisible();
+
+    // Cancel the running run
+    const cancelBtn = page.getByRole('button', { name: `取消执行 ${runId1.slice(0, 8)}` });
+    await expect(cancelBtn).toBeVisible();
+    await cancelBtn.click();
+
+    // After cancellation, status should update to 已取消
+    await expect(page.locator(`[data-testid="run-card-${runId1}"]`).getByText('已取消')).toBeVisible();
+  });
+
+  test('displays artifacts and error information on terminal run', async ({ page }) => {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(syntheticSessionA),
+    }));
+
+    await page.route('**/api/tasks', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: syntheticTasksUserA }),
+    }));
+
+    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
+    }));
+
+    const runIdFailed = '3'.repeat(32);
+    const mockFailedRun = {
+      id: runIdFailed,
+      task_id: taskIdA1,
+      status: 'failed',
+      created_at: '2026-09-09T08:00:00Z',
+      finished_at: '2026-09-09T08:02:00Z',
+      error: '模型响应超时，沙箱实例已自动释放。',
+    };
+
+    const runIdSucceeded = '4'.repeat(32);
+    const mockSucceededRun = {
+      id: runIdSucceeded,
+      task_id: taskIdA1,
+      status: 'succeeded',
+      created_at: '2026-09-09T09:00:00Z',
+      finished_at: '2026-09-09T09:05:00Z',
+      artifacts: [
+        {
+          id: 'art-001',
+          name: 'course_review_outline.md',
+          size_bytes: 4096,
+          url: '/api/artifacts/art-001/download',
+        },
+      ],
+    };
+
+    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runs: [mockSucceededRun, mockFailedRun] }),
+    }));
+
+    await page.goto('/workspace');
+    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
+
+    // Verify succeeded run and artifact download link
+    const succCard = page.locator(`[data-testid="run-card-${runIdSucceeded}"]`);
+    await expect(succCard.getByText('已完成')).toBeVisible();
+    await expect(succCard.getByText('course_review_outline.md')).toBeVisible();
+    await expect(succCard.getByRole('link', { name: '下载 course_review_outline.md' })).toBeVisible();
+
+    // Verify failed run and error text
+    const failCard = page.locator(`[data-testid="run-card-${runIdFailed}"]`);
+    await expect(failCard.getByText('执行失败')).toBeVisible();
+    await expect(failCard.getByText('模型响应超时，沙箱实例已自动释放。')).toBeVisible();
   });
 });
 
