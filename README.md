@@ -50,6 +50,13 @@ Android 输出 arm64 调试 APK。构建通过不代表已完成真机安装、�
 GitHub Actions 分别运行检查、外观/工作区回归及各平台构建，产物按提交 SHA 命名。
 日常构建不自动发布 Release。
 
+## 两分支与 Web 发布
+
+日常直接在默认分支 `dev` 开发；将验证后的提交合并到 `release` 后，CI 在代码检查、浏览器回归和 Web 构建通过后发布到 EdgeOne。
+在 GitHub `production` 环境配置 `EDGEONE_TOKEN` Secret、`EDGEONE_PROJECT_NAME` Variable，以及可选的 `EDGEONE_AREA`。该环境只允许 `release` 部署。缺少配置会明确失败，不会跳过后显示发布成功。
+
+仓库 Actions 白名单须包含工作流使用的固定 SHA，包括 `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`。本地 actionlint 无法检查 GitHub 仓库白名单；新增动作时必须同步核实服务端策略。
+
 维护者可在 release 上手动执行 **Stage GitLab Packages**，指定已通过 CI 与 Windows
 构建的客户端 SHA。流程验证 GitHub ZIP 摘要，将安装包和校验清单上传到 GitLab
 包仓库。随后由私有集成仓库验证组件组合并创建比赛 Release。
