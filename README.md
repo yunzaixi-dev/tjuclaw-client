@@ -50,7 +50,7 @@ Android 输出 arm64 调试 APK。构建通过不代表已完成真机安装、�
 GitHub Actions 分别运行检查、外观/工作区回归及各平台构建，产物按提交 SHA 命名。
 日常构建不自动发布 Release。
 
-维护者可在 main 上手动执行 **Stage GitLab Packages**，指定已通过 CI 与 Windows
+维护者可在 release 上手动执行 **Stage GitLab Packages**，指定已通过 CI 与 Windows
 构建的客户端 SHA。流程验证 GitHub ZIP 摘要，将安装包和校验清单上传到 GitLab
 包仓库。随后由私有集成仓库验证组件组合并创建比赛 Release。
 客户端仅持有包仓库权限，不持有私有服务端源码的访问凭据。

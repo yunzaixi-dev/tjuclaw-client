@@ -1,0 +1,40 @@
+name: Deploy Web to EdgeOne
+on:
+  workflow_call: {}
+permissions:
+  contents: read
+concurrency:
+  group: production-web
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: web-${{ github.sha }}
+          path: web
+      - name: Publish verified artifact from the current release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+          EDGEONE_TOKEN: ${{ secrets.EDGEONE_TOKEN }}
+          EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
+          EDGEONE_AREA: ${{ vars.EDGEONE_AREA || 'global' }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api repos/yunzaixi-dev/tjuclaw-client/git/ref/heads/release --jq .object.sha)
+          if [ "$latest" != "$RELEASE_SHA" ]; then
+            echo 'A newer release exists; obsolete Web deployment skipped.'
+            exit 0
+          fi
+          test -n "$EDGEONE_TOKEN" || { echo 'Missing production secret EDGEONE_TOKEN'; exit 1; }
+          test -n "$EDGEONE_PROJECT_NAME" || { echo 'Missing production variable EDGEONE_PROJECT_NAME'; exit 1; }
+          test -f web/index.html
+          npx --yes edgeone@1.6.37 makers deploy web --name "$EDGEONE_PROJECT_NAME" --env production --area "$EDGEONE_AREA" --token "$EDGEONE_TOKEN" --json

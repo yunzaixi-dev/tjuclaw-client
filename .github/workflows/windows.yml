@@ -1,8 +1,14 @@
 name: Windows Installer
 
 on:
-  push: {}
-  pull_request: {}
+  push:
+    branches:
+      - dev
+      - release
+  pull_request:
+    branches:
+      - dev
+      - release
   workflow_dispatch: {}
 
 permissions:

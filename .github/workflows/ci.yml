@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches:
+      - dev
+      - release
     tags: ['**']
   pull_request:
-    branches: ['**']
+    branches:
+      - dev
+      - release
   workflow_dispatch: {}
 
 permissions:
@@ -13,12 +17,18 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/release' }}
 
 env:
   CI: 'true'
 
 jobs:
+  deploy-web:
+    needs: [check, browser, build-artifacts]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
+    uses: ./.github/workflows/deploy-edgeone.yml
+    secrets: inherit
+
   check:
     name: Portable checks
     runs-on: ubuntu-24.04

@@ -157,7 +157,7 @@ export async function findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken,
   validateSha(sourceSha);
   validateGitHubRepo(githubRepo);
 
-  const runsUrl = `https://api.github.com/repos/${githubRepo}/actions/runs?head_sha=${sourceSha}&event=push&branch=main&per_page=100`;
+  const runsUrl = `https://api.github.com/repos/${githubRepo}/actions/runs?head_sha=${sourceSha}&event=push&branch=release&per_page=100`;
   const res = await fetchFn(runsUrl, {
     headers: {
       Authorization: `Bearer ${ghToken}`,
@@ -181,7 +181,7 @@ export async function findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken,
     const matchingRuns = runs.filter(r =>
       r.name === wfName &&
       r.event === 'push' &&
-      r.head_branch === 'main' &&
+      r.head_branch === 'release' &&
       r.head_sha === sourceSha &&
       r.head_repository?.full_name === githubRepo
     );
