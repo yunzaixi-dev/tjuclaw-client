@@ -412,10 +412,13 @@ export default function Workspace() {
 
             <form className="workspace-form" onSubmit={handleSubmit}>
               <div className="workspace-form-group">
-                <label htmlFor="task-prompt" className="workspace-form-label">
-                  任务目标
-                </label>
-                <div className="workspace-textarea-wrap">
+                <div className="workspace-form-label-row">
+                  <label htmlFor="task-prompt" className="workspace-form-label">
+                    任务目标
+                  </label>
+                  <span className="workspace-char-count">{prompt.length}/4000</span>
+                </div>
+                <div className="workspace-composer-box">
                   <textarea
                     id="task-prompt"
                     name="task-prompt"
@@ -431,10 +434,18 @@ export default function Workspace() {
                     maxLength={4000}
                     required
                   />
-                </div>
-                <div className="workspace-form-meta">
-                  <span>支持 1~4000 字符</span>
-                  <span>{prompt.length}/4000</span>
+                  <div className="workspace-composer-footer">
+                    <span className="workspace-composer-hint">支持 1~4000 字符</span>
+                    <Button
+                      type="submit"
+                      variant="solid"
+                      disabled={submitting || !prompt.trim()}
+                      aria-label="保存任务"
+                      className="workspace-submit-btn"
+                    >
+                      {submitting ? '正在保存…' : '保存任务'}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -443,17 +454,6 @@ export default function Workspace() {
                   {submitError}
                 </div>
               )}
-
-              <div className="workspace-form-actions">
-                <Button
-                  type="submit"
-                  variant="solid"
-                  disabled={submitting || !prompt.trim()}
-                  aria-label="保存任务"
-                >
-                  {submitting ? '正在保存…' : '保存任务'}
-                </Button>
-              </div>
             </form>
 
             <div className="workspace-tasks-header">
