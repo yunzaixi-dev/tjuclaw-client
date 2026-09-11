@@ -19,4 +19,4 @@ This repository is the standalone client frontend and native shell for TJUClaw.
 
 ## Branches
 
-Use only `dev` (default, direct development) and `release` (production). Release pushes publish the verified Web artifact to EdgeOne after portable and browser checks. Version-tagged native competition packages remain optional manual delivery.
+Use `release` as the primary branch for rapid iteration and production deployments. `dev` is retained without deleting it. Release pushes publish the verified Web artifact to EdgeOne after portable and browser checks. Version-tagged native competition packages remain optional manual delivery.
