@@ -1,0 +1,42 @@
+name: Publish Client Downloads
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact commit SHA (40 hex) on release ancestry to publish'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-downloads-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish client downloads to GitHub Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/release'
+    steps:
+      - name: Checkout trusted release script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: release
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: Publish downloads
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/publish-downloads.mjs

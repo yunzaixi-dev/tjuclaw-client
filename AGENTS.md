@@ -20,3 +20,14 @@ This repository is the standalone client frontend and native shell for TJUClaw.
 ## Branches
 
 Use `release` as the primary branch for rapid iteration and production deployments. `dev` is retained without deleting it. Release pushes publish the verified Web artifact to EdgeOne after portable and browser checks. Version-tagged native competition packages remain optional manual delivery.
+
+## Public client downloads
+
+Release branch pushes build Linux, Android and Windows Actions artifacts automatically.
+Promote a new client package version using `Publish Client Downloads` on `release`,
+with the exact successful source SHA. The workflow verifies release ancestry, both
+CI runs and artifact digests, then publishes a draft only after all five assets upload.
+Published tags/releases are immutable; bump package.json before the next version.
+The stable asset names are consumed by Wiki `/releases/latest/download/` links.
+Windows packages are unsigned; Android packages use debug signing. GitLab competition
+packaging remains a separate manual flow.
