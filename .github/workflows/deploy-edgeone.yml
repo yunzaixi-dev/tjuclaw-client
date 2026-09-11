@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 15
     environment: production
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -37,4 +38,12 @@ jobs:
           test -n "$EDGEONE_TOKEN" || { echo 'Missing production secret EDGEONE_TOKEN'; exit 1; }
           test -n "$EDGEONE_PROJECT_NAME" || { echo 'Missing production variable EDGEONE_PROJECT_NAME'; exit 1; }
           test -f web/index.html
-          npx --yes edgeone@1.6.37 makers deploy web --name "$EDGEONE_PROJECT_NAME" --env production --area "$EDGEONE_AREA" --token "$EDGEONE_TOKEN" --json
+          mkdir -p edge-deploy
+          cp -R web edge-deploy/assets
+          cp -R functions edge-deploy/functions
+          node -e 'require("fs").writeFileSync("edge-deploy/edgeone.json", JSON.stringify({outputDirectory:"assets"}))'
+          cd edge-deploy
+          npx --yes edgeone@1.6.37 makers build
+          test -f .edgeone/edge-functions/index.js
+          test -f .edgeone/assets/index.html
+          npx --yes edgeone@1.6.37 makers deploy .edgeone --name "$EDGEONE_PROJECT_NAME" --env production --area "$EDGEONE_AREA" --token "$EDGEONE_TOKEN" --json
