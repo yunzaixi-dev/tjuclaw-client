@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleHelp, Mail, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleHelp, Mail, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { setAppearance, useAppearance } from './lib/appearance';
 import { actionPath, AuthError, authRequest, describeError, flowMessages, flowPath, logout, readSession, safeAuthRedirect, validateFlow, type AuthKind, type Flow, type IdentitySession } from './lib/auth';
@@ -10,7 +11,7 @@ function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
   return <div className="auth-shell">
     <header className="auth-toolbar">
-      <a href="/" className="auth-wordmark" aria-label="TJUClaw 首页"><span className="auth-mini-mark"><Sparkles size={19} /></span>TJUClaw</a>
+      <a href="/" className="auth-wordmark" aria-label="TJUClaw 首页"><BrandIcon size={44} />TJUClaw</a>
       <Button variant="floating" size="icon" aria-label={appearance.resolved === 'dark' ? '切换浅色外观' : '切换深色外观'}
         onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}>
         {appearance.resolved === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
@@ -23,7 +24,7 @@ function Shell({ children }: { children: ReactNode }) {
 
 function Heading({ title, children, mail = false }: { title: string; children: ReactNode; mail?: boolean }) {
   return <header className="auth-heading">
-    <span className={`auth-symbol ${mail ? 'auth-symbol-mail' : ''}`}>{mail ? <Mail size={30} strokeWidth={1.5} /> : <Sparkles size={31} strokeWidth={1.6} />}</span>
+    {mail ? <span className="auth-symbol auth-symbol-mail"><Mail size={30} strokeWidth={1.5} /></span> : <BrandIcon size={88} className="auth-brand-symbol" />}
     <h1>{title}</h1><div className="auth-description">{children}</div>
   </header>;
 }

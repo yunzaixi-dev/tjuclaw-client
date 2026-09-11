@@ -1,7 +1,7 @@
 .auth-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--background); }
 .auth-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 28px 40px; }
 .auth-wordmark { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; color: var(--foreground); text-decoration: none; letter-spacing: -.025em; }
-.auth-mini-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 12px; background: var(--foreground); color: var(--surface); }
+.auth-brand-symbol { display: block; margin: 0 auto 26px; }
 .auth-main { flex: 1; display: grid; align-items: center; padding: 32px 24px 72px; }
 .auth-card { width: min(100%, 400px); margin: 0 auto; position: relative; }
 .auth-heading { text-align: center; margin-bottom: 36px; }
@@ -53,6 +53,10 @@
 .auth-help-list summary { padding: 20px 0; font-size: 14px; cursor: pointer; }
 .auth-help-list p { font-size: 13px; line-height: 1.9; color: var(--muted-foreground); padding-bottom: 20px; }
 .auth-help-list summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 8px; }
+@media (min-width: 1440px) {
+  .auth-toolbar, .auth-footer { width: 100%; max-width: 1760px; margin-inline: auto; }
+  .auth-card { width: min(100%, 440px); }
+}
 @media (max-width: 600px) {
   .auth-toolbar { padding: max(20px, env(safe-area-inset-top)) 24px 16px; }
   .auth-main { padding: 28px 28px 48px; }

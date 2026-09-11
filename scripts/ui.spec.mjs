@@ -152,7 +152,7 @@ test('thin scrollbars preserve real dialog and document scrolling', async ({ pag
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
 });
 
-for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900]]) {
+for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900], [1920, 1080], [2560, 1440]]) {
   for (const theme of ['浅色', '深色']) {
     test(`${width}x${height} ${theme} layout and visual capture`, async ({ page }, info) => {
       await page.setViewportSize({ width, height });

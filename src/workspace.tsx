@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, Clock, Info, Loader2, Moon, RefreshCw, Sparkles, Sun, User } from 'lucide-react';
+import { BrandIcon } from './components/brand-icon';
+import { ArrowLeft, Clock, Info, Loader2, Moon, RefreshCw, Sun, User } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { RunSection } from './components/run-section';
 import { setAppearance, useAppearance } from './lib/appearance';
@@ -353,9 +354,7 @@ export default function Workspace() {
       <header className="workspace-header">
         <div className="workspace-header-inner">
           <a href="/workspace" className="workspace-brand">
-            <span className="workspace-brand-badge">
-              <Sparkles size={18} />
-            </span>
+            <BrandIcon size={44} className="workspace-brand-badge" />
             <span className="workspace-title">任务工作区</span>
           </a>
 
@@ -584,7 +583,7 @@ export default function Workspace() {
               </div>
             ) : (
               <div className="workspace-detail-empty">
-                <Sparkles size={36} strokeWidth={1.5} style={{ opacity: 0.5 }} />
+                <BrandIcon size={64} className="workspace-empty-brand" />
                 <p>未选择任务</p>
                 <small>从左侧列表中选择一个任务查看详情，或新建一个任务目标。</small>
               </div>

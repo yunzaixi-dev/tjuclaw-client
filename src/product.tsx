@@ -1,4 +1,5 @@
 import { useRef, useState, type MouseEvent } from 'react';
+import { BrandIcon } from './components/brand-icon';
 import { ArrowUp, Check, ChevronLeft, ChevronRight, CircleDashed, Contrast, FileText, Moon, Palette, Search, Sparkles, Sun, X } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
@@ -22,10 +23,10 @@ function LivePreview() {
   return <section className="live-preview" aria-label="主题实时预览">
     <header className="preview-heading"><span>实时预览</span><span className="preview-indicator">随你而变</span></header>
     <div className="preview-window">
-      <header className="preview-toolbar"><span className="mini-mark"><Sparkles size={16} /></span><strong>TJUClaw</strong><span className="sample-label">示例</span></header>
+      <header className="preview-toolbar"><BrandIcon size={32} /><strong>TJUClaw</strong><span className="sample-label">示例</span></header>
       <div className="preview-conversation">
         <div className="sample-user">把今天的灵感整理成一份笔记。</div>
-        <div className="sample-answer"><span className="answer-mark"><Sparkles size={18} /></span><div><strong>让好想法，有个好归处。</strong><p>把零散记录归类，留下重点，<br />也留下一点继续探索的空间。</p></div></div>
+        <div className="sample-answer"><BrandIcon size={28} className="answer-mark" /><div><strong>让好想法，有个好归处。</strong><p>把零散记录归类，留下重点，<br />也留下一点继续探索的空间。</p></div></div>
         <button className="file-preview" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
           <span className="file-icon"><FileText size={22} /></span><span><strong>今日灵感.md</strong><small>Markdown · 主题预览示例</small></span><ChevronRight size={17} className={expanded ? 'rotated' : ''} />
         </button>
@@ -57,7 +58,7 @@ export default function Product() {
     <Dialog open={open} onOpenChange={setOpen}>
       <main className="home-page">
         <header className="home-toolbar">
-          <Button ref={profileRef} variant="floating" size="icon" className="profile-button" aria-label="打开外观设置" aria-haspopup="dialog" onClick={openAppearance}>TJ</Button>
+          <Button ref={profileRef} variant="floating" size="icon" className="profile-button" aria-label="打开外观设置" aria-haspopup="dialog" onClick={openAppearance}><BrandIcon size={40} /></Button>
           <span className="wordmark">TJUClaw</span>
           <div className="home-actions"><Button variant="floating" size="icon" aria-label={showSearch ? '关闭搜索' : '搜索示例'} aria-expanded={showSearch} onClick={() => { setShowSearch(!showSearch); setQuery(''); }}><Search size={23} /></Button><Button variant="floating" size="icon" aria-label="设置外观" aria-haspopup="dialog" onClick={openAppearance}><Palette size={23} /></Button></div>
         </header>

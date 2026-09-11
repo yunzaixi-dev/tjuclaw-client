@@ -428,7 +428,7 @@ test.describe('Workspace mocked contract suite', () => {
   });
 });
 
-for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900]]) {
+for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900], [1920, 1080], [2560, 1440]]) {
   for (const theme of ['light', 'dark']) {
     test(`workspace layout ${width}x${height} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height });

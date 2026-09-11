@@ -84,7 +84,7 @@ svg { flex-shrink: 0; }
 .product-app { min-height: 100dvh; padding: 0 28px; }
 .home-page { max-width: 1000px; margin: 0 auto; padding: 44px 0; }
 .home-toolbar { display: flex; align-items: center; gap: 15px; }
-.profile-button { font-weight: 600; font-size: 14px; background: var(--muted); border: 3px solid var(--surface); }
+.profile-button { background: transparent; box-shadow: none; }
 .wordmark { font-size: 18px; font-weight: 600; letter-spacing: -.025em; }
 .home-actions { margin-left: auto; display: flex; gap: 12px; }
 .home-heading { display: flex; justify-content: space-between; align-items: end; margin: 76px 0 36px; }
@@ -147,7 +147,6 @@ svg { flex-shrink: 0; }
 .preview-indicator::before { content: ''; width: 5px; height: 5px; background: var(--primary); border-radius: 50%; }
 .preview-window { border: 1px solid var(--border); border-radius: 22px; overflow: hidden; background: var(--background); }
 .preview-toolbar { display: flex; align-items: center; gap: 8px; padding: 18px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.mini-mark { display: grid; place-items: center; width: 27px; height: 27px; background: var(--foreground); color: var(--surface); border-radius: 9px; }
 .preview-toolbar strong { font-size: 12px; font-weight: 550; }
 .sample-label { margin-left: auto; padding: 3px 7px; border-radius: 5px; background: var(--muted); font-size: 10px; color: var(--muted-foreground); }
 .preview-conversation { min-height: 287px; padding: 28px 16px 24px; }

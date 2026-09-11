@@ -16,7 +16,7 @@
 }
 
 .workspace-header-inner {
-  max-width: 1440px;
+  max-width: 1760px;
   margin: 0 auto;
   padding: 12px 24px;
   display: flex;
@@ -36,14 +36,14 @@
 }
 
 .workspace-brand-badge {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  box-shadow: 0 2px 6px oklch(0% 0 0 / .12);
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.workspace-empty-brand {
+  width: 64px;
+  height: 64px;
 }
 
 .workspace-title {
@@ -78,7 +78,7 @@
 
 .workspace-main {
   flex: 1;
-  max-width: 1440px;
+  max-width: 1760px;
   width: 100%;
   margin: 0 auto;
   padding: 20px 24px 32px;
@@ -136,12 +136,14 @@
   align-items: start;
 }
 
+.workspace-content-grid > * { min-width: 0; }
+
 .workspace-panel {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   padding: 22px;
-  box-shadow: var(--floating-shadow);
 }
 
 .workspace-panel-title {
@@ -379,7 +381,10 @@
   margin-bottom: 18px;
 }
 
+.workspace-detail-header > div { min-width: 0; }
+
 .workspace-detail-title {
+  overflow-wrap: anywhere;
   font-size: 19px;
   font-weight: 600;
   line-height: 1.4;
@@ -409,6 +414,7 @@
 }
 
 .workspace-prompt-box {
+  max-width: 75ch;
   background: var(--muted);
   padding: 16px;
   border-radius: var(--radius-control);
@@ -714,6 +720,14 @@
   padding: 48px;
   color: var(--muted-foreground);
   font-size: 14px;
+}
+
+@media (min-width: 1440px) {
+  .workspace-header-inner, .workspace-main { padding-inline: 40px; }
+  .workspace-content-grid {
+    grid-template-columns: minmax(380px, 440px) minmax(0, 1fr);
+    gap: 32px;
+  }
 }
 
 @media (max-width: 480px) {
