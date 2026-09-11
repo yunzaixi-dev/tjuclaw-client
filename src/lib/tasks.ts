@@ -128,7 +128,7 @@ export function describeTaskError(error: unknown): string {
     }
 
     if (error.status === 415 || errorId === 'unsupported_media_type') {
-      return '请求格式不受���持，请刷新页面后重试。';
+      return '请求格式不受支持，请刷新页面后重试。';
     }
 
     if (error.status === 404 || errorId === 'task_not_found') {
