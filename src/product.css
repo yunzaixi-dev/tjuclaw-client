@@ -206,3 +206,26 @@ svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Retro Pixelated Cyber Aesthetics Enhancements */
+.home-page {
+  background-image: 
+    linear-gradient(to right, var(--pixel-bg-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pixel-bg-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.preview-window {
+  border: 1.5px solid var(--pixel-border) !important;
+  box-shadow: var(--pixel-shadow) !important;
+}
+
+.sample-search {
+  border: 1.5px solid var(--pixel-border);
+  box-shadow: var(--pixel-shadow);
+}
+
+.conversation-list li {
+  border-bottom: 1px dashed var(--border);
+}
+

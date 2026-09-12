@@ -7,39 +7,120 @@ import { actionPath, AuthError, authRequest, describeError, flowMessages, flowPa
 import './product.css';
 import './auth.css';
 
-function Shell({ children }: { children: ReactNode }) {
+interface ShellProps {
+  children: ReactNode;
+  backHref?: string;
+  backLabel?: string;
+}
+
+function Shell({ children, backHref, backLabel }: ShellProps) {
   const appearance = useAppearance();
-  return <div className="auth-shell">
-    <header className="auth-toolbar">
-      <a href="/" className="auth-wordmark" aria-label="TJUClaw 首页"><BrandIcon size={44} />TJUClaw</a>
-      <Button variant="floating" size="icon" aria-label={appearance.resolved === 'dark' ? '切换浅色外观' : '切换深色外观'}
-        onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}>
-        {appearance.resolved === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-      </Button>
-    </header>
-    <main className="auth-main">{children}</main>
-    <footer className="auth-footer"><span>少一点打扰，多一点完成。</span><a href="/auth/help"><CircleHelp size={14} />登录帮助</a></footer>
-  </div>;
+  return (
+    <div className="auth-shell">
+      <header className="auth-toolbar">
+        <div className="auth-toolbar-left">
+          <a href="/" className="auth-wordmark" aria-label="TJUClaw 首页">
+            <BrandIcon size={34} />
+            <span className="auth-wordmark-title">TJUClaw</span>
+            <span className="auth-wordmark-badge">校园工作台</span>
+          </a>
+          {backHref && (
+            <a className="auth-toolbar-back" href={backHref}>
+              <ArrowLeft size={16} />
+              <span>{backLabel ?? '返回'}</span>
+            </a>
+          )}
+        </div>
+        <div className="auth-toolbar-right">
+          <a href="/auth/help" className="auth-toolbar-help" aria-label="查看登录帮助">
+            <CircleHelp size={15} />
+            <span>登录帮助</span>
+          </a>
+          <Button
+            variant="floating"
+            size="icon"
+            className="auth-appearance-toggle"
+            aria-label={appearance.resolved === 'dark' ? '切换浅色外观' : '切换深色外观'}
+            onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}
+          >
+            {appearance.resolved === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </Button>
+        </div>
+      </header>
+      <main className="auth-main">{children}</main>
+      <footer className="auth-footer">
+        <span>少一点打扰，多一点完成。</span>
+        <div className="auth-footer-links">
+          <span className="auth-footer-tag">参赛选手：TJUClaw 项目团队</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function EditorialPanel({ kind }: { kind: AuthKind }) {
+  return (
+    <aside className="auth-aside-panel" aria-label="平台介绍">
+      <p className="auth-aside-tagline">为天津大学校园生活而设计</p>
+      <div className="auth-aside-body">
+        <div className="auth-aside-copy">
+          <h2 className="auth-aside-title">校园日常，<br />从容开始。</h2>
+          <p className="auth-aside-desc">把资料、信息和计划汇聚在一起，<br />从你眼前的一件事开始。</p>
+        </div>
+        <div className="auth-aside-mark-wrap" aria-hidden="true">
+          <div className="auth-aside-mark">TJUClaw</div>
+          <div className="auth-aside-mark-caption">A general intelligent agent platform<br />built for Tianjin University.</div>
+        </div>
+      </div>
+      <div className="auth-aside-footer">
+        <div className="auth-aside-examples">
+          <p className="auth-aside-examples-label">比如，从这些事开始</p>
+          <ul>
+            <li><span>学习</span>整理这学期的课程资料</li>
+            <li><span>校园</span>梳理近期关注的校园通知</li>
+            <li><span>计划</span>安排下一周的学习与日常</li>
+          </ul>
+        </div>
+        <p className="auth-aside-mode-hint">{kind === 'registration' ? '用常用邮箱，开启你的校园工作台。' : '你的目标，你的节奏。'}</p>
+      </div>
+    </aside>
+  );
 }
 
 function Heading({ title, children, mail = false }: { title: string; children: ReactNode; mail?: boolean }) {
-  return <header className="auth-heading">
-    {mail ? <span className="auth-symbol auth-symbol-mail"><Mail size={30} strokeWidth={1.5} /></span> : <BrandIcon size={88} className="auth-brand-symbol" />}
-    <h1>{title}</h1><div className="auth-description">{children}</div>
-  </header>;
+  return (
+    <header className="auth-heading">
+      {mail && <span className="auth-symbol auth-symbol-mail"><Mail size={24} strokeWidth={1.75} /></span>}
+      <h1>{title}</h1>
+      <div className="auth-description">{children}</div>
+    </header>
+  );
 }
 
 function Problem({ message, retry }: { message: string; retry?: () => void }) {
-  return <div className="auth-problem" role="alert"><p>{message}</p>{retry && <Button variant="ghost" onClick={retry}>重新开始<ArrowRight size={15} /></Button>}</div>;
+  return (
+    <div className="auth-problem" role="alert">
+      <p>{message}</p>
+      {retry && <Button variant="ghost" onClick={retry}>重新开始<ArrowRight size={15} /></Button>}
+    </div>
+  );
 }
 
 function Welcome() {
-  return <section className="auth-card auth-welcome">
-    <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
-    <a className="auth-primary-link" href="/auth/login"><Mail size={19} />使用邮箱登录<ArrowRight size={19} /></a>
-    <p className="auth-switch">第一次来到这里？<a href="/auth/registration">创建账号</a></p>
-    <div className="auth-assurance"><ShieldCheck size={16} /><span>使用邮箱验证码，无需设置密码。</span></div>
-  </section>;
+  return (
+    <div className="auth-desktop-grid">
+      <EditorialPanel kind="login" />
+      <section className="auth-card auth-welcome">
+        <BrandIcon size={64} className="auth-welcome-logo" />
+        <Heading title="你的校园生活，下一步。">
+          <p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p>
+        </Heading>
+        <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用邮箱登录<ArrowRight size={18} /></a>
+        <p className="auth-switch">第一次来到这里？<a href="/auth/registration">创建账号</a></p>
+        <div className="auth-assurance"><ShieldCheck size={15} /><span>使用邮箱验证码，无需设置密码。</span></div>
+      </section>
+    </div>
+  );
 }
 
 const copy = {
@@ -122,7 +203,7 @@ function FlowScreen({ kind }: { kind: AuthKind }) {
 
   async function submit(event?: FormEvent, resend = false) {
     event?.preventDefault();
-    if (!flow || lock.current || expired || resend && cooldown > 0) return;
+    if (!flow || lock.current || expired || (resend && cooldown > 0)) return;
     lock.current = true;
     setBusy(true); setError(''); setNotice('');
     const payload: Record<string, unknown> = { method: 'code', csrf_token: csrf };
@@ -176,58 +257,67 @@ function FlowScreen({ kind }: { kind: AuthKind }) {
     } finally { lock.current = false; setBusy(false); }
   }
 
-  if (verified) return <section className="auth-card">
-    <Heading title="邮箱已验证。"><p>你已完成邮箱验证，可以继续使用 TJUClaw。</p></Heading>
-    <a href="/auth/complete" className="auth-primary-link">继续<ArrowRight size={18} /></a>
-  </section>;
+  if (verified) return (
+    <div className="auth-desktop-grid">
+      <EditorialPanel kind={kind} />
+      <section className="auth-card">
+        <Heading title="邮箱已验证。"><p>你已完成邮箱验证，可以继续使用 TJUClaw。</p></Heading>
+        <a href="/auth/complete" className="auth-primary-link">继续<ArrowRight size={18} /></a>
+      </section>
+    </div>
+  );
 
-  return <section className="auth-card">
-    <a className="auth-back" href="/"><ArrowLeft size={17} />返回</a>
-    <Heading mail={sent} title={sent ? '查看你的邮箱。' : copy[kind].title}>
-      {sent ? <p>若该邮箱可用于本次验证，验证码将发送至<br /><strong className="auth-email">{email || '你填写的邮箱'}</strong></p>
-        : <p>{copy[kind].description}</p>}
-    </Heading>
-    {!flow && !fatal && <div className="auth-skeleton" role="status" aria-label="正在准备安全登录"><span /><span /></div>}
-    {flow && !fatal && !expired && <form onSubmit={submit} aria-busy={busy}>
-      <label className="auth-field-label" htmlFor="auth-input">{sent ? '邮箱验证码' : '邮箱地址'}</label>
-      <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
-        {!sent && <Mail size={19} aria-hidden="true" />}
-        <input ref={inputRef} id="auth-input" name={sent ? 'code' : 'email'} type={sent ? 'text' : 'email'}
-          className={sent ? 'auth-code-input' : ''} autoComplete={sent ? 'one-time-code' : 'email'}
-          inputMode={sent ? 'numeric' : 'email'} autoCapitalize="none" spellCheck={false}
-          required maxLength={sent ? 6 : 254} pattern={sent ? '[0-9]{6}' : undefined}
-          placeholder={sent ? '000000' : 'you@example.com'} value={sent ? code : email}
-          aria-invalid={!!error} aria-describedby={error ? 'auth-form-error' : 'auth-field-hint'}
-          onPaste={event => {
-            if (!sent) return;
-            const pasted = event.clipboardData.getData('text').replace(/\s/g, '');
-            if (/^[0-9]{6}$/.test(pasted)) { event.preventDefault(); setCode(pasted); setError(''); }
-          }}
-          readOnly={busy} onChange={event => {
-            if (sent) setCode(event.target.value.replace(/\s/g, '').replace(/[^0-9]/g, '').slice(0, 6));
-            else setEmail(event.target.value);
-            setError('');
-          }} />
-      </div>
-      <p id="auth-field-hint" className="auth-field-hint">{sent ? '输入邮件中的 6 位数字，可直接粘贴。' : '仅用于账号登录与安全验证，无需设置密码。'}</p>
-      {error && <p className="auth-inline-error" role="alert" id="auth-form-error">{error}</p>}
-      <Button className="auth-submit" type="submit" disabled={busy || sent && code.length !== 6}>
-        {busy ? '正在安全验证…' : sent ? copy[kind].code : copy[kind].submit}
-        {!busy && <ArrowRight size={18} />}
-      </Button>
-      {sent && <div className="auth-code-actions">
-        <Button variant="ghost" disabled={busy || cooldown > 0} onClick={() => void submit(undefined, true)}>
-          {cooldown > 0 ? `${cooldown} 秒后可重发` : '重新发送验证码'}
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={restart}>更换邮箱</Button>
-      </div>}
-      <p className="auth-status" role="status">{notice}</p>
-    </form>}
-    {(fatal || expired) && <Problem message={expired ? '这次验证已过期，请重新开始。' : error} retry={restart} />}
-    {!sent && kind !== 'verification' && <p className="auth-switch">{kind === 'login' ? '还没有账号？' : '已经有账号？'}
-      <a href={kind === 'login' ? '/auth/registration' : '/auth/login'}>{kind === 'login' ? '创建账号' : '登录'}</a></p>}
-    {sent && <p className="auth-delivery-help">没有收到？检查垃圾邮件，或稍等片刻后重发。<br />请勿向任何人提供验证码。</p>}
-  </section>;
+  return (
+    <div className="auth-desktop-grid">
+      <EditorialPanel kind={kind} />
+      <section className="auth-card">
+        <Heading mail={sent} title={sent ? '查看你的邮箱。' : copy[kind].title}>
+          {sent ? <p>若该邮箱可用于本次验证，验证码将发送至<br /><strong className="auth-email">{email || '你填写的邮箱'}</strong></p>
+            : <p>{copy[kind].description}</p>}
+        </Heading>
+        {!flow && !fatal && <div className="auth-skeleton" role="status" aria-label="正在准备安全登录"><span /><span /></div>}
+        {flow && !fatal && !expired && <form onSubmit={submit} aria-busy={busy}>
+          <label className="auth-field-label" htmlFor="auth-input">{sent ? '邮箱验证码' : '邮箱地址'}</label>
+          <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
+            {!sent && <Mail size={18} aria-hidden="true" />}
+            <input ref={inputRef} id="auth-input" name={sent ? 'code' : 'email'} type={sent ? 'text' : 'email'}
+              className={sent ? 'auth-code-input' : ''} autoComplete={sent ? 'one-time-code' : 'email'}
+              inputMode={sent ? 'numeric' : 'email'} autoCapitalize="none" spellCheck={false}
+              required maxLength={sent ? 6 : 254} pattern={sent ? '[0-9]{6}' : undefined}
+              placeholder={sent ? '000000' : 'you@example.com'} value={sent ? code : email}
+              aria-invalid={!!error} aria-describedby={error ? 'auth-form-error' : 'auth-field-hint'}
+              onPaste={event => {
+                if (!sent) return;
+                const pasted = event.clipboardData.getData('text').replace(/\s/g, '');
+                if (/^[0-9]{6}$/.test(pasted)) { event.preventDefault(); setCode(pasted); setError(''); }
+              }}
+              readOnly={busy} onChange={event => {
+                if (sent) setCode(event.target.value.replace(/\s/g, '').replace(/[^0-9]/g, '').slice(0, 6));
+                else setEmail(event.target.value);
+                setError('');
+              }} />
+          </div>
+          <p id="auth-field-hint" className="auth-field-hint">{sent ? '输入邮件中的 6 位数字，可直接粘贴。' : '仅用于账号登录与安全验证，无需设置密码。'}</p>
+          {error && <p className="auth-inline-error" role="alert" id="auth-form-error">{error}</p>}
+          <Button className="auth-submit" type="submit" disabled={busy || (sent && code.length !== 6)}>
+            {busy ? '正在安全验证…' : sent ? copy[kind].code : copy[kind].submit}
+            {!busy && <ArrowRight size={18} />}
+          </Button>
+          {sent && <div className="auth-code-actions">
+            <Button variant="ghost" disabled={busy || cooldown > 0} onClick={() => void submit(undefined, true)}>
+              {cooldown > 0 ? `${cooldown} 秒后可重发` : '重新发送验证码'}
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={restart}>更换邮箱</Button>
+          </div>}
+          <p className="auth-status" role="status">{notice}</p>
+        </form>}
+        {(fatal || expired) && <Problem message={expired ? '这次验证已过期，请重新开始。' : error} retry={restart} />}
+        {!sent && kind !== 'verification' && <p className="auth-switch">{kind === 'login' ? '还没有账号？' : '已经有账号？'}
+          <a href={kind === 'login' ? '/auth/registration' : '/auth/login'}>{kind === 'login' ? '创建账号' : '登录'}</a></p>}
+        {sent && <p className="auth-delivery-help">没有收到？检查垃圾邮件，或稍等片刻后重发。<br />请勿向任何人提供验证码。</p>}
+      </section>
+    </div>
+  );
 }
 
 function SessionScreen({ complete = false }: { complete?: boolean }) {
@@ -261,58 +351,93 @@ function SessionScreen({ complete = false }: { complete?: boolean }) {
       setError(describeError(err)); setBusy(false);
     }
   }
-  return <section className="auth-card">
-    <Heading title={session ? complete ? '准备好了。' : '你的账号。' : '正在确认登录。'}>
-      <p>{session ? complete ? '登录成功，欢迎来到 TJUClaw。' : '登录与账号安全，清晰可见。' : '正在安全地恢复你的会话。'}</p>
-    </Heading>
-    {error && <Problem message={error} retry={() => { setError(''); setAttempt(n => n + 1); }} />}
-    {!session && !error && <div className="auth-skeleton" role="status" aria-label="正在确认登录状态"><span /><span /></div>}
-    {session && <>
-      <div className="auth-account"><span className="auth-account-avatar">{session.email.slice(0, 1).toUpperCase()}</span>
-        <div><strong className="auth-email">{session.email}</strong><small><ShieldCheck size={14} />{session.email_verified ? '邮箱已验证' : '邮箱待验证'}</small></div>
-        {session.email_verified && <Check size={18} />}
-      </div>
-      {complete ? <a className="auth-primary-link" href="/app">进入 TJUClaw<ArrowRight size={18} /></a>
-        : <div className="auth-account-note"><p>账号已连接。</p><p>校园任务与工作空间功能仍在开发中，不会在这里展示虚构的执行结果。</p><a href="/workspace">打开任务工作区<ChevronRight size={15} /></a><a href="/preview/appearance">查看外观设置<ChevronRight size={15} /></a></div>}
-      {!session.email_verified && <a className="auth-primary-link" href="/auth/verification">验证邮箱<ArrowRight size={18} /></a>}
-      <Button variant="ghost" className="auth-logout" disabled={busy} onClick={signOut}>{busy ? '正在退出…' : '退出登录'}</Button>
-    </>}
-  </section>;
+  return (
+    <section className="auth-card auth-card-narrow">
+      <Heading title={session ? (complete ? '准备好了。' : '你的账号。') : '正在确认登录。'}>
+        <p>{session ? (complete ? '登录成功，欢迎来到 TJUClaw。' : '登录与账号安全，清晰可见。') : '正在安全地恢复你的会话。'}</p>
+      </Heading>
+      {error && <Problem message={error} retry={() => { setError(''); setAttempt(n => n + 1); }} />}
+      {!session && !error && <div className="auth-skeleton" role="status" aria-label="正在确认登录状态"><span /><span /></div>}
+      {session && <>
+        <div className="auth-account"><span className="auth-account-avatar">{session.email.slice(0, 1).toUpperCase()}</span>
+          <div><strong className="auth-email">{session.email}</strong><small><ShieldCheck size={14} />{session.email_verified ? '邮箱已验证' : '邮箱待验证'}</small></div>
+          {session.email_verified && <Check size={18} />}
+        </div>
+        {complete ? <a className="auth-primary-link" href="/app">进入 TJUClaw<ArrowRight size={18} /></a>
+          : <div className="auth-account-note"><p>账号已连接。</p><p>校园任务与工作空间功能仍在开发中，不会在这里展示虚构的执行结果。</p><a href="/workspace">打开任务工作区<ChevronRight size={15} /></a><a href="/preview/appearance">查看外观设置<ChevronRight size={15} /></a></div>}
+        {!session.email_verified && <a className="auth-primary-link" href="/auth/verification">验证邮箱<ArrowRight size={18} /></a>}
+        <Button variant="ghost" className="auth-logout" disabled={busy} onClick={signOut}>{busy ? '正在退出…' : '退出登录'}</Button>
+      </>}
+    </section>
+  );
 }
 
 function Help() {
-  return <section className="auth-card">
-    <a className="auth-back" href="/auth/login"><ArrowLeft size={17} />返回登录</a>
-    <Heading title="让登录简单一点。"><p>关于邮箱登录，你可能想知道这些。</p></Heading>
-    <div className="auth-help-list">
-      <details open><summary>没有收到验证码？</summary><p>检查邮箱地址和垃圾邮件文件夹。邮件可能稍有延迟，请等待片刻再重发，并使用最新收到的验证码。</p></details>
-      <details><summary>需要记住密码吗？</summary><p>不需要。TJUClaw 只使用邮箱验证码登录。已有账号选择登录，第一次使用请先创建账号。</p></details>
-      <details><summary>验证过期或换了浏览器？</summary><p>返回登录页重新开始。请在发起验证的浏览器中输入验证码，不要复制验证页面地址到其他设备。</p></details>
-      <details><summary>无法访问原来的邮箱？</summary><p>先通过邮箱服务商恢复邮箱访问权限。TJUClaw 不会通过跳过邮箱验证的方式授予账号访问权限。</p></details>
-      <details><summary>如何保护账号？</summary><p>不要分享验证码。在公共设备上使用后退出登录。账号邮箱不等于教务系统授权，登录不会自动授予校园服务访问权。</p></details>
-    </div>
-  </section>;
+  return (
+    <section className="auth-card auth-card-narrow">
+      <a className="auth-back" href="/auth/login"><ArrowLeft size={16} />返回登录</a>
+      <Heading title="让登录简单一点。"><p>关于邮箱登录，你可能想知道这些。</p></Heading>
+      <div className="auth-help-list">
+        <details open><summary>没有收到验证码？</summary><p>检查邮箱地址和垃圾邮件文件夹。邮件可能稍有延迟，请等待片刻再重发，并使用最新收到的验证码。</p></details>
+        <details><summary>需要记住密码吗？</summary><p>不需要。TJUClaw 只使用邮箱验证码登录。已有账号选择登录，第一次使用请先创建账号。</p></details>
+        <details><summary>验证过期或换了浏览器？</summary><p>返回登录页重新开始。请在发起验证的浏览器中输入验证码，不要复制验证页面地址到其他设备。</p></details>
+        <details><summary>无法访问原来的邮箱？</summary><p>先通过邮箱服务商恢复邮箱访问权限。TJUClaw 不会通过跳过邮箱验证的方式授予账号访问权限。</p></details>
+        <details><summary>如何保护账号？</summary><p>不要分享验证码。在公共设备上使用后退出登录。账号邮箱不等于教务系统授权，登录不会自动授予校园服务访问权。</p></details>
+      </div>
+    </section>
+  );
 }
 
 function ErrorScreen() {
-  return <section className="auth-card">
-    <Heading title="这一步没能完成。"><p>验证可能已过期，或当前会话发生了变化。<br />重新登录即可再次尝试。</p></Heading>
-    <a href="/auth/login" className="auth-primary-link">重新登录<ArrowRight size={18} /></a>
-    <p className="auth-delivery-help">请勿分享带有验证参数的页面地址。</p>
-  </section>;
+  return (
+    <section className="auth-card auth-card-narrow">
+      <Heading title="这一步没能完成。"><p>验证可能已过期，或当前会话发生了变化。<br />重新登录即可再次尝试。</p></Heading>
+      <a href="/auth/login" className="auth-primary-link">重新登录<ArrowRight size={18} /></a>
+      <p className="auth-delivery-help">请勿分享带有验证参数的页面地址。</p>
+    </section>
+  );
 }
 
 export default function Auth() {
   const path = location.pathname;
   let content: ReactNode;
-  if (path === '/auth/login') content = <FlowScreen kind="login" />;
-  else if (path === '/auth/registration') content = <FlowScreen kind="registration" />;
-  else if (path === '/auth/verification') content = <FlowScreen kind="verification" />;
-  else if (path === '/auth/complete') content = <SessionScreen complete />;
-  else if (path === '/app') content = <SessionScreen />;
-  else if (path === '/auth/help') content = <Help />;
-  else if (path === '/auth/logged-out') content = <section className="auth-card"><Heading title="已安全退出。"><p>下次需要时，TJUClaw 仍在这里。</p></Heading><a href="/auth/login" className="auth-primary-link">重新登录<ArrowRight size={18} /></a></section>;
-  else if (path === '/') content = <Welcome />;
-  else content = <ErrorScreen />;
-  return <Shell>{content}</Shell>;
+  let backHref: string | undefined;
+  let backLabel: string | undefined;
+
+  if (path === '/auth/login') {
+    content = <FlowScreen kind="login" />;
+    backHref = '/';
+    backLabel = '返回首页';
+  } else if (path === '/auth/registration') {
+    content = <FlowScreen kind="registration" />;
+    backHref = '/auth/login';
+    backLabel = '返回登录';
+  } else if (path === '/auth/verification') {
+    content = <FlowScreen kind="verification" />;
+    backHref = '/auth/login';
+    backLabel = '返回登录';
+  } else if (path === '/auth/complete') {
+    content = <SessionScreen complete />;
+  } else if (path === '/app') {
+    content = <SessionScreen />;
+  } else if (path === '/auth/help') {
+    content = <Help />;
+    backHref = '/auth/login';
+    backLabel = '返回登录';
+  } else if (path === '/auth/logged-out') {
+    content = (
+      <section className="auth-card auth-card-narrow">
+        <Heading title="已安全退出。"><p>下次需要时，TJUClaw 仍在这里。</p></Heading>
+        <a href="/auth/login" className="auth-primary-link">重新登录<ArrowRight size={18} /></a>
+      </section>
+    );
+  } else if (path === '/') {
+    content = <Welcome />;
+  } else {
+    content = <ErrorScreen />;
+    backHref = '/auth/login';
+    backLabel = '返回登录';
+  }
+
+  return <Shell backHref={backHref} backLabel={backLabel}>{content}</Shell>;
 }

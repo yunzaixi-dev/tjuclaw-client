@@ -1,13 +1,20 @@
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from 'react';
 import { BrandIcon } from './components/brand-icon';
-import { ArrowLeft, Clock, Info, Loader2, Moon, RefreshCw, Sun, User } from 'lucide-react';
+import { ArrowLeft, Clock, Info, Layers, Loader2, Monitor, Moon, RefreshCw, Server, Shield, Sparkles, Sun, User, Users } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { RunSection } from './components/run-section';
+import { DailyToolsSelector } from './components/daily-tools-selector';
+import { BotCreator, type BotTemplate } from './components/bot-creator';
+import { RoutinesManager } from './components/routines-manager';
+import { ComputerUseTrackpad } from './components/computer-use-trackpad';
+import { GroupChatPicker, type GroupChatSession } from './components/group-chat-picker';
+import { SettingsAndPluginsView } from './components/settings-plugins';
 import { setAppearance, useAppearance } from './lib/appearance';
 import { logout, readSession, type IdentitySession } from './lib/auth';
 import { listRuns, type Run } from './lib/runs';
 import { createTask, describeTaskError, getTask, listTasks, type Task } from './lib/tasks';
 import './product.css';
+import './retro-pixel.css';
 import './workspace.css';
 
 export default function Workspace() {
@@ -33,6 +40,11 @@ export default function Workspace() {
   const [submitError, setSubmitError] = useState('');
 
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Retro cyber-pixel extension tabs: 'tasks' | 'tools' | 'bots' | 'routines' | 'trackpad' | 'groups' | 'settings'
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<
+    'tasks' | 'tools' | 'bots' | 'routines' | 'trackpad' | 'groups' | 'settings'
+  >('tasks');
 
   const activeUserIdRef = useRef<string | null>(null);
   const closingRef = useRef(false);
@@ -401,6 +413,135 @@ export default function Workspace() {
           </div>
         </div>
 
+        {/* Cyber-Pixel Navigation Toolbar across feature surfaces */}
+        <nav className="cyber-tab-list my-4" aria-label="工作区功能切换">
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'tasks'}
+            onClick={() => setActiveWorkspaceTab('tasks')}
+          >
+            <Clock size={13} />
+            任务清单 (Tasks)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'tools'}
+            onClick={() => setActiveWorkspaceTab('tools')}
+          >
+            <Layers size={13} />
+            日常工具 (Daily Tools)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'bots'}
+            onClick={() => setActiveWorkspaceTab('bots')}
+          >
+            <Sparkles size={13} />
+            智能体原型 (Bot Studio)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'routines'}
+            onClick={() => setActiveWorkspaceTab('routines')}
+          >
+            <Server size={13} />
+            例行与MCP (Routines)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'trackpad'}
+            onClick={() => setActiveWorkspaceTab('trackpad')}
+          >
+            <Monitor size={13} />
+            沙箱触控板 (Computer Use)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'groups'}
+            onClick={() => setActiveWorkspaceTab('groups')}
+          >
+            <Users size={13} />
+            多Bot协同 (Group Chat)
+          </button>
+          <button
+            type="button"
+            className="cyber-tab-item"
+            aria-selected={activeWorkspaceTab === 'settings'}
+            onClick={() => setActiveWorkspaceTab('settings')}
+          >
+            <Shield size={13} />
+            安全与插件 (Security)
+          </button>
+        </nav>
+
+        {activeWorkspaceTab === 'tools' && (
+          <div className="my-2">
+            <DailyToolsSelector
+              onContinue={selectedTools => {
+                if (selectedTools.length) {
+                  setPrompt(`已连接日常生产力工具: ${selectedTools.join(', ')}。请分析日程与学习计划。`);
+                }
+                setActiveWorkspaceTab('tasks');
+              }}
+            />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'bots' && (
+          <div className="my-2">
+            <BotCreator
+              onSelectTemplate={(template: BotTemplate) => {
+                setPrompt(template.suggestedPrompt);
+                setActiveWorkspaceTab('tasks');
+              }}
+              onCreateCustom={(name, promptText) => {
+                setPrompt(`[智能体: ${name}]\n${promptText}`);
+                setActiveWorkspaceTab('tasks');
+              }}
+            />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'routines' && (
+          <div className="my-2">
+            <RoutinesManager />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'trackpad' && (
+          <div className="my-2">
+            <ComputerUseTrackpad
+              onPaste={text => {
+                setPrompt(prev => (prev ? `${prev}\n${text}` : text));
+              }}
+            />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'groups' && (
+          <div className="my-2">
+            <GroupChatPicker
+              onCreatedGroup={(group: GroupChatSession) => {
+                setPrompt(`[多智能体群聊: ${group.name}]\n协同成员: ${group.botIds.join(', ')}\n初始议题: 请各位智能体就当前任务目标展开研讨。`);
+                setActiveWorkspaceTab('tasks');
+              }}
+            />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'settings' && (
+          <div className="my-2">
+            <SettingsAndPluginsView />
+          </div>
+        )}
+
+        {activeWorkspaceTab === 'tasks' && (
         <div className="workspace-content-grid">
           {/* Left Column: Create task & Task List */}
           <div className="workspace-panel">
@@ -596,6 +737,7 @@ export default function Workspace() {
             )}
           </div>
         </div>
+        )}
       </main>
     </div>
   );
