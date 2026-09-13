@@ -864,9 +864,10 @@
   .auth-submit, .auth-primary-link { background: ButtonFace; color: ButtonText; }
 }
 
-/* Reserve the initial email card's space across OTP, feedback and resend. */
+/* Flow card: responsive sizing, stable baseline, no hard jump */
 .auth-card.auth-flow-card {
   height: 364px;
+  min-height: 364px;
   padding: 20px 18px;
   justify-content: flex-start;
 }
@@ -882,6 +883,52 @@
   overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.auth-stage-intro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  animation: authFadeIn 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.auth-stage-badge {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--auth-blue-soft, rgb(0 51 102 / 8%));
+  color: var(--auth-blue-ink, var(--primary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--auth-glass-edge, rgb(0 51 102 / 12%));
+}
+.auth-stage-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.auth-stage-tip {
+  margin: 1px 0 0;
+  font-size: 11px;
+  line-height: 13px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-stage-otp {
+  animation: authOtpSlideIn 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes authFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes authOtpSlideIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .auth-flow-card form { width: 100%; flex: 1; display: flex; flex-direction: column; }
 .auth-entry { flex: 0 0 134px; }
@@ -891,13 +938,21 @@
 .auth-feedback .auth-inline-error, .auth-feedback .auth-status { margin: 0; padding: 0; font-size: 11px; line-height: 14px; }
 .auth-flow-card .auth-submit { margin-top: auto; flex: 0 0 46px; }
 .auth-flow-footer { height: 44px; flex: 0 0 44px; width: 100%; max-width: 380px; margin-inline: auto; display: grid; align-items: center; }
-.auth-flow-footer .auth-code-actions { margin: 0 -8px; flex-wrap: nowrap; }
+.auth-flow-footer .auth-code-actions { margin: 0 -8px; flex-wrap: nowrap; width: 100%; justify-content: space-between; display: flex; }
 .auth-flow-footer .auth-delivery-help { margin: 0; }
 @media (min-width: 960px) {
-  .auth-desktop-grid > .auth-flow-card { height: 468px; padding: 52px 40px; }
+  .auth-desktop-grid > .auth-flow-card {
+    height: 468px;
+    min-height: 468px;
+    padding: 52px 40px;
+  }
 }
 @media (min-width: 960px) and (max-height: 760px) {
-  .auth-desktop-grid > .auth-flow-card { height: 408px; padding: 26px 34px; }
+  .auth-desktop-grid > .auth-flow-card {
+    height: 408px;
+    min-height: 408px;
+    padding: 26px 34px;
+  }
 }
 @media (min-width: 960px) {
   .auth-aside-body { gap: 20px; padding-block: 0; }

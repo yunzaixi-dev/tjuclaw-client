@@ -79,9 +79,9 @@ reviewed independently. The conversation and file preview are labelled demo
 content, not an Agent integration. Closing the panel exposes the sample list.
 
 Auth inputs reuse the compound rounded focus treatment. OTP entry is a single
-labelled native input with numeric input mode and one-time-code autocomplete,
-not six independently focused boxes. Pending, expired, error and success states
-are explicit; a resend countdown is not a server-side security boundary.
+labelled native input with six visual cells, numeric input mode and one-time-code
+autocomplete, not six independently focused boxes. Pending, expired, error and
+success states are explicit; a resend countdown is not a server-side security boundary.
 
 Run `task ui:install` once, then `task ui:test`. Tests build the production client
 and start an isolated preview on port 1422, without reusing a developer server.

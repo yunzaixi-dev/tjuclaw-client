@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, CircleHelp, Mail, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleHelp, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
 import { setAppearance, useAppearance } from './lib/appearance';
 import { AuthError, describeError, logout, readFlow, readSession, resendEmailCode, resetFlow, sendEmailCode, verifyEmailCode, type FlowState, type IdentitySession } from './lib/auth';
+import { OtpInput } from './components/ui/otp-input';
 import './product.css';
 import './auth.css';
 
@@ -143,20 +144,45 @@ function FlowScreen() {
 
   return <div className="auth-desktop-grid"><EditorialPanel /><section className="auth-card auth-flow-card">
     <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : '邮箱登录'}>
-      {stage === 'code' ? <p className="auth-destination" title={email}>{email}</p> : <p>验证后自动登录或注册</p>}
+      {stage === 'code' ? (
+        <div className="auth-stage-intro">
+          <div className="auth-stage-badge" aria-hidden="true">
+            <MailCheck size={16} />
+          </div>
+          <div className="auth-stage-copy">
+            <p className="auth-destination" title={email}>{email}</p>
+            <p className="auth-stage-tip">查看收件箱或垃圾邮件，使用最新验证码</p>
+          </div>
+        </div>
+      ) : <p>验证后自动登录或注册</p>}
     </Heading>
     <form onSubmit={event => { if (resending) { event.preventDefault(); resend(); } else submit(event); }} aria-busy={busy}>
-      <div className="auth-entry">
+      <div className={`auth-entry ${stage === 'code' ? 'auth-stage-otp' : ''}`}>
         {resending && !expired ? <>
           <p className="auth-label">完成安全验证后重发</p>
           <CapChallenge key={capKey} onSolve={setCapToken} onError={() => setError('安全验证暂时未完成，请点击重试。')} disabled={busy} />
+        </> : stage === 'code' ? <>
+          <label className="auth-label" htmlFor="auth-input">邮箱验证码</label>
+          <OtpInput
+            id="auth-input"
+            inputRef={input}
+            name="code"
+            value={code}
+            disabled={busy || expired}
+            hasError={Boolean(error)}
+            describedBy={error ? 'auth-form-error' : undefined}
+            onChange={val => {
+              setCode(val);
+              if (ready) setError('');
+            }}
+          />
         </> : <>
-          <label className="auth-label" htmlFor="auth-input">{stage === 'code' ? '邮箱验证码' : '邮箱地址'}</label>
+          <label className="auth-label" htmlFor="auth-input">邮箱地址</label>
           <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
-            {stage === 'email' && <Mail size={18} aria-hidden="true" />}
-            <input ref={input} id="auth-input" type={stage === 'code' ? 'text' : 'email'} name={stage === 'code' ? 'code' : 'email'} inputMode={stage === 'code' ? 'numeric' : 'email'} autoComplete={stage === 'code' ? 'one-time-code' : 'email'} autoCapitalize="none" spellCheck={false} required maxLength={stage === 'code' ? 6 : 200} className={stage === 'code' ? 'auth-code-input' : undefined} placeholder={stage === 'code' ? '6 位数字验证码' : 'name@example.com'} value={stage === 'code' ? code : email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { if (stage === 'code') setCode(event.target.value.replace(/\D/g, '')); else setEmail(event.target.value); if (ready) setError(''); }} />
+            <Mail size={18} aria-hidden="true" />
+            <input ref={input} id="auth-input" type="email" name="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={200} placeholder="name@example.com" value={email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { setEmail(event.target.value); if (ready) setError(''); }} />
           </div>
-          {stage === 'email' && <CapChallenge key={capKey} onSolve={setCapToken} onError={() => setError('安全验证暂时未完成，请点击重试。')} disabled={busy || !ready} />}
+          <CapChallenge key={capKey} onSolve={setCapToken} onError={() => setError('安全验证暂时未完成，请点击重试。')} disabled={busy || !ready} />
         </>}
       </div>
       <div className="auth-feedback">
@@ -170,11 +196,13 @@ function FlowScreen() {
     </form>
     <div className="auth-flow-footer">
       {!ready && error ? <Button type="button" variant="ghost" onClick={() => { setError(''); setLoadAttempt(attempt => attempt + 1); }}>重试连接</Button>
-        : stage === 'code' && !expired ? <div className="auth-code-actions">
-          {resending ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { setResending(false); resetCaptcha(); setError(''); }}>取消</Button>
-            : <Button type="button" variant="ghost" disabled={busy || cooldown > 0} onClick={() => { setResending(true); resetCaptcha(); setError(''); setNotice(''); }}>{cooldown > 0 ? `${cooldown} 秒后可重发` : '重新发送'}</Button>}
-          <Button type="button" variant="ghost" disabled={busy} onClick={restart}>更换邮箱</Button>
-        </div> : <p className="auth-delivery-help">{stage === 'email' ? '无需密码，使用邮箱验证码继续。' : '请重新获取验证码。'}</p>}
+        : stage === 'code' && !expired ? (
+            <div className="auth-code-actions">
+              {resending ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { setResending(false); resetCaptcha(); setError(''); }}>取消</Button>
+                : <Button type="button" variant="ghost" disabled={busy || cooldown > 0} onClick={() => { setResending(true); resetCaptcha(); setError(''); setNotice(''); }}>{cooldown > 0 ? `${cooldown} 秒后可重发` : '重新发送'}</Button>}
+              <Button type="button" variant="ghost" disabled={busy} onClick={restart}>更换邮箱</Button>
+            </div>
+        ) : <p className="auth-delivery-help">{stage === 'email' ? '无需密码，使用邮箱验证码继续。' : '请重新获取验证码。'}</p>}
     </div>
   </section></div>;
 }
