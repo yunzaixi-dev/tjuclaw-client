@@ -17,7 +17,7 @@ test.describe('Loading fallback UI', () => {
         });
       }
 
-      await page.goto('/');
+      await page.goto('/preview/appearance');
 
       const fallback = page.locator('.app-loading-shell');
       await expect(fallback).toBeVisible();
@@ -32,8 +32,8 @@ test.describe('Loading fallback UI', () => {
       // Ensure it's not transparent and has proper contrast
       expect(bg).not.toBe('rgba(0, 0, 0, 0)');
 
-      // Eventually resolves to main page
-      await expect(page.locator('.auth-card')).toBeVisible();
+      // Eventually resolves to lazy page
+      await expect(page.locator('.appearance-panel, [role="dialog"], .product-main')).toBeVisible();
     });
   }
 
@@ -44,12 +44,12 @@ test.describe('Loading fallback UI', () => {
       await route.continue();
     });
 
-    await page.goto('/');
+    await page.goto('/preview/appearance');
     const fallback = page.locator('.app-loading-shell');
     await expect(fallback).toBeVisible();
     await page.screenshot({ path: '../test-results/ui/loading-mobile.png' });
     await expect(page.locator('.app-loading-title')).toBeVisible();
-    await expect(page.locator('.auth-card')).toBeVisible();
+    await expect(page.locator('.appearance-panel, [role="dialog"], .product-main')).toBeVisible();
   });
 
   test('respects reduced motion', async ({ page }) => {
@@ -59,7 +59,7 @@ test.describe('Loading fallback UI', () => {
     });
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/');
+    await page.goto('/preview/appearance');
 
     const spinner = page.locator('.app-loading-spinner');
     await expect(spinner).toBeVisible();

@@ -1,31 +1,21 @@
-export type AuthKind = 'login' | 'registration' | 'verification';
-export type IdentitySession = {
-  id: string;
-  email: string;
-  email_verified: boolean;
-  expires_at: string;
+export type IdentitySession = { id: string; email: string; email_verified: boolean; expires_at: string };
+export type FlowState = {
+  stage: 'email' | 'code';
+  email?: string;
+  expires_at?: string;
+  resend_at?: string;
+  captcha_endpoint: '/api/auth/captcha/';
 };
-export type Message = { id: number; text: string; type: string };
-export type FlowNode = {
-  group: string;
-  attributes: { name?: string; type?: string; value?: string; disabled?: boolean; required?: boolean };
-  messages?: Message[];
-};
-export type Flow = {
-  id: string;
-  state?: string;
-  expires_at: string;
-  ui: { action: string; method: string; nodes: FlowNode[]; messages?: Message[] };
-};
-type ErrorBody = { error?: { id?: string }; redirect_browser_to?: string; ui?: Flow['ui']; id?: string };
+type ErrorBody = { error?: { id?: string } };
 
 export class AuthError extends Error {
-  constructor(public status: number, public body: ErrorBody) {
-    super(body.error?.id || 'auth_request_failed');
+  constructor(public status: number, public body: ErrorBody = {}) {
+    super(body.error?.id || 'auth_unavailable');
+    this.name = 'AuthError';
   }
 }
 
-// No bearer/session tokens in browser storage. Kratos owns the HttpOnly cookie.
+// Provider credentials remain in HttpOnly cookies; callers use the same-origin API.
 export async function authRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!path.startsWith('/api/')) throw new Error('Invalid API path');
   const controller = new AbortController();
@@ -34,17 +24,14 @@ export async function authRequest<T>(path: string, init: RequestInit = {}): Prom
   init.signal?.addEventListener('abort', abort, { once: true });
   const timeout = window.setTimeout(abort, 15000);
   try {
-    const response = await fetch(path, {
-      ...init, signal: controller.signal,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
+    const headers = new Headers(init.headers);
+    headers.set('Accept', 'application/json');
+    if (typeof init.body === 'string') headers.set('Content-Type', 'application/json');
+    const response = await fetch(path, { ...init, headers, signal: controller.signal, credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+    const body: unknown = response.status === 204 ? {} : await response.json().catch(() => {
+      throw new AuthError(response.ok ? 503 : response.status);
     });
-    const body = response.status === 204 ? {} : await response.json().catch(() => {
-      // Proxies may return HTML error pages; keep their HTTP status for retry UX.
-      throw new AuthError(response.ok ? 503 : response.status, {});
-    });
-    if (!response.ok) throw new AuthError(response.status, body);
+    if (!response.ok) throw new AuthError(response.status, body && typeof body === 'object' ? body as ErrorBody : {});
     return body as T;
   } finally {
     clearTimeout(timeout);
@@ -52,67 +39,48 @@ export async function authRequest<T>(path: string, init: RequestInit = {}): Prom
   }
 }
 
+function validateSession(session: IdentitySession): IdentitySession {
+  if (!session || typeof session.id !== 'string' || !session.id || typeof session.email !== 'string' || !session.email || session.email_verified !== true || !Number.isFinite(Date.parse(session.expires_at)) || Date.parse(session.expires_at) <= Date.now()) {
+    throw new AuthError(503);
+  }
+  return session;
+}
+
 export async function readSession(signal?: AbortSignal): Promise<IdentitySession | null> {
-  try {
-    const session = await authRequest<IdentitySession>('/api/auth/session', { signal });
-    if (!session || typeof session.id !== 'string' || typeof session.email !== 'string' ||
-      typeof session.email_verified !== 'boolean' || !Number.isFinite(Date.parse(session.expires_at))) {
-      throw new AuthError(503, {});
-    }
-    return session;
-  }
-  catch (error) { if (error instanceof AuthError && error.status === 401) return null; throw error; }
-}
-
-export function validateFlow(flow: Flow) {
-  if (!flow || typeof flow.id !== 'string' || !Number.isFinite(Date.parse(flow.expires_at)) ||
-    typeof flow.ui?.action !== 'string' || typeof flow.ui?.method !== 'string' ||
-    !Array.isArray(flow.ui.nodes) || !flow.ui.nodes.every(node => node && typeof node.attributes === 'object' && node.attributes !== null)) {
-    throw new AuthError(503, {});
+  try { return validateSession(await authRequest<IdentitySession>('/api/auth/session', { signal })); }
+  catch (error) {
+    if (error instanceof AuthError && (error.status === 401 || error.status === 403)) return null;
+    throw error;
   }
 }
 
-export function flowPath(kind: AuthKind, id?: string) {
-  return `/api/kratos/self-service/${kind}/${id ? `flows?id=${encodeURIComponent(id)}` : 'browser'}`;
-}
-
-export function actionPath(flow: Flow, kind: AuthKind) {
-  const url = new URL(flow.ui.action, location.origin);
-  if (url.origin !== location.origin || url.pathname !== `/api/kratos/self-service/${kind}` ||
-    url.searchParams.get('flow') !== flow.id || flow.ui.method.toLowerCase() !== 'post') {
-    throw new Error('Unexpected authentication action');
+function validateFlow(flow: FlowState): FlowState {
+  if (!flow || !['email', 'code'].includes(flow.stage) || flow.captcha_endpoint !== '/api/auth/captcha/' || (flow.stage === 'code' && (!flow.email || !Number.isFinite(Date.parse(flow.expires_at ?? '')) || !Number.isFinite(Date.parse(flow.resend_at ?? ''))))) {
+    throw new AuthError(503);
   }
-  return url.pathname + url.search;
+  return flow;
 }
-
-export function flowMessages(flow: Flow): Message[] {
-  return [...(flow.ui.messages || []), ...flow.ui.nodes.flatMap(n => n.messages || [])];
-}
-
-export function describeError(error: unknown) {
-  if (!(error instanceof AuthError)) return '暂时连接不上认证服务。请检查网络后重试。';
-  if (error.status === 410 || error.status === 404) return '这次验证已过期或失效，请重新开始。';
-  if (error.status === 429) return '操作有些频繁，请稍后再试。';
-  if (error.status === 403) return '安全校验未通过，请在当前浏览器重新开始。';
-  if (error.status >= 500) return '认证服务暂时不可用。你的信息没有丢失，请稍后重试。';
-  return '暂时无法完成这次验证，请重新开始。';
-}
-
-export function safeAuthRedirect(value: string) {
-  const url = new URL(value, location.origin);
-  if (url.origin !== location.origin || !/^\/auth\/(login|registration|verification|complete|logged-out|error)$/.test(url.pathname)) {
-    throw new Error('Unexpected authentication redirect');
-  }
-  return url.pathname + url.search;
-}
-
+const post = <T,>(path: string, body: object, signal?: AbortSignal) => authRequest<T>(`/api/auth/${path}`, { method: 'POST', body: JSON.stringify(body), signal });
+export async function readFlow(signal?: AbortSignal) { return validateFlow(await authRequest<FlowState>('/api/auth/flow', { signal })); }
+export async function sendEmailCode(email: string, captchaToken: string, signal?: AbortSignal) { return validateFlow(await post<FlowState>('start', { email: email.trim(), captcha_token: captchaToken }, signal)); }
+export async function verifyEmailCode(code: string, signal?: AbortSignal) { return validateSession(await post<IdentitySession>('verify', { code: code.trim() }, signal)); }
+export async function resendEmailCode(captchaToken: string, signal?: AbortSignal) { return validateFlow(await post<FlowState>('resend', { captcha_token: captchaToken }, signal)); }
+export async function resetFlow(signal?: AbortSignal) { return validateFlow(await post<FlowState>('reset', {}, signal)); }
 export async function logout() {
-  const result = await authRequest<{ logout_url: string }>('/api/kratos/self-service/logout/browser');
-  const url = new URL(result.logout_url, location.origin);
-  if (url.origin !== location.origin || url.pathname !== '/api/kratos/self-service/logout' || !url.searchParams.has('token')) {
-    throw new Error('Unexpected logout URL');
-  }
-  await authRequest(url.pathname + url.search);
-  if (await readSession()) throw new Error('Session was not revoked');
+  await post('logout', {});
+  if (await readSession()) throw new AuthError(503);
   location.replace('/auth/logged-out');
+}
+
+export function describeError(error: unknown): string {
+  if (!(error instanceof AuthError)) return '暂时连接不上认证服务，请稍后重试。';
+  switch (error.body.error?.id) {
+    case 'invalid_email': return '请输入有效的邮箱地址。';
+    case 'invalid_code': return '验证码不正确，请检查后再试。';
+    case 'captcha_required': return '请先完成安全验证。';
+    case 'captcha_invalid': return '安全验证已失效，请重新验证。';
+    case 'flow_expired': return '本次验证已过期，请重新开始。';
+    case 'rate_limited': return '操作有些频繁，请稍后再试。';
+    default: return error.status === 429 ? '操作有些频繁，请稍后再试。' : '暂时连接不上认证服务，请稍后重试。';
+  }
 }

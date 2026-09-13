@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['ui.spec.mjs', 'loading.spec.mjs'],
+  testMatch: ['ui.spec.mjs', 'loading.spec.mjs', 'auth-transition.spec.mjs'],
   outputDir: '../test-results/ui',
   workers: 1,
   reporter: 'list',
