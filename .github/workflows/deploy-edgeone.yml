@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
+    if: github.repository == 'yunzaixi-dev/tjuclaw-client' && github.ref == 'refs/heads/release'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: production
