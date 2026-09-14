@@ -24,8 +24,7 @@ env:
 
 jobs:
   deploy-web:
-    needs: [check, browser, build-artifacts]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
+    needs: [build-artifacts]
     uses: ./.github/workflows/deploy-edgeone.yml
     secrets: inherit
 
