@@ -4,4 +4,15 @@
   vertical-align: middle;
   flex-shrink: 0;
   user-select: none;
+  transition: filter 180ms ease, opacity 180ms ease;
+}
+
+/* 滤镜蒙版：保留图标本身丰富的立体感、高光与明暗细节，但整体映射为纯净的黑白灰调 */
+:root[data-theme="light"] .brand-icon-monochrome,
+:root:not([data-theme="dark"]) .brand-icon-monochrome {
+  filter: grayscale(100%) contrast(115%) brightness(0.92);
+}
+
+:root[data-theme="dark"] .brand-icon-monochrome {
+  filter: grayscale(100%) brightness(1.2) contrast(110%);
 }

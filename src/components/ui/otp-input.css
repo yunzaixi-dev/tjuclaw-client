@@ -64,11 +64,16 @@
 .ui-otp-cell--filled {
   border-color: var(--border);
 }
-
 .ui-otp-cell--active {
-  border-color: var(--pixel-highlight, var(--ring, var(--auth-blue)));
-  box-shadow: 0 0 0 2px var(--pixel-highlight, var(--ring, rgb(12 110 196 / 35%))),
-              inset 0 1px 2px rgb(0 31 65 / 4%);
+  border-color: var(--pixel-highlight, var(--ring));
+  box-shadow: 0 0 0 1.5px var(--pixel-highlight, var(--ring)), inset 0 0 0 0.5px var(--pixel-highlight, var(--ring));
+  background: var(--surface);
+}
+
+:root[data-theme="dark"] .ui-otp-cell--active {
+  border-color: var(--pixel-highlight, var(--ring));
+  box-shadow: 0 0 0 1.5px var(--pixel-highlight, var(--ring));
+  background: var(--auth-control, oklch(22% 0 0));
 }
 
 .ui-otp-cell--error,

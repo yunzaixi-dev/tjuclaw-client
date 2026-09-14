@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, CircleHelp, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
@@ -9,36 +9,145 @@ import { OtpInput } from './components/ui/otp-input';
 import './product.css';
 import './auth.css';
 
-function Shell({ children, back = false }: { children: ReactNode; back?: boolean }) {
+function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
-  return <div className="auth-shell">
-    <header className="auth-toolbar">
-      <div className="auth-toolbar-left">
-        <a href="/" className="auth-wordmark" aria-label="TJUClaw 首页"><BrandIcon size={34} /><span className="auth-wordmark-title">TJUClaw</span><span className="auth-wordmark-badge">校园工作台</span></a>
-        {back && <a className="auth-toolbar-back" href="/"><ArrowLeft size={16} /><span>返回首页</span></a>}
-      </div>
-      <div className="auth-toolbar-right">
-        <a href="/auth/help" className="auth-toolbar-help" aria-label="查看登录帮助"><CircleHelp size={15} /><span>登录帮助</span></a>
-        <Button variant="floating" size="icon" className="auth-appearance-toggle" aria-label={appearance.resolved === 'dark' ? '切换浅色外观' : '切换深色外观'} onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}>{appearance.resolved === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</Button>
-      </div>
-    </header>
-    <main className="auth-main">{children}</main>
-    <footer className="auth-footer"><span>少一点打扰，多一点完成。</span><div className="auth-footer-links"><span className="auth-footer-tag">参赛选手：TJUClaw 项目团队</span></div></footer>
-  </div>;
-}
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const initialTransform = useRef({ x: 0, y: 0 });
+  const touchDist = useRef<number | null>(null);
 
-function EditorialPanel() {
-  return <aside className="auth-aside-panel" aria-label="平台介绍">
-    <p className="auth-aside-tagline">为天津大学校园生活而设计</p>
-    <div className="auth-aside-body">
-      <div className="auth-aside-copy"><h2 className="auth-aside-title">校园日常，<br />从容开始。</h2><p className="auth-aside-desc">把资料、信息和计划汇聚在一起，<br />从你眼前的一件事开始。</p></div>
-      <div className="auth-aside-mark-wrap" aria-hidden="true">
-        <div className="auth-aside-mark">TJUClaw</div>
-        <div className="auth-aside-mark-caption">A general intelligent agent platform<br />built for Tianjin University.</div>
-      </div>
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const zoomFactor = -e.deltaY * 0.003;
+        setTransform(prev => ({
+          ...prev,
+          scale: Math.min(Math.max(prev.scale + zoomFactor, 0.4), 2.5),
+        }));
+      } else {
+        setTransform(prev => ({
+          ...prev,
+          x: prev.x - e.deltaX,
+          y: prev.y - e.deltaY,
+        }));
+      }
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
+    isDragging.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    initialTransform.current = { x: transform.x, y: transform.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setTransform(prev => ({
+      ...prev,
+      x: initialTransform.current.x + dx,
+      y: initialTransform.current.y + dy,
+    }));
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
+    if (e.touches.length === 1) {
+      isDragging.current = true;
+      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      initialTransform.current = { x: transform.x, y: transform.y };
+    } else if (e.touches.length === 2) {
+      isDragging.current = false;
+      touchDist.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && isDragging.current) {
+      const dx = e.touches[0].clientX - dragStart.current.x;
+      const dy = e.touches[0].clientY - dragStart.current.y;
+      setTransform(prev => ({
+        ...prev,
+        x: initialTransform.current.x + dx,
+        y: initialTransform.current.y + dy,
+      }));
+    } else if (e.touches.length === 2 && touchDist.current !== null) {
+      const newDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scaleChange = (newDist - touchDist.current) * 0.005;
+      touchDist.current = newDist;
+      setTransform(prev => ({
+        ...prev,
+        scale: Math.min(Math.max(prev.scale + scaleChange, 0.4), 2.5),
+      }));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    isDragging.current = false;
+    touchDist.current = null;
+  };
+
+  const gridPatternSize = 24 * transform.scale;
+  const offsetX = transform.x % gridPatternSize;
+  const offsetY = transform.y % gridPatternSize;
+
+  return (
+    <div
+      className="auth-shell auth-canvas-shell"
+      style={{
+        '--canvas-grid-size': `${gridPatternSize}px`,
+        '--canvas-offset-x': `${offsetX}px`,
+        '--canvas-offset-y': `${offsetY}px`,
+      } as React.CSSProperties}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="auth-canvas-bg" aria-hidden="true" />
+      <main className="auth-main">
+        {children}
+      </main>
+      <footer className="auth-footer">
+        <div className="auth-footer-inner">
+          <span className="auth-footer-copy">© 2026 TJUClaw</span>
+          <div className="auth-footer-links">
+            <a href="https://tjuclaw.cloud" target="_blank" rel="noreferrer" className="auth-footer-link">文档</a>
+            <span>·</span>
+            <button
+              type="button"
+              className="auth-footer-appearance-btn"
+              aria-label={appearance.resolved === 'dark' ? '切换浅色模式' : '切换深色模式'}
+              onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}
+            >
+              {appearance.resolved === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+              <span>{appearance.resolved === 'dark' ? '浅色' : '深色'}</span>
+            </button>
+          </div>
+        </div>
+      </footer>
     </div>
-    <div className="auth-aside-footer"><p className="auth-aside-mode-hint">你的目标，你的节奏。</p></div>
-  </aside>;
+  );
 }
 
 function Heading({ title, children }: { title: string; children: ReactNode }) {
@@ -46,13 +155,13 @@ function Heading({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Welcome() {
-  return <div className="auth-desktop-grid"><EditorialPanel /><section className="auth-card auth-welcome">
+  return <section className="auth-card auth-card-narrow auth-welcome">
     <BrandIcon size={64} className="auth-welcome-logo" />
     <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
-    <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用邮箱继续<ArrowRight size={18} /></a>
+    <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用邮箱登录 / 注册<ArrowRight size={18} /></a>
     <p className="auth-switch">新邮箱验证后将自动创建账号。</p>
     <div className="auth-assurance"><ShieldCheck size={15} /><span>使用邮箱验证码，无需设置密码。</span></div>
-  </section></div>;
+  </section>;
 }
 
 function FlowScreen() {
@@ -142,8 +251,22 @@ function FlowScreen() {
     });
   }
 
-  return <div className="auth-desktop-grid"><EditorialPanel /><section className="auth-card auth-flow-card">
-    <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : '邮箱登录'}>
+  return <section className="auth-card auth-card-narrow auth-flow-card">
+    <div className="auth-card-topbar">
+      <a href="/" className="auth-card-back-text" aria-label="返回首页" title="返回首页">
+        <Home size={13} />
+        <span>返回首页</span>
+      </a>
+      <a href="/auth/help" className="auth-card-help-icon" aria-label="登录帮助" title="登录帮助">
+        <HelpCircle size={16} />
+      </a>
+    </div>
+    {stage === 'email' && !resending && (
+      <div className="auth-card-logo">
+        <BrandIcon size={52} />
+      </div>
+    )}
+    <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : '登录 TJUClaw Cloud'}>
       {stage === 'code' ? (
         <div className="auth-stage-intro">
           <div className="auth-stage-badge" aria-hidden="true">
@@ -151,11 +274,30 @@ function FlowScreen() {
           </div>
           <div className="auth-stage-copy">
             <p className="auth-destination" title={email}>{email}</p>
-            <p className="auth-stage-tip">查看收件箱或垃圾邮件，使用最新验证码</p>
+            <p className="auth-stage-tip">通过阿里云邮件推送服务投递，请留意收件箱或垃圾邮件</p>
           </div>
         </div>
-      ) : <p>验证后自动登录或注册</p>}
+      ) : <p>欢迎使用 TJUClaw Cloud，输入邮箱以继续</p>}
     </Heading>
+    {stage === 'email' && !resending && (
+      <div className="auth-oauth-group">
+        <div className="auth-oauth-buttons">
+          <Button type="button" variant="ghost" className="auth-oauth-btn" disabled title="微北洋（开发中）">
+            <svg className="auth-oauth-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
+            <span>微北洋 (开发中)</span>
+          </Button>
+          <Button type="button" variant="ghost" className="auth-oauth-btn" disabled title="GitHub 登录（接入中）">
+            <svg className="auth-oauth-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+            <span>GitHub</span>
+          </Button>
+        </div>
+        <div className="auth-divider">
+          <span className="auth-divider-line" />
+          <span className="auth-divider-text">或使用邮箱</span>
+          <span className="auth-divider-line" />
+        </div>
+      </div>
+    )}
     <form onSubmit={event => { if (resending) { event.preventDefault(); resend(); } else submit(event); }} aria-busy={busy}>
       <div className={`auth-entry ${stage === 'code' ? 'auth-stage-otp' : ''}`}>
         {resending && !expired ? <>
@@ -185,26 +327,37 @@ function FlowScreen() {
           <CapChallenge key={capKey} onSolve={setCapToken} onError={() => setError('安全验证暂时未完成，请点击重试。')} disabled={busy || !ready} />
         </>}
       </div>
-      <div className="auth-feedback">
-        {error ? <p className="auth-inline-error" role="alert" id="auth-form-error">{error}</p>
-          : expired ? <p className="auth-status" role="status">本次验证已过期，请重新开始。</p>
-          : notice ? <p className="auth-status" role="status">{notice}</p>
-          : !ready && <p className="auth-status" role="status">正在连接安全验证服务…</p>}
-      </div>
+      {(error || expired || notice || !ready) && (
+        <div className="auth-feedback">
+          {error ? <p className="auth-inline-error" role="alert" id="auth-form-error">{error}</p>
+            : expired ? <p className="auth-status" role="status">本次验证已过期，请重新开始。</p>
+            : notice ? <p className="auth-status" role="status">{notice}</p>
+            : <p className="auth-status" role="status">正在连接安全验证服务…</p>}
+        </div>
+      )}
       {expired ? <Button type="button" className="auth-submit" disabled={busy} onClick={restart}>重新开始<ArrowRight size={16} /></Button>
         : <Button className="auth-submit" type="submit" disabled={!ready || busy || (resending ? !capToken || cooldown > 0 : stage === 'email' ? !email.trim() || !capToken : code.length !== 6)}>{busy ? '正在处理…' : resending ? '确认重发' : stage === 'code' ? '验证并继续' : '获取验证码'}<ArrowRight size={16} /></Button>}
     </form>
-    <div className="auth-flow-footer">
-      {!ready && error ? <Button type="button" variant="ghost" onClick={() => { setError(''); setLoadAttempt(attempt => attempt + 1); }}>重试连接</Button>
-        : stage === 'code' && !expired ? (
+    {((!ready && error) || (stage === 'code' && !expired)) && (
+      <div className="auth-flow-footer">
+        {!ready && error ? <Button type="button" variant="ghost" onClick={() => { setError(''); setLoadAttempt(attempt => attempt + 1); }}>重试连接</Button>
+          : (
             <div className="auth-code-actions">
               {resending ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { setResending(false); resetCaptcha(); setError(''); }}>取消</Button>
                 : <Button type="button" variant="ghost" disabled={busy || cooldown > 0} onClick={() => { setResending(true); resetCaptcha(); setError(''); setNotice(''); }}>{cooldown > 0 ? `${cooldown} 秒后可重发` : '重新发送'}</Button>}
               <Button type="button" variant="ghost" disabled={busy} onClick={restart}>更换邮箱</Button>
             </div>
-        ) : <p className="auth-delivery-help">{stage === 'email' ? '无需密码，使用邮箱验证码继续。' : '请重新获取验证码。'}</p>}
+          )}
+      </div>
+    )}
+    <div className="auth-card-subfooter">
+      <p className="auth-card-subfooter-note">由阿里云邮件推送服务投递 · 新邮箱将自动创建账号</p>
+      <div className="auth-secured-by">
+        <span>Secured by</span>
+        <span className="auth-secured-brand">TJUClaw Auth</span>
+      </div>
     </div>
-  </section></div>;
+  </section>;
 }
 
 function SessionScreen() {
@@ -225,7 +378,7 @@ function SessionScreen() {
 
 function Help() {
   return <section className="auth-card auth-card-narrow"><a className="auth-back" href="/auth/login"><ArrowLeft size={16} />返回登录</a><Heading title="让登录简单一点。"><p>关于邮箱登录，你可能想知道这些。</p></Heading><div className="auth-help-list">
-    <details open><summary>没有收到验证码？</summary><p>检查邮箱地址和垃圾邮件文件夹。邮件可能稍有延迟，请等待片刻再重发，并使用最新收到的验证码。</p></details>
+    <details open><summary>没有收到验证码？</summary><p>邮件由阿里云邮件推送服务投递，请检查邮箱收件箱及垃圾邮件文件夹。受邮件服务商灰名单及过滤规则影响可能稍有延迟，请耐心等待片刻再重发，并使用最新收到的验证码。</p></details>
     <details><summary>第一次使用，需要注册吗？</summary><p>直接输入常用邮箱。验证后，新邮箱会自动创建账号，已有邮箱会直接登录，无需设置密码。</p></details>
     <details><summary>安全验证未完成？</summary><p>点击安全验证并稍等片刻。请保持页面打开，使用较新的浏览器，检查网络连接后重试。</p></details>
     <details><summary>验证过期或换了浏览器？</summary><p>返回登录页重新开始。请在发起验证的浏览器中输入验证码，不要复制验证页面地址到其他设备。</p></details>
@@ -242,5 +395,5 @@ export default function Auth() {
   else if (path === '/auth/logged-out') content = <section className="auth-card auth-card-narrow"><Heading title="已安全退出。"><p>下次需要时，TJUClaw 仍在这里。</p></Heading><a className="auth-primary-link" href="/auth/login">重新登录<ArrowRight size={18} /></a></section>;
   else if (path === '/') content = <Welcome />;
   else content = <section className="auth-card auth-card-narrow"><Heading title="这一步没能完成。"><p>验证可能已过期，请重新开始。</p></Heading><a className="auth-primary-link" href="/auth/login">重新登录<ArrowRight size={18} /></a></section>;
-  return <Shell back={path !== '/'}>{content}</Shell>;
+  return <Shell>{content}</Shell>;
 }

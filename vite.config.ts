@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     port: mode === 'audit' ? 1421 : 1420,
     strictPort: true,
     proxy: mode === 'audit' ? undefined : {
-      '/api': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:8080', rewrite: path => path.replace(/^\/api/, '') },
+      '/api': { target: process.env.API_PROXY_TARGET || (mode === 'development' ? 'http://127.0.0.1:18088' : 'http://127.0.0.1:8080'), rewrite: path => path.replace(/^\/api/, '') },
     },
     watch: { ignored: ['**/src-tauri/**'] },
     fs: { deny: ['.env', '.env.*', '**/*.{crt,pem,key}', '**/.git/**', '**/private/**', '**/research/**', '**/*.zip'] },

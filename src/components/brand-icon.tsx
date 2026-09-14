@@ -6,6 +6,7 @@ export interface BrandIconProps extends Omit<ImgHTMLAttributes<HTMLImageElement>
   /** Optional accessible label. If omitted, image is marked decorative with alt=''. */
   label?: string;
   size?: number | string;
+  monochrome?: boolean;
 }
 
 export function BrandIcon({
@@ -16,6 +17,7 @@ export function BrandIcon({
   width,
   height,
   style,
+  monochrome = false,
   ...rest
 }: BrandIconProps) {
   const resolvedAlt = label !== undefined ? label : (alt ?? '');
@@ -29,7 +31,7 @@ export function BrandIcon({
       aria-hidden={resolvedAlt === '' ? true : undefined}
       width={resolvedWidth}
       height={resolvedHeight}
-      className={`brand-icon ${className}`.trim()}
+      className={`brand-icon ${monochrome ? 'brand-icon-monochrome' : ''} ${className}`.trim()}
       style={{
         ...(size !== undefined
           ? {
