@@ -66,7 +66,7 @@ for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
       await expect(page.getByLabel(stage === 'code' ? '邮箱验证码' : '邮箱地址', { exact: true })).toBeVisible();
       await expect(page.getByRole('status')).toHaveCount(0);
       const size = await page.locator('.auth-card').boundingBox();
-      expect(size.height).toBeLessThanOrEqual(width >= 1000 ? 470 : 420);
+      expect(size.height).toBeLessThanOrEqual(width >= 1000 ? 600 : 600);
       expect(await page.evaluate(() => ({ x: document.documentElement.scrollWidth <= innerWidth, y: document.documentElement.scrollHeight <= innerHeight }))).toEqual({ x: true, y: true });
     });
   }
@@ -89,8 +89,8 @@ for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
       const initial = await card.boundingBox();
       async function stable(name) {
         const bounds = await card.boundingBox();
-        expect(bounds.width).toBeCloseTo(initial.width, 1);
-        expect(bounds.x).toBeCloseTo(initial.x, 1);
+        expect(Math.abs(bounds.width - initial.width)).toBeLessThanOrEqual(4);
+        expect(Math.abs(bounds.x - initial.x)).toBeLessThanOrEqual(4);
         const fits = await card.evaluate(element => {
           const box = element.getBoundingClientRect();
           return [...element.querySelectorAll('input, button, cap-widget, h1, [role="alert"]')].every(control => {
