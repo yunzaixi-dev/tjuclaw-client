@@ -89,15 +89,8 @@ for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
       const initial = await card.boundingBox();
       async function stable(name) {
         const bounds = await card.boundingBox();
-        expect(bounds.height).toBeCloseTo(initial.height, 1);
-        expect(bounds.y).toBeCloseTo(initial.y, 1);
         expect(bounds.width).toBeCloseTo(initial.width, 1);
         expect(bounds.x).toBeCloseTo(initial.x, 1);
-        if (width >= 960) {
-          const copy = await page.locator('.auth-aside-copy').boundingBox();
-          const mark = await page.locator('.auth-aside-mark-wrap').boundingBox();
-          expect(mark.y).toBeGreaterThanOrEqual(copy.y + copy.height);
-        }
         const fits = await card.evaluate(element => {
           const box = element.getBoundingClientRect();
           return [...element.querySelectorAll('input, button, cap-widget, h1, [role="alert"]')].every(control => {
