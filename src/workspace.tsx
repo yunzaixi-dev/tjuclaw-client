@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Bot, ChevronRight, File, FileText, Loader2, Monitor, Moon, PanelLeft, Plus, Search, Send, Settings, Share2, Store, Sun, Trash2, Upload } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
@@ -114,49 +114,7 @@ export default function Workspace() {
     }
   }
 
-  useEffect(() => {
-    let unmounted = false;
-    let inFlight: AbortController | null = null;
-    async function checkSession() {
-      if (closingRef.current) return;
-      inFlight?.abort();
-      const controller = new AbortController();
-      inFlight = controller;
-      const seq = ++sessionSeqRef.current;
-      try {
-        const next = await readSession(controller.signal);
-        if (unmounted || controller.signal.aborted || seq !== sessionSeqRef.current) return;
-        if (!next) {
-          resetPrivateState();
-          location.replace('/auth/login');
-          return;
-        }
-        if (activeUserIdRef.current && activeUserIdRef.current !== next.id) resetPrivateState();
-        activeUserIdRef.current = next.id;
-        setSession(next);
-      } catch {
-        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) {
-          resetPrivateState();
-          location.replace('/auth/login');
-        }
-      } finally {
-        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) setSessionLoading(false);
-      }
-    }
-    void checkSession();
-    const onVisible = () => { if (document.visibilityState === 'visible') void checkSession(); };
-    document.addEventListener('visibilitychange', onVisible);
-    const timer = window.setInterval(() => void checkSession(), 60000);
-    return () => {
-      unmounted = true;
-      inFlight?.abort();
-      document.removeEventListener('visibilitychange', onVisible);
-      clearInterval(timer);
-      resetPrivateState();
-    };
-  }, []);
-
-  const loadWorkspace = useEffectEvent(async () => {
+  async function loadWorkspace() {
     if (!activeUserIdRef.current) return;
     const user = activeUserIdRef.current;
     try {
@@ -179,20 +137,13 @@ export default function Workspace() {
       if (user !== activeUserIdRef.current) return;
       setEntries(tree);
       const nextId = selectedId && tree.some(item => item.id === selectedId) ? selectedId : tree[0]?.id ?? null;
-
       if (nextId) void openEntry(nextId);
-
     } catch (err) {
       if (user !== activeUserIdRef.current) return;
       fail(err);
     }
-  });
+  }
 
-  const sessionID = session?.id;
-  useEffect(() => {
-    if (!sessionID) return;
-    void loadWorkspace();
-  }, [sessionID]);
 
   async function openEntry(id: string) {
     const user = activeUserIdRef.current;
@@ -224,6 +175,50 @@ export default function Workspace() {
       fail(err);
     }
   }
+  useEffect(() => {
+    let unmounted = false;
+    let inFlight: AbortController | null = null;
+    async function checkSession() {
+      if (closingRef.current) return;
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+      const seq = ++sessionSeqRef.current;
+      try {
+        const next = await readSession(controller.signal);
+        if (unmounted || controller.signal.aborted || seq !== sessionSeqRef.current) return;
+        if (!next) {
+          resetPrivateState();
+          location.replace('/auth/login');
+          return;
+        }
+        const switched = activeUserIdRef.current !== next.id;
+        if (activeUserIdRef.current && switched) resetPrivateState();
+        activeUserIdRef.current = next.id;
+        setSession(next);
+        if (switched) void loadWorkspace();
+      } catch {
+        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) {
+          resetPrivateState();
+          location.replace('/auth/login');
+        }
+      } finally {
+        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) setSessionLoading(false);
+      }
+    }
+    void checkSession();
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkSession(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => void checkSession(), 60000);
+    return () => {
+      unmounted = true;
+      inFlight?.abort();
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(timer);
+      resetPrivateState();
+    };
+  }, []);
+
 
   function queueSave(nextTitle: string, nextBody: string) {
     if (!selected || selected.kind === 'agent' || selected.kind === 'file') return;

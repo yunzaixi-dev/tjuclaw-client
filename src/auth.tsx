@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, Mail, MailCheck, Moon, Sun } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
