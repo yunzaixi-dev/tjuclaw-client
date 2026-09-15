@@ -65,6 +65,12 @@ export async function readFlow(signal?: AbortSignal) { return validateFlow(await
 export async function sendEmailCode(email: string, captchaToken: string, signal?: AbortSignal) { return validateFlow(await post<FlowState>('start', { email: email.trim(), captcha_token: captchaToken }, signal)); }
 export async function verifyEmailCode(code: string, signal?: AbortSignal) { return validateSession(await post<IdentitySession>('verify', { code: code.trim() }, signal)); }
 export async function resendEmailCode(captchaToken: string, signal?: AbortSignal) { return validateFlow(await post<FlowState>('resend', { captcha_token: captchaToken }, signal)); }
+export async function loginWithPassword(email: string, password: string, captchaToken: string, signal?: AbortSignal) {
+  return validateSession(await post<IdentitySession>('password', { email: email.trim(), password, captcha_token: captchaToken }, signal));
+}
+export async function registerWithPassword(email: string, password: string, captchaToken: string, signal?: AbortSignal) {
+  return validateFlow(await post<FlowState>('register', { email: email.trim(), password, captcha_token: captchaToken }, signal));
+}
 export async function resetFlow(signal?: AbortSignal) { return validateFlow(await post<FlowState>('reset', {}, signal)); }
 export async function logout() {
   await post('logout', {});
@@ -77,6 +83,9 @@ export function describeError(error: unknown): string {
   switch (error.body.error?.id) {
     case 'invalid_email': return '请输入有效的邮箱地址。';
     case 'invalid_code': return '验证码不正确，请检查后再试。';
+    case 'invalid_password': return '密码至少 8 个字符，最多 72 个字符。';
+    case 'invalid_credentials': return '邮箱或密码不正确。若用验证码注册过，请改用验证码登录。';
+    case 'account_exists': return '该邮箱已注册，请直接登录或改用验证码。';
     case 'captcha_required': return '请先完成安全验证。';
     case 'captcha_invalid': return '安全验证已失效，请重新验证。';
     case 'flow_expired': return '本次验证已过期，请重新开始。';

@@ -97,14 +97,14 @@ Native Windows/Android/Linux behavior still requires testing on those clients.
 The audit app and product app are separate lazy entry points. Private reference
 images, descriptions and research never enter this directory or a normal build.
 
-## Task Workspace Surface
+## Knowledge Workspace Surface
 
-`src/workspace.tsx` owns the authenticated task workspace screen mounted at `/workspace`.
-It implements durable task goal capture and viewing:
-- Lists tasks newest first and supports selecting a task to inspect its prompt and metadata.
-- Creates new task goals via `createTask()` with instant draft update.
-- Clearly indicates status as `已保存 (draft)`.
-- Explicitly clarifies that backend execution and model planning are not connected.
-- Does not expose fake progress, completion checkboxes, cancellation controls, or fabricated execution results.
-- Resets in-memory task state on sign-out, session loss (401), or user identity switch.
-- Integrates with shared semantic tokens in `src/product.css` and appearance switching.
+`src/workspace.tsx` owns the authenticated knowledge workspace at `/workspace`.
+It recreates an AFFiNE-like shell without BlockSuite: muted sidebar tree, borderless
+note editor, and agent chat. Login pages stay in `src/auth.tsx`.
+- Bootstraps 「我的知识库」 and a deletable 「新手向导」 via `/api/libraries`.
+- Nested entries share one tree. Notes save Markdown through `patchEntry()`.
+- Agent entries open a persisted session, not a Markdown editor.
+- Model settings live in the sidebar dialog. Keys never render back from the API.
+- Resets in-memory library state on sign-out, session loss (401), or identity switch.
+- Uses shared semantic tokens in `src/product.css` and `useAppearance()`.

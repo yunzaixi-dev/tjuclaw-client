@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, Mail, MailCheck, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
 import { setAppearance, useAppearance } from './lib/appearance';
-import { AuthError, describeError, logout, readFlow, readSession, resendEmailCode, resetFlow, sendEmailCode, verifyEmailCode, type FlowState, type IdentitySession } from './lib/auth';
+import { AuthError, describeError, loginWithPassword, logout, readFlow, readSession, registerWithPassword, resendEmailCode, resetFlow, sendEmailCode, verifyEmailCode, type FlowState, type IdentitySession } from './lib/auth';
 import { OtpInput } from './components/ui/otp-input';
 import './product.css';
 import './auth.css';
@@ -154,13 +154,18 @@ function Heading({ title, children }: { title: string; children: ReactNode }) {
   return <header className="auth-heading"><h1>{title}</h1><div className="auth-description">{children}</div></header>;
 }
 
+function loginMethodFromUrl() {
+  return new URLSearchParams(location.search).get('method') === 'password' ? 'password' : 'code';
+}
+
+
 function Welcome() {
   return <section className="auth-card auth-card-narrow auth-welcome">
     <BrandIcon size={64} className="auth-welcome-logo" />
     <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
-    <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用邮箱登录 / 注册<ArrowRight size={18} /></a>
-    <p className="auth-switch">新邮箱验证后将自动创建账号。</p>
-    <div className="auth-assurance"><ShieldCheck size={15} /><span>使用邮箱验证码，无需设置密码。</span></div>
+    <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用验证码登录 / 注册<ArrowRight size={18} /></a>
+    <a className="auth-secondary-link" href="/auth/login?method=password"><Lock size={18} />使用密码登录<ArrowRight size={18} /></a>
+    <p className="auth-switch">新邮箱验证后会创建账号。忘记密码请用验证码。</p>
   </section>;
 }
 
@@ -168,6 +173,9 @@ function FlowScreen() {
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [method, setMethod] = useState<'code' | 'password' | 'register'>(loginMethodFromUrl);
   const [capToken, setCapToken] = useState('');
   const [capKey, setCapKey] = useState(0);
   const [resending, setResending] = useState(false);
@@ -184,6 +192,8 @@ function FlowScreen() {
   const stage = flow?.stage ?? 'email';
   const cooldown = Math.max(0, Math.ceil((Date.parse(flow?.resend_at ?? '') - now) / 1000)) || 0;
   const expired = forcedExpiry || (stage === 'code' && Date.parse(flow?.expires_at ?? '') <= now);
+  const usingPassword = stage === 'email' && !resending && method !== 'code';
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -232,6 +242,21 @@ function FlowScreen() {
     if (!ready || busy || expired) return;
     if (stage === 'email') {
       if (!capToken) { setError('请先完成安全验证。'); return; }
+      if (method === 'password') {
+        void perform(async signal => {
+          try { await loginWithPassword(email, password, capToken, signal); location.replace('/workspace'); }
+          finally { resetCaptcha(); }
+        });
+        return;
+      }
+      if (method === 'register') {
+        if (password !== confirmPassword) { setError('两次输入的密码不一致。'); return; }
+        void perform(async signal => {
+          try { acceptFlow(await registerWithPassword(email, password, capToken, signal)); setPassword(''); setConfirmPassword(''); }
+          finally { resetCaptcha(); }
+        });
+        return;
+      }
       void perform(async signal => {
         try { acceptFlow(await sendEmailCode(email, capToken, signal)); }
         finally { resetCaptcha(); }
@@ -266,7 +291,7 @@ function FlowScreen() {
         <BrandIcon size={52} />
       </div>
     )}
-    <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : '登录 TJUClaw Cloud'}>
+    <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : method === 'register' ? '注册 TJUClaw Cloud' : '登录 TJUClaw Cloud'}>
       {stage === 'code' ? (
         <div className="auth-stage-intro">
           <div className="auth-stage-badge" aria-hidden="true">
@@ -277,7 +302,7 @@ function FlowScreen() {
             <p className="auth-stage-tip">通过阿里云邮件推送服务投递，请留意收件箱或垃圾邮件</p>
           </div>
         </div>
-      ) : <p>欢迎使用 TJUClaw Cloud，输入邮箱以继续</p>}
+      ) : <p>{method === 'register' ? '设置密码后，仍需验证邮箱才能登录。' : method === 'password' ? '使用已验证邮箱和密码登录。' : '欢迎使用 TJUClaw Cloud，输入邮箱以继续'}</p>}
     </Heading>
     {stage === 'email' && !resending && (
       <div className="auth-oauth-group">
@@ -293,7 +318,10 @@ function FlowScreen() {
         </div>
         <div className="auth-divider">
           <span className="auth-divider-line" />
-          <span className="auth-divider-text">或使用邮箱</span>
+          <div className="auth-method-tabs" role="tablist" aria-label="登录方式">
+            <button type="button" role="tab" aria-selected={method === 'code'} className={method === 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('code'); setError(''); }}>验证码</button>
+            <button type="button" role="tab" aria-selected={method === 'password' || method === 'register'} className={method !== 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('password'); setError(''); }}>密码</button>
+          </div>
           <span className="auth-divider-line" />
         </div>
       </div>
@@ -324,6 +352,20 @@ function FlowScreen() {
             <Mail size={18} aria-hidden="true" />
             <input ref={input} id="auth-input" type="email" name="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={200} placeholder="name@example.com" value={email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { setEmail(event.target.value); if (ready) setError(''); }} />
           </div>
+          {usingPassword ? <>
+            <label className="auth-label" htmlFor="auth-password">{method === 'register' ? '设置密码' : '密码'}</label>
+            <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
+              <Lock size={18} aria-hidden="true" />
+              <input id="auth-password" type="password" name="password" autoComplete={method === 'register' ? 'new-password' : 'current-password'} required minLength={8} maxLength={72} value={password} disabled={busy} aria-invalid={Boolean(error)} onChange={event => { setPassword(event.target.value); if (ready) setError(''); }} />
+            </div>
+            {method === 'register' ? <>
+              <label className="auth-label" htmlFor="auth-password-confirm">确认密码</label>
+              <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
+                <Lock size={18} aria-hidden="true" />
+                <input id="auth-password-confirm" type="password" name="confirm" autoComplete="new-password" required minLength={8} maxLength={72} value={confirmPassword} disabled={busy} onChange={event => { setConfirmPassword(event.target.value); if (ready) setError(''); }} />
+              </div>
+            </> : null}
+          </> : null}
           <CapChallenge key={capKey} onSolve={setCapToken} onError={() => setError('安全验证暂时未完成，请点击重试。')} disabled={busy || !ready} />
         </>}
       </div>
@@ -336,8 +378,18 @@ function FlowScreen() {
         </div>
       )}
       {expired ? <Button type="button" className="auth-submit" disabled={busy} onClick={restart}>重新开始<ArrowRight size={16} /></Button>
-        : <Button className="auth-submit" type="submit" disabled={!ready || busy || (resending ? !capToken || cooldown > 0 : stage === 'email' ? !email.trim() || !capToken : code.length !== 6)}>{busy ? '正在处理…' : resending ? '确认重发' : stage === 'code' ? '验证并继续' : '获取验证码'}<ArrowRight size={16} /></Button>}
+        : <Button className="auth-submit" type="submit" disabled={!ready || busy || (resending ? !capToken || cooldown > 0 : stage === 'email' ? !email.trim() || !capToken || (usingPassword && (password.length < 8 || (method === 'register' && password !== confirmPassword))) : code.length !== 6)}>{busy ? '正在处理…' : resending ? '确认重发' : stage === 'code' ? '验证并继续' : method === 'password' ? '登录' : method === 'register' ? '创建账号' : '获取验证码'}<ArrowRight size={16} /></Button>}
     </form>
+    {stage === 'email' && !resending && usingPassword ? (
+      <div className="auth-flow-footer">
+        <div className="auth-code-actions">
+          {method === 'register'
+            ? <Button type="button" variant="ghost" disabled={busy} onClick={() => { setMethod('password'); setError(''); }}>已有账号？登录</Button>
+            : <Button type="button" variant="ghost" disabled={busy} onClick={() => { setMethod('register'); setError(''); }}>没有账号？注册</Button>}
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => { setMethod('code'); setError(''); }}>改用验证码</Button>
+        </div>
+      </div>
+    ) : null}
     {((!ready && error) || (stage === 'code' && !expired)) && (
       <div className="auth-flow-footer">
         {!ready && error ? <Button type="button" variant="ghost" onClick={() => { setError(''); setLoadAttempt(attempt => attempt + 1); }}>重试连接</Button>
@@ -351,7 +403,7 @@ function FlowScreen() {
       </div>
     )}
     <div className="auth-card-subfooter">
-      <p className="auth-card-subfooter-note">由阿里云邮件推送服务投递 · 新邮箱将自动创建账号</p>
+      <p className="auth-card-subfooter-note">{usingPassword ? '忘记密码请改用验证码登录' : '由阿里云邮件推送服务投递 · 新邮箱将自动创建账号'}</p>
       <div className="auth-secured-by">
         <span>Secured by</span>
         <span className="auth-secured-brand">TJUClaw Auth</span>
@@ -372,18 +424,21 @@ function SessionScreen() {
   return <section className="auth-card auth-card-narrow">
     <Heading title={session ? '已安全登录。' : '确认登录状态。'}><p>{session ? '从你眼前的一件事开始。' : '正在确认当前账号。'}</p></Heading>
     {error && <p className="auth-inline-error" role="alert">{error}</p>}
-    {session && <><div className="auth-assurance"><Check size={18} /><span className="auth-email">{session.email}</span></div><a className="auth-primary-link" href="/workspace">进入任务工作区<ArrowRight size={18} /></a><Button variant="ghost" className="auth-logout" disabled={busy} onClick={() => { setBusy(true); setError(''); void logout().catch(cause => { setError(describeError(cause)); setBusy(false); }); }}>{busy ? '正在退出…' : '退出登录'}</Button></>}
+    {session && <><div className="auth-assurance"><Check size={18} /><span className="auth-email">{session.email}</span></div><a className="auth-primary-link" href="/workspace">进入知识工作区<ArrowRight size={18} /></a><Button variant="ghost" className="auth-logout" disabled={busy} onClick={() => { setBusy(true); setError(''); void logout().catch(cause => { setError(describeError(cause)); setBusy(false); }); }}>{busy ? '正在退出…' : '退出登录'}</Button></>}
+
   </section>;
 }
 
 function Help() {
   return <section className="auth-card auth-card-narrow"><a className="auth-back" href="/auth/login"><ArrowLeft size={16} />返回登录</a><Heading title="让登录简单一点。"><p>关于邮箱登录，你可能想知道这些。</p></Heading><div className="auth-help-list">
     <details open><summary>没有收到验证码？</summary><p>邮件由阿里云邮件推送服务投递，请检查邮箱收件箱及垃圾邮件文件夹。受邮件服务商灰名单及过滤规则影响可能稍有延迟，请耐心等待片刻再重发，并使用最新收到的验证码。</p></details>
-    <details><summary>第一次使用，需要注册吗？</summary><p>直接输入常用邮箱。验证后，新邮箱会自动创建账号，已有邮箱会直接登录，无需设置密码。</p></details>
+    <details><summary>第一次使用，需要注册吗？</summary><p>可以直接输入邮箱获取验证码，验证后会自动创建账号。也可以在「密码」里设置密码注册；注册后仍要验证邮箱。</p></details>
+    <details><summary>如何用密码登录？</summary><p>在登录页选择「密码」，输入已验证的邮箱和密码。用验证码注册的账号默认没有密码，请继续用验证码。忘记密码时也请改用验证码，没有单独的重置邮件。</p></details>
     <details><summary>安全验证未完成？</summary><p>点击安全验证并稍等片刻。请保持页面打开，使用较新的浏览器，检查网络连接后重试。</p></details>
     <details><summary>验证过期或换了浏览器？</summary><p>返回登录页重新开始。请在发起验证的浏览器中输入验证码，不要复制验证页面地址到其他设备。</p></details>
-    <details><summary>如何保护账号？</summary><p>不要分享验证码，在公共设备上使用后退出登录。登录不会自动授予教务等校园服务的访问权限。</p></details>
+    <details><summary>如何保护账号？</summary><p>不要分享验证码或密码，在公共设备上使用后退出登录。登录不会自动授予教务等校园服务的访问权限。</p></details>
   </div></section>;
+
 }
 
 export default function Auth() {

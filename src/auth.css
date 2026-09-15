@@ -221,7 +221,8 @@
   .auth-card .auth-switch,
   .auth-card .auth-assurance,
   .auth-card .auth-delivery-help,
-  .auth-card .auth-primary-link {
+  .auth-card .auth-primary-link,
+  .auth-card .auth-secondary-link {
     max-width: 380px;
     margin-inline: auto;
   }
@@ -392,6 +393,27 @@
 .auth-primary-link:hover {
   opacity: 0.9;
 }
+
+.auth-secondary-link {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 550;
+  text-decoration: none;
+  color: var(--foreground);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.auth-secondary-link:hover {
+  background: var(--selected);
+}
+
 
 .auth-switch {
   text-align: center;
@@ -933,12 +955,33 @@
   background: var(--border);
   opacity: 0.8;
 }
-
-.auth-divider-text {
-  font-size: 11px;
-  color: var(--muted-foreground);
-  white-space: nowrap;
+.auth-method-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.auth-method-tabs button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13px;
+}
+.auth-method-tabs button.is-active {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.auth-method-tabs button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.auth-flow-card .auth-input-wrap + .auth-label {
+  margin-top: 10px;
+}
+
+
+
 
 .auth-card-subfooter {
   margin-top: 14px;

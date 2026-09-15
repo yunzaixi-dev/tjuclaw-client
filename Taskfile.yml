@@ -14,10 +14,10 @@ tasks:
     desc: Check development tools
     cmds: ['node --version', 'pnpm --version', 'task --version']
   dev:
-    desc: Run Web client on loopback port 1420
+    desc: Run Web client on loopback port 5173
     cmds: [pnpm run dev]
   web:dev:
-    desc: Run Web client on loopback port 1420
+    desc: Run Web client on loopback port 5173
     cmds: [pnpm run dev]
   web:build:
     desc: Build Web client
@@ -34,7 +34,8 @@ tasks:
       - task: web:build
       - pnpm exec playwright test --config scripts/playwright.config.mjs
   workspace:test:
-    desc: Test task workspace client behavior using isolated mocks
+    desc: Test knowledge workspace client behavior using isolated mocks
+
     cmds:
       - task: web:build
       - pnpm exec playwright test --config scripts/workspace.playwright.config.mjs {{.CLI_ARGS}}

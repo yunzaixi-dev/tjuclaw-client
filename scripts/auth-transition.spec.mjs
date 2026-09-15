@@ -7,6 +7,16 @@ const reply = (route, body, status = 200) => route.fulfill({ status, contentType
 async function solveForUI(page) {
   await page.locator('cap-widget').evaluate(element => EventTarget.prototype.dispatchEvent.call(element, new CustomEvent('solve', { detail: { token: 'ui-contract-only' } })));
 }
+test('welcome offers a visible password login', async ({ page }) => {
+  await page.route('**/api/auth/flow', route => reply(route, fresh));
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: '使用密码登录' })).toBeVisible();
+  await page.getByRole('link', { name: '使用密码登录' }).click();
+  await expect(page.getByLabel('密码', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '登录', exact: true })).toBeVisible();
+});
+
+
 for (const route of ['/auth/login', '/auth/registration']) {
   test(`${route}: slow flow preserves editable email and requires Cap`, async ({ page }) => {
     let release;
@@ -34,6 +44,27 @@ for (const route of ['/auth/login', '/auth/registration']) {
     expect(posts).toBe(1);
   });
 }
+test('password tab posts credentials and keeps OTP as default', async ({ page }) => {
+  let passwordPosts = 0;
+  let startPosts = 0;
+  await page.route('**/api/auth/flow', route => reply(route, fresh));
+  await page.route('**/api/auth/password', route => {
+    passwordPosts++;
+    return reply(route, { error: { id: 'invalid_credentials' } }, 400);
+  });
+  await page.route('**/api/auth/start', route => { startPosts++; return reply(route, pending()); });
+  await page.goto('/auth/login');
+  await expect(page.getByRole('button', { name: '获取验证码', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '密码' }).click();
+  await page.getByLabel('邮箱地址', { exact: true }).fill('student@tju.edu.cn');
+  await page.getByLabel('密码', { exact: true }).fill('correcthorse');
+  await solveForUI(page);
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('邮箱或密码不正确');
+  expect(passwordPosts).toBe(1);
+  expect(startPosts).toBe(0);
+});
+
 test('restored OTP has no error until a rejected submission', async ({ page }) => {
   await page.route('**/api/auth/flow', route => reply(route, pending()));
   await page.route('**/api/auth/verify', route => reply(route, { error: { id: 'invalid_code' } }, 400));

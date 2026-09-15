@@ -1,360 +1,473 @@
-import { useEffect, useEffectEvent, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Bot, ChevronRight, File, FileText, Loader2, Monitor, Moon, PanelLeft, Plus, Search, Send, Settings, Share2, Store, Sun, Trash2, Upload } from 'lucide-react';
 import { BrandIcon } from './components/brand-icon';
-import { ArrowLeft, Clock, Info, Layers, Loader2, Monitor, Moon, RefreshCw, Server, Shield, Sparkles, Sun, User, Users } from 'lucide-react';
 import { Button } from './components/ui/button';
-import { RunSection } from './components/run-section';
-import { DailyToolsSelector } from './components/daily-tools-selector';
-import { BotCreator, type BotTemplate } from './components/bot-creator';
-import { RoutinesManager } from './components/routines-manager';
-import { ComputerUseTrackpad } from './components/computer-use-trackpad';
-import { GroupChatPicker, type GroupChatSession } from './components/group-chat-picker';
-import { SettingsAndPluginsView } from './components/settings-plugins';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { setAppearance, useAppearance } from './lib/appearance';
-import { logout, readSession, type IdentitySession } from './lib/auth';
-import { listRuns, type Run } from './lib/runs';
-import { createTask, describeTaskError, getTask, listTasks, type Task } from './lib/tasks';
+import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
+import {
+  clearModel,
+  createEntry,
+  createLibrary,
+  createSession,
+  deleteEntry,
+  deleteLibrary,
+  describeLibraryError,
+  downloadFile,
+  getEntry,
+  getModel,
+  getSession,
+  listEntries,
+  listLibraries,
+  listMarket,
+  listPublications,
+  listSessions,
+  patchEntry,
+  publishLibrary,
+  putModel,
+  renameLibrary,
+  searchNotes,
+  sendMessage,
+  subscribePublication,
+  uploadFile,
+  withdrawPublication,
+  type ChatSession,
+  type Entry,
+  type Library,
+  type ModelStatus,
+  type Publication,
+  type SearchHit,
+} from './lib/library';
+
 import './product.css';
-import './retro-pixel.css';
 import './workspace.css';
+
+function isUnauthorized(error: unknown) {
+  return error instanceof AuthError && error.status === 401;
+}
 
 export default function Workspace() {
   const appearance = useAppearance();
   const [session, setSession] = useState<IdentitySession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
-
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [tasksError, setTasksError] = useState('');
-
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState('');
-
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [runsLoading, setRunsLoading] = useState(false);
-  const [runsError, setRunsError] = useState('');
-
-  const [prompt, setPrompt] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-
+  const [libraries, setLibraries] = useState<Library[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [libraryId, setLibraryId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Entry | null>(null);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [chat, setChat] = useState<ChatSession | null>(null);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [model, setModel] = useState<ModelStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [newLibraryName, setNewLibraryName] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
+  const [market, setMarket] = useState<Publication[]>([]);
+  const [publications, setPublications] = useState<Publication[]>([]);
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Retro cyber-pixel extension tabs: 'tasks' | 'tools' | 'bots' | 'routines' | 'trackpad' | 'groups' | 'settings'
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<
-    'tasks' | 'tools' | 'bots' | 'routines' | 'trackpad' | 'groups' | 'settings'
-  >('tasks');
+
 
   const activeUserIdRef = useRef<string | null>(null);
   const closingRef = useRef(false);
   const sessionSeqRef = useRef(0);
-  const listAbortRef = useRef<AbortController | null>(null);
-  const listSeqRef = useRef(0);
-  const detailAbortRef = useRef<AbortController | null>(null);
-  const detailSeqRef = useRef(0);
-  const runsAbortRef = useRef<AbortController | null>(null);
-  const runsSeqRef = useRef(0);
-  const createAbortRef = useRef<AbortController | null>(null);
-  const createSeqRef = useRef(0);
+  const saveTimer = useRef<number>(0);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  function resetPrivateState(clearPrompt = true) {
-    listAbortRef.current?.abort();
-    detailAbortRef.current?.abort();
-    runsAbortRef.current?.abort();
-    createAbortRef.current?.abort();
-    listSeqRef.current++;
-    detailSeqRef.current++;
-    runsSeqRef.current++;
-    createSeqRef.current++;
+  function resetPrivateState() {
+    setLibraries([]);
+    setEntries([]);
+    setLibraryId(null);
+    setSelectedId(null);
+    setSelected(null);
+    setTitle('');
+    setBody('');
+    setChat(null);
+    setDraft('');
+    setError('');
+    setModel(null);
+    setBaseUrl('');
+    setApiKey('');
+    setModelName('');
+    setMarket([]);
+    setPublications([]);
+    setQuery('');
+    setHits([]);
+  }
 
-    setTasks([]);
-    setSelectedTaskId(null);
-    setSelectedTask(null);
-    setRuns([]);
-    setRunsError('');
-    setRunsLoading(false);
-    setTasksError('');
-    setTasksLoading(false);
-    setDetailLoading(false);
-    setDetailError('');
-    setSubmitError('');
-    setSubmitting(false);
-    if (clearPrompt) {
-      setPrompt('');
+
+  function fail(err: unknown) {
+    setError(describeLibraryError(err));
+    if (isUnauthorized(err)) {
+      resetPrivateState();
+      location.replace('/auth/login');
     }
   }
 
-  // Session management
   useEffect(() => {
     let unmounted = false;
-    let inFlightController: AbortController | null = null;
-
+    let inFlight: AbortController | null = null;
     async function checkSession() {
       if (closingRef.current) return;
-      inFlightController?.abort();
+      inFlight?.abort();
       const controller = new AbortController();
-      inFlightController = controller;
+      inFlight = controller;
       const seq = ++sessionSeqRef.current;
-
       try {
         const next = await readSession(controller.signal);
         if (unmounted || controller.signal.aborted || seq !== sessionSeqRef.current) return;
         if (!next) {
-          resetPrivateState(true);
+          resetPrivateState();
           location.replace('/auth/login');
           return;
         }
-
-        if (activeUserIdRef.current && activeUserIdRef.current !== next.id) {
-          resetPrivateState(true);
-        }
+        if (activeUserIdRef.current && activeUserIdRef.current !== next.id) resetPrivateState();
         activeUserIdRef.current = next.id;
         setSession(next);
       } catch {
         if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) {
-          resetPrivateState(true);
+          resetPrivateState();
           location.replace('/auth/login');
         }
       } finally {
-        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) {
-          setSessionLoading(false);
-        }
+        if (!unmounted && !controller.signal.aborted && seq === sessionSeqRef.current) setSessionLoading(false);
       }
     }
-
     void checkSession();
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void checkSession();
-    };
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkSession(); };
     document.addEventListener('visibilitychange', onVisible);
     const timer = window.setInterval(() => void checkSession(), 60000);
-
     return () => {
       unmounted = true;
-      inFlightController?.abort();
+      inFlight?.abort();
       document.removeEventListener('visibilitychange', onVisible);
       clearInterval(timer);
-      resetPrivateState(false);
+      resetPrivateState();
     };
   }, []);
 
-  function loadTasks() {
-    if (closingRef.current) return;
-    listAbortRef.current?.abort();
-    const controller = new AbortController();
-    listAbortRef.current = controller;
-    const seq = ++listSeqRef.current;
-    const currentUserId = activeUserIdRef.current;
+  const loadWorkspace = useEffectEvent(async () => {
+    if (!activeUserIdRef.current) return;
+    const user = activeUserIdRef.current;
+    try {
+      const libs = await listLibraries();
+      if (user !== activeUserIdRef.current) return;
+      setLibraries(libs);
+      const current = libs.find(item => item.id === libraryId) ?? libs[0];
+      try {
+        setModel(await getModel());
+      } catch (err) {
+        if (user !== activeUserIdRef.current) return;
+        fail(err);
+      }
+      if (!current) {
+        setEntries([]);
+        return;
+      }
+      setLibraryId(current.id);
+      const tree = await listEntries(current.id);
+      if (user !== activeUserIdRef.current) return;
+      setEntries(tree);
+      const nextId = selectedId && tree.some(item => item.id === selectedId) ? selectedId : tree[0]?.id ?? null;
 
-    setTasksLoading(true);
-    setTasksError('');
+      if (nextId) void openEntry(nextId);
 
-    listTasks(controller.signal)
-      .then(res => {
-        if (controller.signal.aborted || seq !== listSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        setTasks(res);
-        // If a task is already selected, make sure it's in list or refresh detail
-        if (selectedTaskId) {
-          const found = res.find(t => t.id === selectedTaskId);
-          if (found) setSelectedTask(found);
-        } else if (res.length > 0) {
-          // Default select the first task
-          selectTask(res[0].id);
-        }
-      })
-      .catch(err => {
-        if (controller.signal.aborted || seq !== listSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        const msg = describeTaskError(err);
-        setTasksError(msg);
-        if (typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 401) {
-          resetPrivateState(true);
-          location.replace('/auth/login');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && seq === listSeqRef.current && currentUserId === activeUserIdRef.current) {
-          setTasksLoading(false);
-        }
-      });
-  }
-
-  function loadRuns(taskId: string) {
-    if (closingRef.current) return;
-    runsAbortRef.current?.abort();
-    const controller = new AbortController();
-    runsAbortRef.current = controller;
-    const seq = ++runsSeqRef.current;
-    const currentUserId = activeUserIdRef.current;
-
-    setRunsLoading(true);
-    setRunsError('');
-
-    listRuns(taskId, controller.signal)
-      .then(res => {
-        if (controller.signal.aborted || seq !== runsSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        setRuns(res);
-      })
-      .catch(err => {
-        if (controller.signal.aborted || seq !== runsSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        // If 404, or feature not ready, gracefully handle
-        if (typeof err === 'object' && err !== null && 'status' in err) {
-          const status = (err as { status: number }).status;
-          if (status === 401) {
-            resetPrivateState(true);
-            location.replace('/auth/login');
-            return;
-          }
-          if (status === 404) {
-            // Task not found or runs route not implemented yet
-            setRuns([]);
-            return;
-          }
-        }
-        setRunsError('获取执行列表失败');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && seq === runsSeqRef.current && currentUserId === activeUserIdRef.current) {
-          setRunsLoading(false);
-        }
-      });
-  }
-
-  function selectTask(id: string) {
-    if (closingRef.current) return;
-    setSelectedTaskId(id);
-    const cached = tasks.find(t => t.id === id);
-    if (cached) {
-      setSelectedTask(cached);
+    } catch (err) {
+      if (user !== activeUserIdRef.current) return;
+      fail(err);
     }
+  });
 
-    detailAbortRef.current?.abort();
-    const controller = new AbortController();
-    detailAbortRef.current = controller;
-    const seq = ++detailSeqRef.current;
-    const currentUserId = activeUserIdRef.current;
-
-    setDetailLoading(true);
-    setDetailError('');
-
-    // Also fetch runs for this task
-    loadRuns(id);
-
-    getTask(id, controller.signal)
-      .then(task => {
-        if (controller.signal.aborted || seq !== detailSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        setSelectedTask(task);
-      })
-      .catch(err => {
-        if (controller.signal.aborted || seq !== detailSeqRef.current || currentUserId !== activeUserIdRef.current) {
-          return;
-        }
-        setDetailError(describeTaskError(err));
-        if (typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 401) {
-          resetPrivateState(true);
-          location.replace('/auth/login');
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && seq === detailSeqRef.current && currentUserId === activeUserIdRef.current) {
-          setDetailLoading(false);
-        }
-      });
-  }
-
-  const loadSessionTasks = useEffectEvent(() => loadTasks());
   const sessionID = session?.id;
   useEffect(() => {
     if (!sessionID) return;
-    loadSessionTasks();
-    return () => {
-      listAbortRef.current?.abort();
-    };
+    void loadWorkspace();
   }, [sessionID]);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (submitting || closingRef.current) return;
-
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-
-    createAbortRef.current?.abort();
-    const controller = new AbortController();
-    createAbortRef.current = controller;
-    const seq = ++createSeqRef.current;
-    const currentUserId = activeUserIdRef.current;
-
-    setSubmitting(true);
-    setSubmitError('');
-
+  async function openEntry(id: string) {
+    const user = activeUserIdRef.current;
+    setSelectedId(id);
     try {
-      const newTask = await createTask(trimmed, controller.signal);
-      if (controller.signal.aborted || seq !== createSeqRef.current || currentUserId !== activeUserIdRef.current) {
-        return;
+      const entry = await getEntry(id);
+      if (user !== activeUserIdRef.current) return;
+      setSelected(entry);
+      setTitle(entry.title);
+      setBody(entry.body ?? '');
+      setError('');
+      if (entry.kind === 'agent') {
+        if (libraries.find(item => item.id === entry.library_id)?.role === 'subscribed') {
+          setChat(null);
+        } else {
+          const sessions = await listSessions(id);
+          if (user !== activeUserIdRef.current) return;
+          const current = sessions[0] ?? await createSession(id);
+          const full = current.messages ? current : await getSession(current.id);
+          if (user !== activeUserIdRef.current) return;
+          setChat(full);
+        }
+      } else {
+        setChat(null);
       }
-      listAbortRef.current?.abort();
-      detailAbortRef.current?.abort();
-      listSeqRef.current++;
-      detailSeqRef.current++;
-      setTasksLoading(false);
-      setDetailLoading(false);
-      setTasks(prev => [newTask, ...prev]);
-      setSelectedTaskId(newTask.id);
-      setSelectedTask(newTask);
-      setPrompt('');
+
     } catch (err) {
-      if (controller.signal.aborted || seq !== createSeqRef.current || currentUserId !== activeUserIdRef.current) {
-        return;
-      }
-      setSubmitError(describeTaskError(err));
-      if (typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 401) {
-        resetPrivateState(true);
-        location.replace('/auth/login');
-      }
+      if (user !== activeUserIdRef.current) return;
+      fail(err);
+    }
+  }
+
+  function queueSave(nextTitle: string, nextBody: string) {
+    if (!selected || selected.kind === 'agent' || selected.kind === 'file') return;
+    if (libraries.find(item => item.id === libraryId)?.role === 'subscribed') return;
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      void patchEntry(selected.id, { title: nextTitle, body: nextBody }).then(entry => {
+        if (activeUserIdRef.current) {
+          setSelected(entry);
+          setEntries(prev => prev.map(item => item.id === entry.id ? { ...item, title: entry.title } : item));
+        }
+      }).catch(fail);
+    }, 500);
+  }
+
+  async function handleCreate(kind: 'note' | 'agent' | 'work_env') {
+    if (!libraryId || busy || libraries.find(item => item.id === libraryId)?.role === 'subscribed') return;
+    setBusy(true);
+    try {
+      const parent_id = selected?.kind === 'note' ? selected.id : undefined;
+      const title = kind === 'agent' ? '未命名智能体' : kind === 'work_env' ? '未命名工作环境' : '未命名笔记';
+      const entry = await createEntry(libraryId, { kind, title, parent_id });
+      setEntries(prev => [...prev, entry]);
+      await openEntry(entry.id);
+    } catch (err) {
+      fail(err);
     } finally {
-      if (!controller.signal.aborted && seq === createSeqRef.current && currentUserId === activeUserIdRef.current) {
-        setSubmitting(false);
+      setBusy(false);
+    }
+  }
+
+
+  async function handleDelete() {
+    if (!selected) return;
+    try {
+      await deleteEntry(selected.id);
+      setSelected(null);
+      setSelectedId(null);
+      await loadWorkspace();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleChat(event: FormEvent) {
+    event.preventDefault();
+    if (!chat || busy || !draft.trim() || model?.source === 'none') return;
+    const content = draft;
+    setBusy(true);
+    try {
+      const next = await sendMessage(chat.id, content);
+      if (activeUserIdRef.current) {
+        setChat(next);
+        setDraft('');
+        await loadWorkspace();
       }
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+  async function handleCreateLibrary(event: FormEvent) {
+    event.preventDefault();
+    const name = newLibraryName.trim();
+    if (!name) return;
+    try {
+      const lib = await createLibrary(name);
+      setNewLibraryName('');
+      setLibraryId(lib.id);
+      setSelectedId(null);
+      setLibraries(prev => [...prev, lib]);
+      const tree = await listEntries(lib.id);
+      setEntries(tree);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handlePublish() {
+    if (!libraryId || busy) return;
+    setBusy(true);
+    try {
+      await publishLibrary(libraryId);
+      setPublications(await listPublications(libraryId));
+      setError('');
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openMarket() {
+    setMarketOpen(true);
+    try {
+      setMarket(await listMarket());
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleSubscribe(id: string) {
+    try {
+      await subscribePublication(id);
+      setMarketOpen(false);
+      await loadWorkspace();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleSearch(value: string) {
+    setQuery(value);
+    if (!libraryId || !value.trim()) {
+      setHits([]);
+      return;
+    }
+    try {
+      setHits(await searchNotes(libraryId, value.trim()));
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleUpload(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file || !libraryId || libraries.find(item => item.id === libraryId)?.role === 'subscribed') return;
+    try {
+      const parent_id = selected?.kind === 'note' ? selected.id : undefined;
+      const entry = await uploadFile(libraryId, file, parent_id);
+      setEntries(prev => [...prev, entry]);
+      await openEntry(entry.id);
+    } catch (err) {
+      fail(err);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+
+  async function openSettings() {
+    setSettingsOpen(true);
+    try {
+      setModel(await getModel());
+      if (libraryId && libraries.find(item => item.id === libraryId)?.role !== 'subscribed') {
+        setPublications(await listPublications(libraryId));
+      }
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleRenameLibrary() {
+    if (!libraryId || !newLibraryName.trim()) return;
+    try {
+      const lib = await renameLibrary(libraryId, newLibraryName.trim());
+      setNewLibraryName('');
+      setLibraries(prev => prev.map(item => item.id === lib.id ? lib : item));
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+
+  async function handleDeleteLibrary() {
+    if (!libraryId) return;
+    try {
+      await deleteLibrary(libraryId);
+      setLibraryId(null);
+      setSelected(null);
+      setSelectedId(null);
+      await loadWorkspace();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleWithdraw(id: string) {
+    try {
+      await withdrawPublication(id);
+      if (libraryId) setPublications(await listPublications(libraryId));
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function handleUnsubscribe() {
+    if (!libraryId) return;
+    try {
+      await deleteLibrary(libraryId);
+      setLibraryId(null);
+      setSelected(null);
+      setSelectedId(null);
+      await loadWorkspace();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+
+  async function handleSaveModel(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await putModel({ base_url: baseUrl.trim(), api_key: apiKey.trim(), model: modelName.trim() || undefined });
+      setApiKey('');
+      setModel(await getModel());
+    } catch (err) {
+      fail(err);
     }
   }
 
   async function handleLogout() {
-    if (closingRef.current) return;
     closingRef.current = true;
     sessionSeqRef.current++;
     activeUserIdRef.current = null;
-    resetPrivateState(true);
+    resetPrivateState();
     setSession(null);
     setLoggingOut(true);
     try {
       await logout();
-      resetPrivateState(true);
-      location.replace('/auth/login');
-    } catch {
-      resetPrivateState(true);
+    } finally {
       location.replace('/auth/login');
     }
   }
 
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [chat?.messages?.length]);
+
+  const currentLibrary = libraries.find(item => item.id === libraryId) ?? libraries[0];
+  const readOnly = currentLibrary?.role === 'subscribed';
+  const roots = useMemo(() => entries.filter(item => !item.parent_id), [entries]);
+
+
   if (sessionLoading || !session) {
     return (
       <div className="workspace-shell">
-        <main className="workspace-main">
-          <div className="workspace-loading-box" role="status" aria-label="正在确认登录状态">
-            <Loader2 className="animate-spin" size={24} />
-            <span style={{ marginLeft: 12 }}>正在加载任务工作区…</span>
+        <main className="workspace-stage">
+          <div className="workspace-loading" role="status" aria-label="正在确认登录状态">
+            <Loader2 className="animate-spin" size={22} />
+            正在打开知识工作区…
           </div>
         </main>
       </div>
@@ -362,383 +475,281 @@ export default function Workspace() {
   }
 
   return (
-    <div className="workspace-shell">
-      <header className="workspace-header">
-        <div className="workspace-header-inner">
-          <a href="/workspace" className="workspace-brand">
-            <BrandIcon size={44} className="workspace-brand-badge" />
-            <span className="workspace-title">任务工作区</span>
-          </a>
-
-          <div className="workspace-header-actions">
-            <Button
-              variant="floating"
-              size="icon"
-              aria-label={appearance.resolved === 'dark' ? '切换浅色外观' : '切换深色外观'}
-              onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}
+    <div className="workspace-shell" data-sidebar={sidebarOpen ? 'open' : 'closed'}>
+      <aside className="workspace-sidebar" aria-label="知识库">
+        <div className="workspace-switcher">
+          <BrandIcon size={28} className="workspace-switcher-mark" label="TJUClaw" />
+          <label className="workspace-switcher-label">
+            <span className="sr-only">当前知识库</span>
+            <select
+              value={currentLibrary?.id ?? ''}
+              onChange={event => {
+                setLibraryId(event.target.value);
+                setSelectedId(null);
+                setSelected(null);
+                setQuery('');
+                setHits([]);
+                void listEntries(event.target.value).then(setEntries).catch(fail);
+              }}
             >
-              {appearance.resolved === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            </Button>
-            <a href="/app" className="workspace-nav-link" aria-label="返回账号中心">
-              <User size={16} />
-              <span>账号中心</span>
-            </a>
-            <Button
-              variant="ghost"
-              size="default"
-              disabled={loggingOut}
-              onClick={handleLogout}
-              aria-label="退出登录"
-            >
-              {loggingOut ? '正在退出…' : '退出登录'}
-            </Button>
-          </div>
+              {libraries.map(lib => <option key={lib.id} value={lib.id}>{lib.role === 'subscribed' ? `${lib.name}（只读）` : lib.name}</option>)}
+            </select>
+          </label>
         </div>
-      </header>
-
-      <main className="workspace-main">
-        <div className="workspace-state-banner">
-          <div className="workspace-banner-content">
-            <div className="workspace-banner-text">
-              <Info size={18} className="workspace-banner-icon" />
-              <span>
-                <strong>草稿捕获阶段：</strong>
-                任务已保存到服务器；执行功能尚未接入。
-              </span>
-            </div>
-            <a href="/app" className="workspace-banner-link">
-              查看账号与设置
-              <ArrowLeft size={14} style={{ transform: 'rotate(180deg)' }} />
-            </a>
-          </div>
+        <label className="workspace-search">
+          <Search size={14} />
+          <span className="sr-only">检索笔记</span>
+          <input value={query} onChange={event => void handleSearch(event.target.value)} placeholder="检索笔记" />
+        </label>
+        <div className="workspace-tree" role="tree" aria-label="条目">
+          {query.trim() ? (
+            hits.length === 0 ? <p className="workspace-tree-empty">没有匹配的笔记。</p> : hits.map(hit => (
+              <button key={hit.id} type="button" className="workspace-tree-item" onClick={() => void openEntry(hit.id)}>
+                <FileText size={15} />
+                <span>{hit.title}</span>
+              </button>
+            ))
+          ) : (
+            <>
+              {roots.length === 0 ? <p className="workspace-tree-empty">还没有条目。先建一篇笔记，或打开新手向导。</p> : null}
+              {roots.map(entry => (
+                <TreeItem
+                  key={entry.id}
+                  entry={entry}
+                  entries={entries}
+                  selectedId={selectedId}
+                  onSelect={id => void openEntry(id)}
+                />
+              ))}
+            </>
+          )}
         </div>
+        {readOnly ? null : (
+          <div className="workspace-sidebar-actions">
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleCreate('note')} disabled={busy}>
+              <Plus size={16} /> 新建笔记
+            </Button>
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleCreate('agent')} disabled={busy}>
+              <Bot size={16} /> 新建智能体
+            </Button>
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleCreate('work_env')} disabled={busy}>
+              <Monitor size={16} /> 新建工作环境
+            </Button>
 
-        {/* Cyber-Pixel Navigation Toolbar across feature surfaces */}
-        <nav className="cyber-tab-list my-4" aria-label="工作区功能切换">
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'tasks'}
-            onClick={() => setActiveWorkspaceTab('tasks')}
-          >
-            <Clock size={13} />
-            任务清单 (Tasks)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'tools'}
-            onClick={() => setActiveWorkspaceTab('tools')}
-          >
-            <Layers size={13} />
-            日常工具 (Daily Tools)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'bots'}
-            onClick={() => setActiveWorkspaceTab('bots')}
-          >
-            <Sparkles size={13} />
-            智能体原型 (Bot Studio)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'routines'}
-            onClick={() => setActiveWorkspaceTab('routines')}
-          >
-            <Server size={13} />
-            例行与MCP (Routines)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'trackpad'}
-            onClick={() => setActiveWorkspaceTab('trackpad')}
-          >
-            <Monitor size={13} />
-            沙箱触控板 (Computer Use)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'groups'}
-            onClick={() => setActiveWorkspaceTab('groups')}
-          >
-            <Users size={13} />
-            多Bot协同 (Group Chat)
-          </button>
-          <button
-            type="button"
-            className="cyber-tab-item"
-            aria-selected={activeWorkspaceTab === 'settings'}
-            onClick={() => setActiveWorkspaceTab('settings')}
-          >
-            <Shield size={13} />
-            安全与插件 (Security)
-          </button>
-        </nav>
-
-        {activeWorkspaceTab === 'tools' && (
-          <div className="my-2">
-            <DailyToolsSelector
-              onContinue={selectedTools => {
-                if (selectedTools.length) {
-                  setPrompt(`已连接日常生产力工具: ${selectedTools.join(', ')}。请分析日程与学习计划。`);
-                }
-                setActiveWorkspaceTab('tasks');
-              }}
-            />
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+              <Upload size={16} /> 上传文件
+            </Button>
+            <input ref={fileInputRef} type="file" className="sr-only" onChange={event => void handleUpload(event.target.files)} />
           </div>
         )}
 
-        {activeWorkspaceTab === 'bots' && (
-          <div className="my-2">
-            <BotCreator
-              onSelectTemplate={(template: BotTemplate) => {
-                setPrompt(template.suggestedPrompt);
-                setActiveWorkspaceTab('tasks');
-              }}
-              onCreateCustom={(name, promptText) => {
-                setPrompt(`[智能体: ${name}]\n${promptText}`);
-                setActiveWorkspaceTab('tasks');
-              }}
-            />
+        <div className="workspace-sidebar-foot">
+          <Button variant="ghost" className="workspace-plain-btn" onClick={() => void openSettings()} aria-label="设置">
+            <Settings size={16} /> 设置
+          </Button>
+          <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleLogout()} disabled={loggingOut}>
+            退出
+          </Button>
+        </div>
+      </aside>
+
+      <div className="workspace-stage">
+        <header className="workspace-topbar">
+          <Button variant="ghost" size="icon" className="workspace-icon-btn" aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'} onClick={() => setSidebarOpen(open => !open)}>
+            <PanelLeft size={18} />
+          </Button>
+          <h1>{currentLibrary?.name || '知识工作区'}{readOnly ? '（只读）' : ''}</h1>
+          {readOnly ? null : (
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handlePublish()} disabled={busy} aria-label="发布当前知识库">
+              <Share2 size={16} /> 发布
+            </Button>
+          )}
+          <Button variant="ghost" className="workspace-plain-btn" onClick={() => void openMarket()} aria-label="打开市场">
+            <Store size={16} /> 市场
+          </Button>
+          {readOnly ? (
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleUnsubscribe()} aria-label="移出接入">
+              移出接入
+            </Button>
+          ) : null}
+
+          {selected && !readOnly ? (
+            <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handleDelete()} aria-label="删除当前条目">
+              <Trash2 size={16} /> 删除
+            </Button>
+          ) : null}
+
+        </header>
+
+        {error ? <p className="workspace-error" role="alert">{error}</p> : null}
+
+        {!selected ? (
+          <div className="workspace-empty">
+            <p>从左侧打开一篇笔记，或新建条目。智能体打开后是对话，不是编辑器。</p>
           </div>
-        )}
-
-        {activeWorkspaceTab === 'routines' && (
-          <div className="my-2">
-            <RoutinesManager />
-          </div>
-        )}
-
-        {activeWorkspaceTab === 'trackpad' && (
-          <div className="my-2">
-            <ComputerUseTrackpad
-              onPaste={text => {
-                setPrompt(prev => (prev ? `${prev}\n${text}` : text));
-              }}
-            />
-          </div>
-        )}
-
-        {activeWorkspaceTab === 'groups' && (
-          <div className="my-2">
-            <GroupChatPicker
-              onCreatedGroup={(group: GroupChatSession) => {
-                setPrompt(`[多智能体群聊: ${group.name}]\n协同成员: ${group.botIds.join(', ')}\n初始议题: 请各位智能体就当前任务目标展开研讨。`);
-                setActiveWorkspaceTab('tasks');
-              }}
-            />
-          </div>
-        )}
-
-        {activeWorkspaceTab === 'settings' && (
-          <div className="my-2">
-            <SettingsAndPluginsView />
-          </div>
-        )}
-
-        {activeWorkspaceTab === 'tasks' && (
-        <div className="workspace-content-grid">
-          {/* Left Column: Create task & Task List */}
-          <div className="workspace-panel">
-            <h1 className="workspace-panel-title">任务工作区</h1>
-            <p className="workspace-panel-desc">
-              记录和整理你需要推进的校园任务与目标。
-            </p>
-
-            <form className="workspace-form" onSubmit={handleSubmit}>
-              <div className="workspace-form-group">
-                <div className="workspace-form-label-row">
-                  <label htmlFor="task-prompt" className="workspace-form-label">
-                    任务目标
-                  </label>
-                  <span className="workspace-char-count">{prompt.length}/4000</span>
-                </div>
-                <div className="workspace-composer-box">
-                  <textarea
-                    id="task-prompt"
-                    name="task-prompt"
-                    className="workspace-textarea"
-                    placeholder="描述你想要完成的事情或目标（如：整理下周计算机网络课程的复习提纲）…"
-                    value={prompt}
-                    onChange={e => {
-                      setPrompt(e.target.value);
-                      if (submitError) setSubmitError('');
-                    }}
-                    disabled={submitting}
-                    rows={4}
-                    maxLength={4000}
-                    required
-                  />
-                  <div className="workspace-composer-footer">
-                    <span className="workspace-composer-hint">支持 1~4000 字符</span>
-                    <Button
-                      type="submit"
-                      variant="solid"
-                      disabled={submitting || !prompt.trim()}
-                      aria-label="保存任务"
-                      className="workspace-submit-btn"
-                    >
-                      {submitting ? '正在保存…' : '保存任务'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {submitError && (
-                <div className="workspace-inline-error" role="alert">
-                  {submitError}
-                </div>
-              )}
-            </form>
-
-            <div className="workspace-tasks-header">
-              <span className="workspace-tasks-heading">已捕获目标</span>
-              <span className="workspace-tasks-count">
-                {tasks.length} 条记录
-              </span>
-            </div>
-
-            {tasksLoading && tasks.length === 0 && (
-              <div className="workspace-loading-box" role="status">
-                <Loader2 className="animate-spin" size={18} />
-                <span style={{ marginLeft: 8 }}>加载列表中…</span>
-              </div>
-            )}
-
-            {tasksError && (
-              <div className="workspace-inline-error" role="alert" style={{ marginBottom: 12 }}>
-                {tasksError}
-                <Button
-                  variant="ghost"
-                  size="default"
-                  onClick={loadTasks}
-                  style={{ marginTop: 8, padding: '4px 8px', height: 'auto' }}
-                >
-                  <RefreshCw size={14} /> 重试
-                </Button>
-              </div>
-            )}
-
-            {!tasksLoading && tasks.length === 0 && !tasksError && (
-              <div className="workspace-empty-state">
-                <p>还没有保存的任务</p>
-                <small>在上方输入目标并点击“保存任务”开始记录。</small>
-              </div>
-            )}
-
-            <ul className="workspace-task-list" role="list" aria-label="任务列表">
-              {tasks.map(t => {
-                const isSelected = t.id === selectedTaskId;
-                return (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      className={`workspace-task-item ${isSelected ? 'active' : ''}`}
-                      onClick={() => selectTask(t.id)}
-                      aria-current={isSelected ? 'true' : undefined}
-                    >
-                      <div className="workspace-task-item-top">
-                        <span className="workspace-task-item-title">{t.title}</span>
-                        <span className="workspace-badge-draft">已保存</span>
-                      </div>
-                      <span className="workspace-task-item-snippet">{t.prompt}</span>
-                      <span className="workspace-task-item-time">
-                        {new Date(t.created_at).toLocaleString('zh-CN', {
-                          month: 'numeric',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {/* Right Column: Task Detail */}
-          <div className="workspace-panel workspace-detail-panel">
-            {detailLoading && !selectedTask ? (
-              <div className="workspace-loading-box" role="status">
-                <Loader2 className="animate-spin" size={24} />
-                <span style={{ marginLeft: 12 }}>正在加载任务详情…</span>
-              </div>
-            ) : selectedTask ? (
-              <div>
-                <div className="workspace-detail-header">
-                  <div>
-                    <h2 className="workspace-detail-title">{selectedTask.title}</h2>
-                    <div className="workspace-detail-meta">
-                      <span className="workspace-badge-draft">已保存</span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Clock size={13} />
-                        {new Date(selectedTask.created_at).toLocaleString('zh-CN', {
-                          year: 'numeric',
-                          month: 'numeric',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="workspace-detail-content">
-                  <div className="workspace-detail-section-title">详细要求与提示</div>
-                  <div className="workspace-prompt-box">
-                    {selectedTask.prompt}
-                  </div>
-
-                  <div className="workspace-detail-disclaimer">
-                    <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-                    <div>
-                      <strong>关于任务状态说明：</strong>
-                      <p style={{ marginTop: 4 }}>
-                        当前系统处于第一阶段（任务目标捕获），该任务处于“已保存 (draft)”状态。后台执行引擎与自主规划模型开发中，暂不提供完成打勾、自动重试或生成式执行结果。
-                      </p>
-                    </div>
-                  </div>
-
-                  <RunSection
-                    taskId={selectedTask.id}
-                    runs={runs}
-                    loading={runsLoading}
-                    error={runsError}
-                    onRefresh={() => loadRuns(selectedTask.id)}
-                    onRunUpdated={updated => {
-                      setRuns(prev => prev.map(r => (r.id === updated.id ? updated : r)));
-                    }}
-                    onRunCreated={created => {
-                      setRuns(prev => [created, ...prev]);
-                    }}
-                  />
-                </div>
-              </div>
+        ) : selected.kind === 'agent' ? (
+          <section className="workspace-chat" aria-label="智能体会话">
+            <header className="workspace-doc-head">
+              <Bot size={18} />
+              <h2>{selected.title || '未命名智能体'}</h2>
+            </header>
+            {readOnly ? (
+              <p className="workspace-tree-empty">这是接入快照里的智能体，只能查看，不能在这里对话。</p>
             ) : (
-              <div className="workspace-detail-empty">
-                <BrandIcon size={64} className="workspace-empty-brand" />
-                <p>未选择任务</p>
-                <small>从左侧列表中选择一个任务查看详情，或新建一个任务目标。</small>
-              </div>
+              <>
+                <div className="workspace-transcript">
+                  {(chat?.messages ?? []).filter(message => (message.role === 'user' || message.role === 'assistant') && message.content).length === 0 && model?.source === 'none' ? (
+                    <p className="workspace-tree-empty">还没有可用的模型。先在设置里填自己的公网 HTTPS 上游，或先去写笔记。</p>
+                  ) : null}
+                  {(chat?.messages ?? []).filter(message => (message.role === 'user' || message.role === 'assistant') && message.content).map((message, index) => (
+                    <p key={`${message.created_at}-${index}`} className={`workspace-bubble is-${message.role}`}>{message.content}</p>
+                  ))}
+                  <div ref={chatEndRef} />
+                </div>
+                <form className="workspace-composer" onSubmit={handleChat}>
+                  <label className="sr-only" htmlFor="chat-draft">发给智能体</label>
+                  <textarea id="chat-draft" value={draft} onChange={event => setDraft(event.target.value)} placeholder={model?.source === 'none' ? '先配置模型…' : '写给智能体…'} rows={2} disabled={model?.source === 'none'} />
+                  <Button type="submit" size="icon" aria-label="发送" disabled={busy || model?.source === 'none' || !draft.trim()}>
+                    {busy ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                  </Button>
+                </form>
+              </>
             )}
-
-            {detailError && (
-              <div className="workspace-inline-error" role="alert" style={{ marginTop: 16 }}>
-                {detailError}
-              </div>
-            )}
-          </div>
-        </div>
+          </section>
+        ) : selected.kind === 'file' ? (
+          <section className="workspace-editor" aria-label="文件">
+            <h2 className="workspace-title">{selected.title}</h2>
+            <p className="workspace-tree-empty">{selected.content_type || 'application/octet-stream'} · {selected.size ?? 0} 字节</p>
+            <Button type="button" onClick={() => void downloadFile(selected.id).catch(fail)}>下载文件</Button>
+          </section>
+        ) : (
+          <section className="workspace-editor" aria-label={selected.kind === 'work_env' ? '工作环境' : '笔记'}>
+            <label className="sr-only" htmlFor="note-title">标题</label>
+            <input
+              id="note-title"
+              className="workspace-title"
+              value={title}
+              placeholder="未命名"
+              readOnly={readOnly}
+              onChange={event => {
+                setTitle(event.target.value);
+                queueSave(event.target.value, body);
+              }}
+            />
+            <label className="sr-only" htmlFor="note-body">正文</label>
+            <textarea
+              id="note-body"
+              className="workspace-body"
+              value={body}
+              placeholder={selected.kind === 'work_env' ? '写用途、主机名和端口。不要写私钥或密码。远程访问还没接通。' : '写 Markdown…'}
+              readOnly={readOnly}
+              onChange={event => {
+                setBody(event.target.value);
+                queueSave(title, event.target.value);
+              }}
+            />
+          </section>
         )}
-      </main>
+
+
+      </div>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="workspace-settings">
+          <DialogTitle>设置</DialogTitle>
+          <DialogDescription>外观只留在这台设备。模型钥匙只存在服务端，不会写进笔记。</DialogDescription>
+          <fieldset className="workspace-appearance">
+            <legend>外观</legend>
+            <label><input type="radio" name="mode" checked={appearance.mode === 'system'} onChange={() => setAppearance({ mode: 'system' })} /> 系统 <Monitor size={14} /></label>
+            <label><input type="radio" name="mode" checked={appearance.mode === 'light'} onChange={() => setAppearance({ mode: 'light' })} /> 浅色 <Sun size={14} /></label>
+            <label><input type="radio" name="mode" checked={appearance.mode === 'dark'} onChange={() => setAppearance({ mode: 'dark' })} /> 深色 <Moon size={14} /></label>
+          </fieldset>
+          <p className="workspace-model-status">
+            {model?.configured
+              ? `已配置自己的模型${model.name ? `（${model.name}）` : ''}`
+              : model?.source === 'product'
+                ? `未配置，走产品 NewAPI。今日剩余 ${model.quota.remaining} / ${model.quota.limit} 次`
+                : '还没有可用的模型。填写公网 HTTPS 上游，或等产品 NewAPI 接上。'}
+          </p>
+          <form className="workspace-model-form" onSubmit={handleSaveModel}>
+            <label>Base URL<input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" autoComplete="off" /></label>
+            <label>API Key<input value={apiKey} onChange={event => setApiKey(event.target.value)} type="password" autoComplete="off" /></label>
+            <label>模型名（可选）<input value={modelName} onChange={event => setModelName(event.target.value)} /></label>
+            <div className="workspace-model-actions">
+              <Button type="submit">保存模型</Button>
+              {model?.configured ? (
+                <Button type="button" variant="ghost" onClick={() => void clearModel().then(() => getModel()).then(setModel).catch(fail)}>改用产品 NewAPI</Button>
+              ) : null}
+            </div>
+          </form>
+
+          <form className="workspace-model-form" onSubmit={handleCreateLibrary}>
+            <label>新建知识库<input value={newLibraryName} onChange={event => setNewLibraryName(event.target.value)} placeholder="知识库名称" /></label>
+            <div className="workspace-model-actions">
+              <Button type="submit">创建知识库</Button>
+              {readOnly ? null : <Button type="button" variant="ghost" onClick={handleRenameLibrary}>重命名当前库</Button>}
+            </div>
+          </form>
+          {readOnly ? null : (
+            <>
+              <p className="workspace-model-status">已发布的快照。撤回后别人不能再接入，已经接入的下次打开会失败。</p>
+              {publications.length === 0 ? <p className="workspace-tree-empty">还没有发布过。</p> : (
+                <ul className="workspace-market">
+                  {publications.map(item => (
+                    <li key={item.id}>
+                      <span>{item.name}{item.withdrawn ? '（已撤回）' : ''}</span>
+                      {item.withdrawn ? null : (
+                        <Button type="button" variant="ghost" onClick={() => void handleWithdraw(item.id)}>撤回</Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Button type="button" variant="ghost" onClick={() => void handleDeleteLibrary()}>删除当前知识库</Button>
+            </>
+          )}
+
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={marketOpen} onOpenChange={setMarketOpen}>
+        <DialogContent className="workspace-settings">
+          <DialogTitle>市场</DialogTitle>
+          <DialogDescription>接入别人发布的整库快照。接入后只读，撤回后会从列表消失。</DialogDescription>
+          {market.length === 0 ? <p className="workspace-tree-empty">还没有公开的知识库。</p> : (
+            <ul className="workspace-market">
+              {market.map(item => (
+                <li key={item.id}>
+                  <span>{item.name}</span>
+                  <Button type="button" variant="ghost" onClick={() => void handleSubscribe(item.id)}>接入</Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function TreeItem({ entry, entries, selectedId, onSelect }: { entry: Entry; entries: Entry[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const children = entries.filter(item => item.parent_id === entry.id);
+  const Icon = entry.kind === 'agent' ? Bot : entry.kind === 'work_env' ? Monitor : entry.kind === 'file' ? File : FileText;
+
+  return (
+    <div className="workspace-tree-node">
+      <button type="button" role="treeitem" aria-current={selectedId === entry.id ? 'page' : undefined} className={`workspace-tree-item${selectedId === entry.id ? ' is-active' : ''}`} onClick={() => onSelect(entry.id)}>
+        {children.length > 0 ? <ChevronRight size={14} className="workspace-tree-chevron" /> : <span className="workspace-tree-spacer" />}
+        <Icon size={15} />
+        <span>{entry.title || '未命名'}</span>
+      </button>
+      {children.length > 0 ? (
+        <div className="workspace-tree-children">
+          {children.map(child => (
+            <TreeItem key={child.id} entry={child} entries={entries} selectedId={selectedId} onSelect={onSelect} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

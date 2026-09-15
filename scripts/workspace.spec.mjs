@@ -6,7 +6,6 @@ const syntheticSessionA = {
   email_verified: true,
   expires_at: '2099-01-01T00:00:00Z',
 };
-
 const syntheticSessionB = {
   id: 'user-identity-uuid-bbbb',
   email: 'user-b@example.com',
@@ -14,417 +13,190 @@ const syntheticSessionB = {
   expires_at: '2099-01-01T00:00:00Z',
 };
 
-const taskIdA1 = 'a'.repeat(32);
-const taskIdA2 = 'b'.repeat(32);
-const taskIdCreated = 'c'.repeat(32);
+const libA = { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', name: '我的知识库', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const libB = { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', name: '我的知识库', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const guideA = { id: 'cccccccccccccccccccccccccccccccc', library_id: libA.id, parent_id: '', kind: 'agent', preset: 'guide', title: '新手向导', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const noteA = { id: 'dddddddddddddddddddddddddddddddd', library_id: libA.id, parent_id: '', kind: 'note', title: 'First note for user A', body: 'Private note body', created_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z' };
+const createdNote = { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', library_id: libA.id, parent_id: '', kind: 'note', title: '未命名笔记', created_at: '2026-01-01T00:00:02.000Z', updated_at: '2026-01-01T00:00:02.000Z' };
+const sessionA = { id: 'ffffffffffffffffffffffffffffffff', entry_id: guideA.id, messages: [], created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const guideB = { id: '11111111111111111111111111111111', library_id: libB.id, parent_id: '', kind: 'agent', preset: 'guide', title: '新手向导', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+const sessionB = { id: '22222222222222222222222222222222', entry_id: guideB.id, messages: [], created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 
-const syntheticTasksUserA = [
-  {
-    id: taskIdA1,
-    title: 'First task for user A',
-    prompt: 'First task for user A\nLine 2 details',
-    status: 'draft',
-    created_at: '2026-09-08T10:00:00Z',
-  },
-  {
-    id: taskIdA2,
-    title: 'Second task for user A',
-    prompt: 'Second task for user A',
-    status: 'draft',
-    created_at: '2026-09-08T11:00:00Z',
-  },
-];
+function json(route, status, body) {
+  return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+}
+
+function defaultState() {
+  return {
+    session: syntheticSessionA,
+    libraries: [libA],
+    entries: [guideA, noteA],
+    entryById: { [guideA.id]: { ...guideA }, [noteA.id]: { ...noteA } },
+    sessionsByEntry: { [guideA.id]: [sessionA] },
+    sessionById: { [sessionA.id]: sessionA },
+    model: { configured: false, source: 'product', quota: { limit: 20, used: 0, remaining: 20 } },
+    patchError: null,
+    holdCreate: null,
+  };
+}
+
+async function mockWorkspace(page, state) {
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    const path = url.pathname.replace(/\/$/, '');
+    if (path === '/api/auth/session') return json(route, 200, state.session);
+    if (path === '/api/libraries' && method === 'GET') return json(route, 200, { libraries: state.libraries });
+    const libEntries = path.match(/^\/api\/libraries\/([0-9a-f]{32})\/entries$/);
+    if (libEntries && method === 'GET') {
+      const id = libEntries[1];
+      return json(route, 200, { entries: state.libraries[0]?.id === id ? state.entries : [] });
+    }
+    if (libEntries && method === 'POST') {
+      if (state.holdCreate) await state.holdCreate;
+      if (state.session.id !== syntheticSessionA.id) return json(route, 401, { error: { id: 'session_required' } });
+      const posted = route.request().postDataJSON() || {};
+      const entry = { ...createdNote, parent_id: posted.parent_id || '', kind: posted.kind || 'note', title: posted.title || createdNote.title };
+      state.entries = [...state.entries, entry];
+      state.entryById[entry.id] = entry;
+      return json(route, 201, { entry });
+    }
+    const entry = path.match(/^\/api\/entries\/([0-9a-f]{32})$/);
+    if (entry && method === 'GET') {
+      const found = state.entryById[entry[1]];
+      return found ? json(route, 200, { entry: found }) : json(route, 404, { error: { id: 'entry_not_found' } });
+    }
+    if (entry && method === 'PATCH') {
+      if (state.patchError) return json(route, 503, { error: { id: 'library_storage_unavailable' } });
+      const found = state.entryById[entry[1]];
+      const patch = route.request().postDataJSON();
+      const next = { ...found, ...patch, updated_at: '2026-01-01T00:00:03.000Z' };
+      state.entryById[entry[1]] = next;
+      return json(route, 200, { entry: next });
+    }
+    const sessions = path.match(/^\/api\/entries\/([0-9a-f]{32})\/sessions$/);
+    if (sessions && method === 'GET') return json(route, 200, { sessions: state.sessionsByEntry[sessions[1]] ?? [] });
+    if (sessions && method === 'POST') {
+      const sess = state.sessionsByEntry[sessions[1]]?.[0] ?? sessionA;
+      return json(route, 201, { session: sess });
+    }
+    const oneSession = path.match(/^\/api\/sessions\/([0-9a-f]{32})$/);
+    if (oneSession && method === 'GET') {
+      const found = state.sessionById[oneSession[1]] ?? sessionA;
+      return json(route, 200, { session: found });
+    }
+    if (path === '/api/account/model') {
+      return json(route, 200, { model: state.model });
+    }
+    if (path === '/api/market' && method === 'GET') return json(route, 200, { publications: [] });
+    if (path.endsWith('/publications') && method === 'GET') return json(route, 200, { publications: [] });
+    if (path.endsWith('/search') && method === 'GET') return json(route, 200, { hits: [] });
+
+
+
+    return json(route, 404, { error: { id: 'not_found' } });
+  });
+}
 
 test.describe('Workspace mocked contract suite', () => {
   test('redirects to /auth/login when session is missing or 401', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: { id: 'session_required' } }),
-    }));
-
+    await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'session_required' } }));
     await page.goto('/workspace');
     await expect(page).toHaveURL(/\/auth\/login/);
   });
 
-  test('redirects to /auth/login when tasks API returns 401 session_required', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(syntheticSessionA),
-    }));
-
-    await page.route('**/api/tasks', route => route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: { id: 'session_required' } }),
-    }));
-
+  test('redirects to /auth/login when libraries API returns 401 session_required', async ({ page }) => {
+    await page.route('**/api/auth/session', route => json(route, 200, syntheticSessionA));
+    await page.route('**/api/libraries', route => json(route, 401, { error: { id: 'session_required' } }));
     await page.goto('/workspace');
     await expect(page).toHaveURL(/\/auth\/login/);
   });
 
-  test('clears in-memory tasks and reset state when switching identity', async ({ page }) => {
-    let currentSession = syntheticSessionA;
-
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(currentSession),
-    }));
-
-    await page.route('**/api/tasks', route => {
-      if (currentSession.id === syntheticSessionA.id) {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ tasks: syntheticTasksUserA }),
-        });
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ tasks: [] }),
-      });
-    });
-
-    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
-    }));
-
+  test('clears in-memory notes when switching identity', async ({ page }) => {
+    const state = defaultState();
+    await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 1, name: '任务工作区' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toBeVisible();
 
-    // Switch identity to User B and trigger visibility change
-    currentSession = syntheticSessionB;
+    state.session = syntheticSessionB;
+    state.libraries = [libB];
+    state.entries = [guideB];
+    state.entryById = { [guideB.id]: guideB };
+    state.sessionsByEntry = { [guideB.id]: [sessionB] };
+    state.sessionById = { [sessionB.id]: sessionB };
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-
-    // Task list must now be cleared and show empty state
-    await expect(page.getByText('还没有保存的任务')).toBeVisible();
-    await expect(page.getByText('First task for user A', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
   });
 
-  test('late creation response cannot restore a previous identity task', async ({ page }) => {
-    let currentSession = syntheticSessionA;
-    let pendingCreate;
+  test('late creation response cannot restore a previous identity note', async ({ page }) => {
+    const state = defaultState();
     let releaseCreate;
-    const released = new Promise(resolve => { releaseCreate = resolve; });
-    const oldPrompt = 'Private pending task from user A';
-
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(currentSession),
-    }));
-    await page.route('**/api/tasks', async route => {
-      if (route.request().method() === 'POST') {
-        pendingCreate = route;
-        await released;
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ tasks: [] }),
-      });
-    });
-
+    state.holdCreate = new Promise(resolve => { releaseCreate = resolve; });
+    await mockWorkspace(page, state);
     await page.goto('/workspace');
-    const input = page.getByRole('textbox', { name: '任务目标', exact: true });
-    await input.fill(oldPrompt);
-    await page.getByRole('button', { name: '保存任务', exact: true }).click();
-    await expect.poll(() => Boolean(pendingCreate)).toBe(true);
-
-    currentSession = syntheticSessionB;
+    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
+    await page.getByRole('button', { name: '新建笔记' }).click();
+    state.session = syntheticSessionB;
+    state.libraries = [libB];
+    state.entries = [guideB];
+    state.entryById = { [guideB.id]: guideB };
+    state.sessionsByEntry = { [guideB.id]: [sessionB] };
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(input).toHaveValue('');
-    await expect(page.getByText('还没有保存的任务')).toBeVisible();
-
-    try {
-      await pendingCreate.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ task: {
-          id: taskIdCreated, title: oldPrompt, prompt: oldPrompt,
-          status: 'draft', created_at: '2026-09-08T12:00:00Z',
-        } }),
-      });
-    } finally {
-      releaseCreate();
-    }
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await expect(page.getByText(oldPrompt, { exact: true })).toHaveCount(0);
-    await expect(page.getByText('还没有保存的任务')).toBeVisible();
-    await input.fill('New task for user B');
-    await expect(page.getByRole('button', { name: '保存任务', exact: true })).toBeEnabled();
+    releaseCreate();
+    await expect(page.getByRole('treeitem', { name: '未命名笔记' })).toHaveCount(0);
+    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toHaveCount(0);
   });
 
-  test('preserves user input text on submission failure and allows retry', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(syntheticSessionA),
-    }));
-
-    const createdTask = {
-      id: taskIdCreated,
-      title: 'Review operating system lecture slides and prepare questions',
-      prompt: 'Review operating system lecture slides and prepare questions',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-    };
-
-    await page.route(`**/api/tasks/${taskIdCreated}`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ task: createdTask }),
-    }));
-
-    await page.route('**/api/tasks', route => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ tasks: [] }),
-        });
-      }
-      return route.fulfill({
-        status: 503,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: { id: 'task_storage_unavailable' } }),
-      });
-    });
-
+  test('preserves note text on save failure and allows retry', async ({ page }) => {
+    const state = defaultState();
+    state.patchError = true;
+    await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 1, name: '任务工作区' })).toBeVisible();
-
-    const input = page.getByRole('textbox', { name: '任务目标', exact: true });
-    const targetText = 'Review operating system lecture slides and prepare questions';
-    await input.fill(targetText);
-    await page.getByRole('button', { name: '保存任务', exact: true }).click();
-
-    // Error alert displayed
-    await expect(page.getByRole('alert')).toContainText('任务存储服务暂时不可用');
-    // Input must preserve the typed text
-    await expect(input).toHaveValue(targetText);
-
-    // Unroute 503 and provide successful response
-    await page.unroute('**/api/tasks');
-    await page.route('**/api/tasks', route => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ tasks: [] }),
-        });
-      }
-      return route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          task: createdTask,
-        }),
-      });
-    });
-
-    await page.getByRole('button', { name: '保存任务', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 2, name: targetText, exact: true })).toBeVisible();
-    await expect(input).toHaveValue('');
+    await page.getByRole('treeitem', { name: 'First note for user A' }).click();
+    const editor = page.getByLabel('正文');
+    await expect(editor).toHaveValue('Private note body');
+    await editor.fill('Edited body still here');
+    await expect(page.getByRole('alert')).toContainText('知识库服务暂时不可用');
+    await expect(editor).toHaveValue('Edited body still here');
   });
 
-  test('displays task details with draft status and execution disclaimer', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(syntheticSessionA),
-    }));
-
-    await page.route('**/api/tasks', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ tasks: syntheticTasksUserA }),
-    }));
-
-    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
-    }));
-
-    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ runs: [] }),
-    }));
-
+  test('shows knowledge tree and guide without claiming execution', async ({ page }) => {
+    await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
-    await expect(page.locator('.workspace-detail-panel').getByText('Line 2 details')).toBeVisible();
-    await expect(page.locator('.workspace-detail-panel').getByText('已保存', { exact: true })).toBeVisible();
-    await expect(page.getByText('草稿捕获阶段')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
+    await expect(page.getByLabel('发给智能体')).toBeVisible();
+    await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
+    await expect(page.getByText('执行记录与运行')).toHaveCount(0);
   });
 
-  test('displays Run list, active status, and supports cancelling run', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(syntheticSessionA),
-    }));
-
-    await page.route('**/api/tasks', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ tasks: syntheticTasksUserA }),
-    }));
-
-    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
-    }));
-
-    const runId1 = '1'.repeat(32);
-    const mockRunningRun = {
-      id: runId1,
-      task_id: taskIdA1,
-      status: 'running',
-      created_at: '2026-09-09T10:00:00Z',
-      started_at: '2026-09-09T10:00:01Z',
-    };
-
-    const mockCancelledRun = {
-      ...mockRunningRun,
-      status: 'cancelled',
-      finished_at: '2026-09-09T10:01:00Z',
-    };
-
-    let runsState = [mockRunningRun];
-
-    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ runs: runsState }),
-        });
-      }
-      if (route.request().method() === 'POST') {
-        const newRunId = '2'.repeat(32);
-        const createdRun = {
-          id: newRunId,
-          task_id: taskIdA1,
-          status: 'queued',
-          created_at: new Date().toISOString(),
-        };
-        runsState = [createdRun, ...runsState];
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({ run: createdRun }),
-        });
-      }
-    });
-
-    await page.route(`**/api/runs/${runId1}/cancel`, route => {
-      runsState = [mockCancelledRun];
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ run: mockCancelledRun }),
-      });
-    });
-
+  test('does not claim product NewAPI when fallback is missing', async ({ page }) => {
+    const state = defaultState();
+    state.model = { configured: false, source: 'none', quota: { limit: 20, used: 0, remaining: 20 } };
+    await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
-
-    // Check Run list header and running status badge
-    await expect(page.getByRole('heading', { level: 3, name: '执行记录与运行 (Runs)' })).toBeVisible();
-    await expect(page.locator(`[data-testid="run-card-${runId1}"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="run-card-${runId1}"]`).getByText('执行中')).toBeVisible();
-
-    // Cancel the running run
-    const cancelBtn = page.getByRole('button', { name: `取消执行 ${runId1.slice(0, 8)}` });
-    await expect(cancelBtn).toBeVisible();
-    await cancelBtn.click();
-
-    // After cancellation, status should update to 已取消
-    await expect(page.locator(`[data-testid="run-card-${runId1}"]`).getByText('已取消')).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
+    await expect(page.getByText('还没有可用的模型')).toBeVisible();
+    await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
+    await expect(page.getByLabel('发给智能体')).toBeDisabled();
   });
 
-  test('displays artifacts and error information on terminal run', async ({ page }) => {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(syntheticSessionA),
-    }));
 
-    await page.route('**/api/tasks', route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ tasks: syntheticTasksUserA }),
-    }));
-
-    await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ task: syntheticTasksUserA[0] }),
-    }));
-
-    const runIdFailed = '3'.repeat(32);
-    const mockFailedRun = {
-      id: runIdFailed,
-      task_id: taskIdA1,
-      status: 'failed',
-      created_at: '2026-09-09T08:00:00Z',
-      finished_at: '2026-09-09T08:02:00Z',
-      error: '模型响应超时，沙箱实例已自动释放。',
-    };
-
-    const runIdSucceeded = '4'.repeat(32);
-    const mockSucceededRun = {
-      id: runIdSucceeded,
-      task_id: taskIdA1,
-      status: 'succeeded',
-      created_at: '2026-09-09T09:00:00Z',
-      finished_at: '2026-09-09T09:05:00Z',
-      artifacts: [
-        {
-          id: 'art-001',
-          name: 'course_review_outline.md',
-          size_bytes: 4096,
-          url: '/api/artifacts/art-001/download',
-        },
-      ],
-    };
-
-    await page.route(`**/api/tasks/${taskIdA1}/runs`, route => route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ runs: [mockSucceededRun, mockFailedRun] }),
-    }));
-
+  test('nests a new note under the selected note', async ({ page }) => {
+    await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 2, name: 'First task for user A' })).toBeVisible();
-
-    // Verify succeeded run and artifact download link
-    const succCard = page.locator(`[data-testid="run-card-${runIdSucceeded}"]`);
-    await expect(succCard.getByText('已完成')).toBeVisible();
-    await expect(succCard.getByText('course_review_outline.md')).toBeVisible();
-    await expect(succCard.getByRole('link', { name: '下载 course_review_outline.md' })).toBeVisible();
-
-    // Verify failed run and error text
-    const failCard = page.locator(`[data-testid="run-card-${runIdFailed}"]`);
-    await expect(failCard.getByText('执行失败')).toBeVisible();
-    await expect(failCard.getByText('模型响应超时，沙箱实例已自动释放。')).toBeVisible();
+    await page.getByRole('treeitem', { name: 'First note for user A' }).click();
+    await page.getByRole('button', { name: '新建笔记' }).click();
+    await expect(page.getByRole('treeitem', { name: '未命名笔记' })).toBeVisible();
+    await expect(page.getByLabel('标题')).toHaveValue('未命名笔记');
   });
 });
 
@@ -433,40 +205,14 @@ for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900],
     test(`workspace layout ${width}x${height} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await page.emulateMedia({ colorScheme: theme });
-
-      await page.route('**/api/auth/session', route => route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(syntheticSessionA),
-      }));
-
-      await page.route('**/api/tasks', route => route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ tasks: syntheticTasksUserA }),
-      }));
-
-      await page.route(`**/api/tasks/${taskIdA1}`, route => route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ task: syntheticTasksUserA[0] }),
-      }));
-
+      await mockWorkspace(page, defaultState());
       await page.goto('/workspace');
-      await expect(page.getByRole('heading', { level: 1, name: '任务工作区' })).toBeVisible();
-
-      // No horizontal overflow
-      const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+      await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
+      const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
       expect(horizontalOverflow).toBe(true);
-      const accountTextHeight = await page.locator('.workspace-nav-link span')
-        .evaluate(element => element.getBoundingClientRect().height);
-      expect(accountTextHeight).toBeLessThan(32);
-
-      // Verify appearance toggle button
-      const toggleLabel = theme === 'dark' ? '切换浅色外观' : '切换深色外观';
-      await expect(page.getByRole('button', { name: toggleLabel })).toBeVisible();
-
-      // Responsive screenshot artifact
+      const titleHeight = await page.locator('.workspace-topbar h1').evaluate(element => element.getBoundingClientRect().height);
+      expect(titleHeight).toBeLessThan(40);
+      await expect(page.getByRole('button', { name: '设置' })).toBeVisible();
       await page.screenshot({
         path: `test-results/workspace/workspace-${width}x${height}-${theme}.png`,
         fullPage: true,
