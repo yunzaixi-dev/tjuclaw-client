@@ -76,7 +76,7 @@ export default function Workspace() {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | ''>('');
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [filePreview, setFilePreview] = useState<{ id: string; url: string } | null>(null);
 
 
 
@@ -107,7 +107,8 @@ export default function Workspace() {
     setQuery('');
     setHits([]);
     setSaveStatus('');
-    setFileUrl(null);
+    if (filePreview) URL.revokeObjectURL(filePreview.url);
+    setFilePreview(null);
 
   }
 
@@ -463,18 +464,13 @@ export default function Workspace() {
     chatEndRef.current?.scrollIntoView({ block: 'end' });
   }, [chat?.messages?.length]);
 
+  const previewId = selected?.kind === 'file' && selected.content_type?.startsWith('image/') ? selected.id : null;
+
   useEffect(() => {
-    if (selected?.kind !== 'file' || !selected.content_type?.startsWith('image/')) {
-      setFileUrl(current => {
-        if (current) URL.revokeObjectURL(current);
-        return null;
-      });
-      return;
-    }
-    const id = selected.id;
+    if (!previewId) return;
     let objectUrl = '';
     let cancelled = false;
-    void fetch(`/api/entries/${id}/file`, { credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
+    void fetch(`/api/entries/${previewId}/file`, { credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
       .then(response => {
         if (!response.ok) throw new Error('file');
         return response.blob();
@@ -482,16 +478,15 @@ export default function Workspace() {
       .then(blob => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
-        setFileUrl(objectUrl);
+        setFilePreview({ id: previewId, url: objectUrl });
       })
-      .catch(() => {
-        if (!cancelled) setFileUrl(null);
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selected?.id, selected?.kind, selected?.content_type]);
+  }, [previewId]);
+
 
 
   const currentLibrary = libraries.find(item => item.id === libraryId) ?? libraries[0];
@@ -636,7 +631,7 @@ export default function Workspace() {
                 <h2>{selected.title || '未命名智能体'}</h2>
               ) : (
                 <>
-                  <label className="sr-only" htmlFor="agent-title">标题</label>
+                  <label className="sr-only" htmlFor="agent-title">智能体标题</label>
                   <input
                     id="agent-title"
                     className="workspace-agent-title"
@@ -690,7 +685,7 @@ export default function Workspace() {
           <section className="workspace-editor workspace-file" aria-label="文件">
             <h2 className="workspace-title">{selected.title}</h2>
             <p className="workspace-file-meta">{selected.content_type || 'application/octet-stream'} · {selected.size ?? 0} 字节</p>
-            {fileUrl ? <img className="workspace-file-preview" src={fileUrl} alt="" /> : null}
+            {filePreview?.id === previewId ? <img className="workspace-file-preview" src={filePreview.url} alt="" /> : null}
             <Button type="button" onClick={() => void downloadFile(selected.id).catch(fail)}>下载文件</Button>
           </section>
         ) : (
