@@ -75,6 +75,9 @@ export default function Workspace() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | ''>('');
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+
 
 
 
@@ -103,6 +106,9 @@ export default function Workspace() {
     setPublications([]);
     setQuery('');
     setHits([]);
+    setSaveStatus('');
+    setFileUrl(null);
+
   }
 
 
@@ -221,16 +227,22 @@ export default function Workspace() {
 
 
   function queueSave(nextTitle: string, nextBody: string) {
-    if (!selected || selected.kind === 'agent' || selected.kind === 'file') return;
+    if (!selected || selected.kind === 'file') return;
     if (libraries.find(item => item.id === libraryId)?.role === 'subscribed') return;
     window.clearTimeout(saveTimer.current);
+    setSaveStatus('saving');
     saveTimer.current = window.setTimeout(() => {
-      void patchEntry(selected.id, { title: nextTitle, body: nextBody }).then(entry => {
+      const patch = selected.kind === 'agent' ? { title: nextTitle } : { title: nextTitle, body: nextBody };
+      void patchEntry(selected.id, patch).then(entry => {
         if (activeUserIdRef.current) {
           setSelected(entry);
           setEntries(prev => prev.map(item => item.id === entry.id ? { ...item, title: entry.title } : item));
+          setSaveStatus('saved');
         }
-      }).catch(fail);
+      }).catch(err => {
+        setSaveStatus('');
+        fail(err);
+      });
     }, 500);
   }
 
@@ -451,6 +463,37 @@ export default function Workspace() {
     chatEndRef.current?.scrollIntoView({ block: 'end' });
   }, [chat?.messages?.length]);
 
+  useEffect(() => {
+    if (selected?.kind !== 'file' || !selected.content_type?.startsWith('image/')) {
+      setFileUrl(current => {
+        if (current) URL.revokeObjectURL(current);
+        return null;
+      });
+      return;
+    }
+    const id = selected.id;
+    let objectUrl = '';
+    let cancelled = false;
+    void fetch(`/api/entries/${id}/file`, { credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
+      .then(response => {
+        if (!response.ok) throw new Error('file');
+        return response.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setFileUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFileUrl(null);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selected?.id, selected?.kind, selected?.content_type]);
+
+
   const currentLibrary = libraries.find(item => item.id === libraryId) ?? libraries[0];
   const readOnly = currentLibrary?.role === 'subscribed';
   const roots = useMemo(() => entries.filter(item => !item.parent_id), [entries]);
@@ -492,7 +535,7 @@ export default function Workspace() {
           </label>
         </div>
         <label className="workspace-search">
-          <Search size={14} />
+          <Search size={16} aria-hidden="true" />
           <span className="sr-only">检索笔记</span>
           <input value={query} onChange={event => void handleSearch(event.target.value)} placeholder="检索笔记" />
         </label>
@@ -554,6 +597,9 @@ export default function Workspace() {
             <PanelLeft size={18} />
           </Button>
           <h1>{currentLibrary?.name || '知识工作区'}{readOnly ? '（只读）' : ''}</h1>
+          {selected && selected.kind !== 'file' && !readOnly && saveStatus ? (
+            <span className="workspace-save">{saveStatus === 'saving' ? '正在写入…' : '已写入'}</span>
+          ) : null}
           {readOnly ? null : (
             <Button variant="ghost" className="workspace-plain-btn" onClick={() => void handlePublish()} disabled={busy} aria-label="发布当前知识库">
               <Share2 size={16} /> 发布
@@ -586,7 +632,23 @@ export default function Workspace() {
           <section className="workspace-chat" aria-label="智能体会话">
             <header className="workspace-doc-head">
               <Bot size={18} />
-              <h2>{selected.title || '未命名智能体'}</h2>
+              {readOnly ? (
+                <h2>{selected.title || '未命名智能体'}</h2>
+              ) : (
+                <>
+                  <label className="sr-only" htmlFor="agent-title">标题</label>
+                  <input
+                    id="agent-title"
+                    className="workspace-agent-title"
+                    value={title}
+                    placeholder="未命名智能体"
+                    onChange={event => {
+                      setTitle(event.target.value);
+                      queueSave(event.target.value, body);
+                    }}
+                  />
+                </>
+              )}
             </header>
             {readOnly ? (
               <p className="workspace-tree-empty">这是接入快照里的智能体，只能查看，不能在这里对话。</p>
@@ -603,7 +665,20 @@ export default function Workspace() {
                 </div>
                 <form className="workspace-composer" onSubmit={handleChat}>
                   <label className="sr-only" htmlFor="chat-draft">发给智能体</label>
-                  <textarea id="chat-draft" value={draft} onChange={event => setDraft(event.target.value)} placeholder={model?.source === 'none' ? '先配置模型…' : '写给智能体…'} rows={2} disabled={model?.source === 'none'} />
+                  <textarea
+                    id="chat-draft"
+                    value={draft}
+                    onChange={event => setDraft(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={model?.source === 'none' ? '先配置模型…' : '写给智能体…'}
+                    rows={2}
+                    disabled={model?.source === 'none'}
+                  />
                   <Button type="submit" size="icon" aria-label="发送" disabled={busy || model?.source === 'none' || !draft.trim()}>
                     {busy ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                   </Button>
@@ -612,9 +687,10 @@ export default function Workspace() {
             )}
           </section>
         ) : selected.kind === 'file' ? (
-          <section className="workspace-editor" aria-label="文件">
+          <section className="workspace-editor workspace-file" aria-label="文件">
             <h2 className="workspace-title">{selected.title}</h2>
-            <p className="workspace-tree-empty">{selected.content_type || 'application/octet-stream'} · {selected.size ?? 0} 字节</p>
+            <p className="workspace-file-meta">{selected.content_type || 'application/octet-stream'} · {selected.size ?? 0} 字节</p>
+            {fileUrl ? <img className="workspace-file-preview" src={fileUrl} alt="" /> : null}
             <Button type="button" onClick={() => void downloadFile(selected.id).catch(fail)}>下载文件</Button>
           </section>
         ) : (
@@ -659,6 +735,14 @@ export default function Workspace() {
             <label><input type="radio" name="mode" checked={appearance.mode === 'light'} onChange={() => setAppearance({ mode: 'light' })} /> 浅色 <Sun size={14} /></label>
             <label><input type="radio" name="mode" checked={appearance.mode === 'dark'} onChange={() => setAppearance({ mode: 'dark' })} /> 深色 <Moon size={14} /></label>
           </fieldset>
+          <fieldset className="workspace-appearance">
+            <legend>强调色</legend>
+            <label><input type="radio" name="accent" checked={appearance.accent === 'mono'} onChange={() => setAppearance({ accent: 'mono' })} /> 黑白</label>
+            <label><input type="radio" name="accent" checked={appearance.accent === 'blue'} onChange={() => setAppearance({ accent: 'blue' })} /> 蓝色</label>
+          </fieldset>
+          <p className="workspace-model-status">
+            {appearance.canPersist ? '外观只留在这台设备。' : '这次会话里外观已生效，浏览器限制了存储，关掉后可能要重设。'}
+          </p>
           <p className="workspace-model-status">
             {model?.configured
               ? `已配置自己的模型${model.name ? `（${model.name}）` : ''}`
@@ -728,17 +812,30 @@ export default function Workspace() {
 }
 
 function TreeItem({ entry, entries, selectedId, onSelect }: { entry: Entry; entries: Entry[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(true);
   const children = entries.filter(item => item.parent_id === entry.id);
   const Icon = entry.kind === 'agent' ? Bot : entry.kind === 'work_env' ? Monitor : entry.kind === 'file' ? File : FileText;
 
   return (
     <div className="workspace-tree-node">
-      <button type="button" role="treeitem" aria-current={selectedId === entry.id ? 'page' : undefined} className={`workspace-tree-item${selectedId === entry.id ? ' is-active' : ''}`} onClick={() => onSelect(entry.id)}>
-        {children.length > 0 ? <ChevronRight size={14} className="workspace-tree-chevron" /> : <span className="workspace-tree-spacer" />}
-        <Icon size={15} />
-        <span>{entry.title || '未命名'}</span>
-      </button>
-      {children.length > 0 ? (
+      <div className={`workspace-tree-row${selectedId === entry.id ? ' is-active' : ''}`}>
+        {children.length > 0 ? (
+          <button
+            type="button"
+            className="workspace-tree-toggle"
+            aria-expanded={expanded}
+            aria-label={expanded ? `折叠 ${entry.title || '未命名'}` : `展开 ${entry.title || '未命名'}`}
+            onClick={() => setExpanded(open => !open)}
+          >
+            <ChevronRight size={14} className="workspace-tree-chevron" data-open={expanded ? 'true' : 'false'} />
+          </button>
+        ) : <span className="workspace-tree-spacer" />}
+        <button type="button" role="treeitem" aria-current={selectedId === entry.id ? 'page' : undefined} className="workspace-tree-item" onClick={() => onSelect(entry.id)}>
+          <Icon size={15} />
+          <span>{entry.title || '未命名'}</span>
+        </button>
+      </div>
+      {expanded && children.length > 0 ? (
         <div className="workspace-tree-children">
           {children.map(child => (
             <TreeItem key={child.id} entry={child} entries={entries} selectedId={selectedId} onSelect={onSelect} />
