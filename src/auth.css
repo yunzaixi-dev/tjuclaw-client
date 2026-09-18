@@ -530,6 +530,24 @@
   font-size: 12px;
 }
 
+.auth-footer-beian {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-footer-police {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.auth-footer-police img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
 .auth-footer-links {
   display: flex;
   align-items: center;
@@ -559,15 +577,16 @@
   padding: 2px 4px;
   background: transparent;
   border: 0;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   border-radius: 4px;
-  transition: color 140ms;
+  transition: opacity 140ms;
 }
 
 .auth-footer-appearance-btn:hover {
-  color: var(--foreground);
+  opacity: 0.72;
 }
 
 .auth-email {
