@@ -523,6 +523,9 @@
 }
 
 .auth-footer-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   color: var(--muted-foreground);
   font-size: 12px;
 }
@@ -698,6 +701,9 @@
     text-align: center;
     gap: 8px;
   }
+  .auth-footer-copy {
+    align-items: center;
+  }
   .auth-footer-links {
     gap: 8px;
   }
@@ -713,17 +719,6 @@
     outline: 1px solid ButtonText;
   }
 }
-
-@media (min-width: 960px) and (max-height: 660px) {
-  .auth-toolbar { padding-block: 4px; }
-  .auth-footer { padding-block: 0; }
-  .auth-main { padding-block: 8px; }
-  .auth-card { padding-block: 18px; }
-  .auth-heading { margin-bottom: 16px; }
-  .auth-symbol { width: 36px; height: 36px; margin-bottom: 8px; }
-  .auth-delivery-help { margin-top: 8px; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .auth-shell *, .auth-shell *::before, .auth-shell *::after {
     transition: none !important;
@@ -999,6 +994,24 @@
   color: var(--muted-foreground);
   margin: 0;
 }
+.auth-legal-note {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin: 0;
+  line-height: 1.5;
+  width: 100%;
+  text-align: center;
+}
+.auth-legal-note a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin: 0 2px;
+  transition: color 120ms;
+}
+.auth-legal-note a:hover {
+  color: var(--primary);
+}
 
 .auth-secured-by {
   display: flex;
@@ -1088,3 +1101,19 @@
 .auth-flow-footer { min-height: 0; width: 100%; display: grid; align-items: center; margin-top: 10px; }
 .auth-flow-footer .auth-code-actions { margin: 0 -8px; flex-wrap: nowrap; width: 100%; justify-content: space-between; display: flex; }
 .auth-flow-footer .auth-delivery-help { margin: 0; }
+
+@media (min-width: 960px) and (max-height: 660px) {
+  .auth-main { padding: 4px 20px; }
+  .auth-footer { padding: 2px 20px 4px; }
+  .auth-card.auth-flow-card { padding: 16px 20px 14px; }
+  .auth-flow-card .auth-heading { margin-bottom: 6px; }
+  .auth-flow-card .auth-heading h1 { font-size: 18px; }
+  .auth-flow-card .auth-description { margin-top: 2px; font-size: 12px; }
+  .auth-heading { margin-bottom: 8px; }
+  .auth-heading h1 { font-size: 18px; }
+  .auth-symbol { width: 32px; height: 32px; margin-bottom: 4px; }
+  .auth-delivery-help { margin-top: 4px; }
+  .auth-card-subfooter { margin-top: 6px; padding-top: 6px; gap: 3px; }
+  .auth-flow-card form .auth-submit { margin-top: 8px; height: 38px; }
+  .auth-legal-note { font-size: 10px; line-height: 1.3; }
+}

@@ -130,8 +130,13 @@ function Shell({ children }: { children: ReactNode }) {
       </main>
       <footer className="auth-footer">
         <div className="auth-footer-inner">
-          <span className="auth-footer-copy">© 2026 TJUClaw</span>
+          <div className="auth-footer-copy">
+            <span>© 2026 TJUClaw</span>
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="auth-footer-link">津ICP备2026013377号</a>
+          </div>
           <div className="auth-footer-links">
+            <a href="https://tjuclaw.cloud/docs/about" target="_blank" rel="noreferrer" className="auth-footer-link">关于我们</a>
+            <span>·</span>
             <a href="https://tjuclaw.cloud" target="_blank" rel="noreferrer" className="auth-footer-link">文档</a>
             <span>·</span>
             <button
@@ -166,6 +171,12 @@ function Welcome() {
     <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用验证码登录 / 注册<ArrowRight size={18} /></a>
     <a className="auth-secondary-link" href="/auth/login?method=password"><Lock size={18} />使用密码登录<ArrowRight size={18} /></a>
     <p className="auth-switch">新邮箱验证后会创建账号。忘记密码请用验证码。</p>
+    <p className="auth-legal-note">
+      登录即表示同意我们的
+      <a href="https://tjuclaw.cloud/docs/privacy" target="_blank" rel="noreferrer">隐私协议</a>
+      和
+      <a href="https://tjuclaw.cloud/docs/terms" target="_blank" rel="noreferrer">用户协议</a>
+    </p>
   </section>;
 }
 
@@ -404,6 +415,12 @@ function FlowScreen() {
     )}
     <div className="auth-card-subfooter">
       <p className="auth-card-subfooter-note">{usingPassword ? '忘记密码请改用验证码登录' : '由阿里云邮件推送服务投递 · 新邮箱将自动创建账号'}</p>
+      <p className="auth-legal-note">
+        登录即表示同意我们的
+        <a href="https://tjuclaw.cloud/docs/privacy" target="_blank" rel="noreferrer">隐私协议</a>
+        和
+        <a href="https://tjuclaw.cloud/docs/terms" target="_blank" rel="noreferrer">用户协议</a>
+      </p>
       <div className="auth-secured-by">
         <span>Secured by</span>
         <span className="auth-secured-brand">TJUClaw Auth</span>
