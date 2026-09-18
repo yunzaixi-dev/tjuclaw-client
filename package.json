@@ -1,7 +1,7 @@
 {
   "name": "@tjuclaw/client",
   "private": true,
-  "license": "UNLICENSED",
+ "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",

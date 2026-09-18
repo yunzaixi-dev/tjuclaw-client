@@ -61,10 +61,11 @@ GitHub Actions 分别运行检查、外观/工作区回归及各平台构建，�
 维护者可在 release 上手动执行 **Stage GitLab Packages**，指定已通过 CI 与 Windows
 构建的客户端 SHA。流程验证 GitHub ZIP 摘要，将安装包和校验清单上传到 GitLab
 包仓库。随后由私有集成仓库验证组件组合并创建比赛 Release。
-客户端仅持有包仓库权限，不持有私有服务端源码的访问凭据。
+## 许可证
 
-源码可公开查看，但本项目尚未授予开源许可证；第三方依赖按各自许可证使用。
+本客户端源码仓库公开地址：[yunzaixi-dev/tjuclaw-client](https://github.com/yunzaixi-dev/tjuclaw-client)。源码采用 **GPL-3.0-only**。再发布客户端或其修改版本时，须遵守 GPLv3 的源代码、版权声明和许可证保留要求；完整文本见仓库根目录的 `LICENSE`。第三方依赖继续遵循各自许可证。
 
+客户端不包含私有服务端源码；服务端的接口、部署和运行不构成对私有服务端实现的授权。
 ## 下载安装包与发布
 
 公开下载：[GitHub Releases](https://github.com/yunzaixi-dev/tjuclaw-client/releases/latest)。

@@ -5,6 +5,7 @@ description = "TJUClaw native client"
 authors = ["TJUClaw contributors"]
 edition = "2021"
 publish = false
+license = "GPL-3.0-only"
 
 [lib]
 name = "tjuclaw_client_lib"
