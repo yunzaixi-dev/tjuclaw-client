@@ -1,0 +1,71 @@
+:root {
+  --contest-banner-height: 2.25rem;
+}
+
+:root.contest-banner-hidden {
+  --contest-banner-height: 0px;
+}
+
+.contest-banner {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--contest-banner-height);
+  padding: 0 2.5rem;
+  overflow: hidden;
+  color: #000;
+  background-image: repeating-linear-gradient(
+    35deg,
+    #f4ddff 0px,
+    #f4ddff 30px,
+    #ffe9c7 30px,
+    #ffe9c7 60px
+  );
+}
+
+.contest-banner-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  color: #000;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.contest-banner-close {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #71717a;
+  transform: translateY(-50%);
+}
+
+.contest-banner-close:hover {
+  color: #000;
+}
+
+@media (max-width: 720px) {
+  .contest-banner-link {
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contest-banner-close {
+    transition: none;
+  }
+}

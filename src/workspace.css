@@ -1,5 +1,5 @@
 .workspace-shell {
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--contest-banner-height, 0px));
   display: grid;
   grid-template-columns: 256px minmax(0, 1fr);
   background: var(--background);
@@ -11,7 +11,7 @@
 .workspace-sidebar {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--contest-banner-height, 0px));
   overflow: hidden;
   background: var(--muted);
   border-right: 1px solid var(--border);
@@ -151,7 +151,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--contest-banner-height, 0px));
   background: var(--surface);
 }
 .workspace-topbar {

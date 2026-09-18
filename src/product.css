@@ -81,7 +81,7 @@ svg { flex-shrink: 0; }
 .ui-button-floating { background: var(--surface-raised); color: var(--foreground); box-shadow: var(--floating-shadow); }
 .ui-button-floating:hover { background: var(--selected); }
 .ui-button-solid:hover { opacity: .85; }
-.product-app { min-height: 100dvh; padding: 0 28px; }
+.product-app { min-height: calc(100dvh - var(--contest-banner-height, 0px)); padding: 0 28px; }
 .home-page { max-width: 1000px; margin: 0 auto; padding: 44px 0; }
 .home-toolbar { display: flex; align-items: center; gap: 15px; }
 .profile-button { background: transparent; box-shadow: none; }

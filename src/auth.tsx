@@ -4,6 +4,7 @@ import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
 import { setAppearance, useAppearance } from './lib/appearance';
+import { setContestBannerOpen, useContestBannerOpen } from './contest-banner';
 import { AuthError, describeError, loginWithPassword, logout, readFlow, readSession, registerWithPassword, resendEmailCode, resetFlow, sendEmailCode, verifyEmailCode, type FlowState, type IdentitySession } from './lib/auth';
 import { OtpInput } from './components/ui/otp-input';
 import './product.css';
@@ -11,6 +12,7 @@ import './auth.css';
 
 function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
+  const bannerOpen = useContestBannerOpen();
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -153,6 +155,18 @@ function Shell({ children }: { children: ReactNode }) {
               {appearance.resolved === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
               <span>{appearance.resolved === 'dark' ? '浅色' : '深色'}</span>
             </button>
+            {bannerOpen ? null : (
+              <>
+                <span>·</span>
+                <button
+                  type="button"
+                  className="auth-footer-appearance-btn"
+                  onClick={() => setContestBannerOpen(true)}
+                >
+                  显示公告
+                </button>
+              </>
+            )}
           </div>
         </div>
       </footer>

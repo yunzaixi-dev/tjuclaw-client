@@ -1,5 +1,5 @@
 .app-loading-shell {
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--contest-banner-height, 0px));
   width: 100%;
   display: flex;
   flex-direction: column;

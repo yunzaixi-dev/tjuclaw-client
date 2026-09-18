@@ -4,6 +4,7 @@ import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { setAppearance, useAppearance } from './lib/appearance';
+import { setContestBannerOpen, useContestBannerOpen } from './contest-banner';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import {
   clearModel,
@@ -48,6 +49,7 @@ function isUnauthorized(error: unknown) {
 
 export default function Workspace() {
   const appearance = useAppearance();
+  const bannerOpen = useContestBannerOpen();
   const [session, setSession] = useState<IdentitySession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [libraries, setLibraries] = useState<Library[]>([]);
@@ -734,6 +736,17 @@ export default function Workspace() {
             <legend>强调色</legend>
             <label><input type="radio" name="accent" checked={appearance.accent === 'mono'} onChange={() => setAppearance({ accent: 'mono' })} /> 黑白</label>
             <label><input type="radio" name="accent" checked={appearance.accent === 'blue'} onChange={() => setAppearance({ accent: 'blue' })} /> 蓝色</label>
+          </fieldset>
+          <fieldset className="workspace-appearance">
+            <legend>公告</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={bannerOpen}
+                onChange={(event) => setContestBannerOpen(event.target.checked)}
+              />
+              显示比赛公告
+            </label>
           </fieldset>
           <p className="workspace-model-status">
             {appearance.canPersist ? '外观只留在这台设备。' : '这次会话里外观已生效，浏览器限制了存储，关掉后可能要重设。'}
