@@ -185,7 +185,7 @@ function loginMethodFromUrl() {
 
 function Welcome() {
   return <section className="auth-card auth-card-narrow auth-welcome">
-    <BrandIcon size={64} className="auth-welcome-logo" />
+    <BrandIcon size={96} className="auth-welcome-logo" />
     <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
     <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用验证码登录 / 注册<ArrowRight size={18} /></a>
     <a className="auth-secondary-link" href="/auth/login?method=password"><Lock size={18} />使用密码登录<ArrowRight size={18} /></a>
@@ -318,7 +318,7 @@ function FlowScreen() {
     </div>
     {stage === 'email' && !resending && (
       <div className="auth-card-logo">
-        <BrandIcon size={52} />
+        <BrandIcon size={80} />
       </div>
     )}
     <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : method === 'register' ? '注册 TJUClaw Cloud' : '登录 TJUClaw Cloud'}>

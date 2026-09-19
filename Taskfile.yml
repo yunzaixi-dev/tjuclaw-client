@@ -59,8 +59,8 @@ tasks:
     desc: Inspect Tauri and native SDK requirements
     cmds: [pnpm run tauri info]
   native:icons:
-    desc: Regenerate platform icons from the source SVG
-    cmds: [pnpm run tauri icon app-icon.svg]
+    desc: Regenerate platform icons from the black-background app icon
+    cmds: [pnpm run tauri icon app-icon.png]
   native:check:
     desc: Check native Rust code on the current host
     dir: src-tauri

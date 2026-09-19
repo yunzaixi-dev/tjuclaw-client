@@ -31,9 +31,10 @@ the same tokens and interaction semantics; responsive layout can differ.
 | Layering | Named `--z-overlay` and `--z-dialog` tokens, portal-based dialogs |
 | Motion | 160-200ms state transitions; respect reduced motion |
 
-Brand artwork is derived from the official `app-icon.png`: `src/assets/brand-icon.webp`
-removes excess transparent padding, preserves the full artwork and its aspect ratio,
-and supplies a compact web asset. Use the shared `BrandIcon` component rather than
+Brand artwork uses the transparent whale-girl image through `src/assets/brand-icon.webp`
+for in-product surfaces. The black-background `app-icon.png` is reserved for native
+application icons; `favicon.png` is its lightweight browser-tab derivative. Use
+the shared `BrandIcon` component rather than
 substituting a generic sparkle or letter. Decorative marks beside the wordmark use
 empty alt text; standalone meaningful images need a label. Native icon sources
 remain independent of this web display asset.
