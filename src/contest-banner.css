@@ -60,7 +60,14 @@
 
 @media (max-width: 720px) {
   .contest-banner-link {
+    display: block;
+    width: 100%;
+    max-width: 100%;
     font-size: 12px;
+    line-height: 1.3;
+    text-align: center;
+    text-wrap: balance;
+    white-space: normal;
   }
 }
 
