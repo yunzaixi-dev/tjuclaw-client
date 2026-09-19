@@ -911,7 +911,7 @@
 .auth-card-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 2px;
 }
 
 .auth-card-logo .brand-icon {
@@ -1120,7 +1120,7 @@
 .auth-flow-footer .auth-code-actions { margin: 0 -8px; flex-wrap: nowrap; width: 100%; justify-content: space-between; display: flex; }
 .auth-flow-footer .auth-delivery-help { margin: 0; }
 
-@media (min-width: 960px) and (max-height: 660px) {
+@media (min-width: 960px) and (max-height: 800px) {
   .auth-main { padding: 2px 20px; }
   .auth-footer { padding: 0 20px 2px; }
   .auth-footer-inner { flex-direction: row; align-items: center; max-width: 440px; }

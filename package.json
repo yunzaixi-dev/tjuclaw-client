@@ -42,6 +42,6 @@
     "typescript-eslint": "^8.0.0",
     "vite": "8.2.2"
   },
-  "version": "0.0.29",
+  "version": "0.0.30",
   "packageManager": "pnpm@11.3.0"
 }
