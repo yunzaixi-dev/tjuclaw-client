@@ -56,6 +56,7 @@ test('password tab posts credentials and keeps OTP as default', async ({ page })
   await page.goto('/auth/login');
   await expect(page.getByRole('button', { name: '获取验证码', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: '密码' }).click();
+  expect(await page.locator('label[for="auth-password"]').evaluate(label => label.getBoundingClientRect().width > 10)).toBe(true);
   await page.getByLabel('邮箱地址', { exact: true }).fill('student@tju.edu.cn');
   await page.getByLabel('密码', { exact: true }).fill('correcthorse');
   await solveForUI(page);
@@ -88,7 +89,7 @@ test('flow failure retries without losing draft or replacing the form', async ({
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByLabel('邮箱地址', { exact: true })).toHaveValue('draft@tju.edu.cn');
 });
-for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
+for (const [width, height] of [[1366, 768], [1024, 600], [390, 844], [320, 844]]) {
   for (const stage of ['email', 'code']) {
     test(`compact ${stage} card ${width}x${height}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
@@ -96,9 +97,26 @@ for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
       await page.goto('/auth/login');
       await expect(page.getByLabel(stage === 'code' ? '邮箱验证码' : '邮箱地址', { exact: true })).toBeVisible();
       await expect(page.getByRole('status')).toHaveCount(0);
+      if (stage === 'email') {
+        const fieldLabelWidth = await page.locator('label[for="auth-input"]').evaluate(label => label.getBoundingClientRect().width);
+        expect(fieldLabelWidth > 10).toBe(width >= 960);
+      }
       const size = await page.locator('.auth-card').boundingBox();
       expect(size.height).toBeLessThanOrEqual(width >= 1000 ? 600 : 600);
       expect(await page.evaluate(() => ({ x: document.documentElement.scrollWidth <= innerWidth, y: document.documentElement.scrollHeight <= innerHeight }))).toEqual({ x: true, y: true });
+      if (stage === 'email' && width <= 390) {
+        const mobileLayout = await page.evaluate(() => {
+          const card = document.querySelector('.auth-card');
+          const topbar = document.querySelector('.auth-card-topbar');
+          return {
+            topInset: topbar.getBoundingClientRect().top - card.getBoundingClientRect().top,
+            methodToControlGap: document.querySelector('.auth-input-wrap').getBoundingClientRect().top - document.querySelector('.auth-method-tabs').getBoundingClientRect().bottom,
+          };
+        });
+        expect(mobileLayout.topInset).toBeLessThanOrEqual(18);
+        expect(mobileLayout.methodToControlGap).toBeGreaterThanOrEqual(7);
+        expect(mobileLayout.methodToControlGap).toBeLessThanOrEqual(9);
+      }
     });
   }
 }

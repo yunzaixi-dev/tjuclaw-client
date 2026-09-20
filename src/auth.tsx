@@ -306,7 +306,7 @@ function FlowScreen() {
     });
   }
 
-  return <section className="auth-card auth-card-narrow auth-flow-card">
+  return <section className={`auth-card auth-card-narrow auth-flow-card${stage === 'code' ? ' auth-flow-card-code' : ''}`}>
     <div className="auth-card-topbar">
       <a href="/" className="auth-card-back-text" aria-label="返回首页" title="返回首页">
         <Home size={13} />
@@ -335,25 +335,13 @@ function FlowScreen() {
       ) : <p>{method === 'register' ? '设置密码后，仍需验证邮箱才能登录。' : method === 'password' ? '使用已验证邮箱和密码登录。' : '欢迎使用 TJUClaw Cloud，输入邮箱以继续'}</p>}
     </Heading>
     {stage === 'email' && !resending && (
-      <div className="auth-oauth-group">
-        <div className="auth-oauth-buttons">
-          <Button type="button" variant="ghost" className="auth-oauth-btn" disabled title="微北洋（开发中）">
-            <svg className="auth-oauth-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
-            <span>微北洋 (开发中)</span>
-          </Button>
-          <Button type="button" variant="ghost" className="auth-oauth-btn" disabled title="开发者登录（接入中）">
-            <svg className="auth-oauth-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
-            <span>开发者登录</span>
-          </Button>
+      <div className="auth-divider">
+        <span className="auth-divider-line" />
+        <div className="auth-method-tabs" role="tablist" aria-label="登录方式">
+          <button type="button" role="tab" aria-selected={method === 'code'} className={method === 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('code'); setError(''); }}>验证码</button>
+          <button type="button" role="tab" aria-selected={method === 'password' || method === 'register'} className={method !== 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('password'); setError(''); }}>密码</button>
         </div>
-        <div className="auth-divider">
-          <span className="auth-divider-line" />
-          <div className="auth-method-tabs" role="tablist" aria-label="登录方式">
-            <button type="button" role="tab" aria-selected={method === 'code'} className={method === 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('code'); setError(''); }}>验证码</button>
-            <button type="button" role="tab" aria-selected={method === 'password' || method === 'register'} className={method !== 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('password'); setError(''); }}>密码</button>
-          </div>
-          <span className="auth-divider-line" />
-        </div>
+        <span className="auth-divider-line" />
       </div>
     )}
     <form onSubmit={event => { if (resending) { event.preventDefault(); resend(); } else submit(event); }} aria-busy={busy}>
@@ -377,22 +365,22 @@ function FlowScreen() {
             }}
           />
         </> : <>
-          <label className="auth-label" htmlFor="auth-input">邮箱地址</label>
+          <label className="auth-label auth-responsive-label" htmlFor="auth-input">邮箱地址</label>
           <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
             <Mail size={18} aria-hidden="true" />
             <input ref={input} id="auth-input" type="email" name="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={200} placeholder="name@example.com" value={email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { setEmail(event.target.value); if (ready) setError(''); }} />
           </div>
           {usingPassword ? <>
-            <label className="auth-label" htmlFor="auth-password">{method === 'register' ? '设置密码' : '密码'}</label>
+            <label className="auth-label auth-responsive-label" htmlFor="auth-password">{method === 'register' ? '设置密码' : '密码'}</label>
             <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
               <Lock size={18} aria-hidden="true" />
-              <input id="auth-password" type="password" name="password" autoComplete={method === 'register' ? 'new-password' : 'current-password'} required minLength={8} maxLength={72} value={password} disabled={busy} aria-invalid={Boolean(error)} onChange={event => { setPassword(event.target.value); if (ready) setError(''); }} />
+              <input id="auth-password" type="password" name="password" autoComplete={method === 'register' ? 'new-password' : 'current-password'} required minLength={8} maxLength={72} placeholder={method === 'register' ? '设置密码（至少 8 位）' : '密码'} value={password} disabled={busy} aria-invalid={Boolean(error)} onChange={event => { setPassword(event.target.value); if (ready) setError(''); }} />
             </div>
             {method === 'register' ? <>
-              <label className="auth-label" htmlFor="auth-password-confirm">确认密码</label>
+              <label className="auth-label auth-responsive-label" htmlFor="auth-password-confirm">确认密码</label>
               <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
                 <Lock size={18} aria-hidden="true" />
-                <input id="auth-password-confirm" type="password" name="confirm" autoComplete="new-password" required minLength={8} maxLength={72} value={confirmPassword} disabled={busy} onChange={event => { setConfirmPassword(event.target.value); if (ready) setError(''); }} />
+                <input id="auth-password-confirm" type="password" name="confirm" autoComplete="new-password" required minLength={8} maxLength={72} placeholder="确认密码" value={confirmPassword} disabled={busy} onChange={event => { setConfirmPassword(event.target.value); if (ready) setError(''); }} />
               </div>
             </> : null}
           </> : null}
