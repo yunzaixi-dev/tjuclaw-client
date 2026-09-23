@@ -24,7 +24,7 @@ env:
 
 jobs:
   deploy-web:
-    needs: [build-artifacts]
+    needs: [build-artifacts, check, browser]
     uses: ./.github/workflows/deploy-edgeone.yml
     secrets: inherit
 

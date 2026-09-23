@@ -5,7 +5,7 @@ import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
 import { KnowledgeGraph } from './components/knowledge-graph';
 import { WorkspaceSettings, type SettingsSection } from './components/workspace-settings';
@@ -84,12 +84,8 @@ export default function Workspace() {
   const [session, setSession] = useState<IdentitySession | null>(null);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [folders, setFolders] = useState<VaultFolder[]>(() => {
-    try { return JSON.parse(localStorage.getItem('tjuclaw.vault.folders.v1') ?? '[]') as VaultFolder[]; } catch { return []; }
-  });
-  const [placements, setPlacements] = useState<VaultPlacement>(() => {
-    try { return JSON.parse(localStorage.getItem('tjuclaw.vault.placements.v1') ?? '{}') as VaultPlacement; } catch { return {}; }
-  });
+  const [folders, setFolders] = useState<VaultFolder[]>([]);
+  const [placements, setPlacements] = useState<VaultPlacement>({});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Entry | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -99,9 +95,7 @@ export default function Workspace() {
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'notes' | 'sessions' | 'anki'>('notes');
-  const [ankiCards, setAnkiCards] = useState<AnkiCard[]>(() => {
-    try { return JSON.parse(localStorage.getItem('tjuclaw.anki.cards.v1') ?? '[]') as AnkiCard[]; } catch { return []; }
-  });
+  const [ankiCards, setAnkiCards] = useState<AnkiCard[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 720);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 720);
   const reduceMotion = useReducedMotion();
@@ -120,6 +114,8 @@ export default function Workspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const saveTimer = useRef<number>(0);
+  const identityRef = useRef<string | null>(null);
+  const identityGeneration = useRef(0);
   const bodyRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
@@ -127,6 +123,11 @@ export default function Workspace() {
   const library = libraries[0];
   const noteCount = entries.filter(entry => entry.kind === 'note').length;
   const fileCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'file').length;
+
+  function localData<T>(key: string, fallback: T): T {
+    if (!identityRef.current) return fallback;
+    try { return JSON.parse(localStorage.getItem(`${key}.${identityRef.current}`) ?? '') as T; } catch { return fallback; }
+  }
 
   function startResize(side: 'sidebar' | 'rail', event: React.PointerEvent<HTMLDivElement>) {
     if (window.innerWidth <= 1050) return;
@@ -193,12 +194,12 @@ export default function Workspace() {
 
   function persistFolders(next: VaultFolder[]) {
     setFolders(next);
-    localStorage.setItem('tjuclaw.vault.folders.v1', JSON.stringify(next));
+    if (identityRef.current) localStorage.setItem(`tjuclaw.vault.folders.v1.${identityRef.current}`, JSON.stringify(next));
   }
 
   function persistPlacements(next: VaultPlacement) {
     setPlacements(next);
-    localStorage.setItem('tjuclaw.vault.placements.v1', JSON.stringify(next));
+    if (identityRef.current) localStorage.setItem(`tjuclaw.vault.placements.v1.${identityRef.current}`, JSON.stringify(next));
   }
 
   function createFolder(parentId: string | null = null) {
@@ -259,6 +260,7 @@ export default function Workspace() {
   async function openEntry(id: string, loadedItem?: Entry) {
     const item = loadedItem ?? entries.find(entry => entry.id === id);
     if (!item) return;
+    const generation = identityGeneration.current;
     setSelectedId(id); setSelected(item); setTitle(item.title); setBody(item.body ?? '');
     setView(item.kind === 'agent' ? 'sessions' : 'notes');
     if (window.innerWidth <= 720) setSidebarOpen(false);
@@ -266,30 +268,60 @@ export default function Workspace() {
     if (item.kind === 'agent') {
       try {
         const current = (await listSessions(item.id))[0] ?? await createSession(item.id);
-        setChat(current.messages ? current : await getSession(current.id));
-      } catch { setChat(null); }
+        const next = current.messages ? current : await getSession(current.id);
+        if (generation === identityGeneration.current) setChat(next);
+      } catch { if (generation === identityGeneration.current) setChat(null); }
     } else setChat(null);
   }
 
-  async function load() {
+  async function load(generation: number) {
     try {
       const libs = await listLibraries();
+      if (generation !== identityGeneration.current) return;
       setLibraries(libs);
       if (!libs[0]) return;
       const items = await listEntries(libs[0].id);
+      if (generation !== identityGeneration.current) return;
       setEntries(items);
       const first = items.find(item => item.kind === 'note') ?? items[0];
       if (first) void openEntry(first.id, first);
     } catch (err) {
+      if (generation !== identityGeneration.current) return;
       if (err instanceof AuthError && err.status === 401) location.replace('/auth/login');
       else setError('工作区暂时无法连接，请稍后重试。');
-    } finally { setLoading(false); }
+    } finally { if (generation === identityGeneration.current) setLoading(false); }
   }
 
   useEffect(() => {
     let active = true;
-    void readSession().then(next => { if (!active) return; if (!next) { location.replace('/auth/login'); return; } setSession(next); void load(); }).catch(() => setLoading(false));
-    return () => { active = false; window.clearTimeout(saveTimer.current); };
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      void readSession().then(next => {
+        if (!active) return;
+        if (!next) { location.replace('/auth/login'); return; }
+        if (identityRef.current === next.id) return;
+        identityRef.current = next.id;
+        const generation = ++identityGeneration.current;
+        window.clearTimeout(saveTimer.current);
+        setSession(next);
+        setLibraries([]);
+        setEntries([]);
+        setFolders(localData<VaultFolder[]>('tjuclaw.vault.folders.v1', []));
+        setPlacements(localData<VaultPlacement>('tjuclaw.vault.placements.v1', {}));
+        setAnkiCards(localData<AnkiCard[]>('tjuclaw.anki.cards.v1', []));
+        setSelected(null);
+        setSelectedId(null);
+        setTitle('');
+        setBody('');
+        setChat(null);
+        setSaving(false);
+        setLoading(true);
+        void load(generation);
+      }).catch(() => { if (active && !identityRef.current) setLoading(false); });
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    return () => { active = false; document.removeEventListener('visibilitychange', refresh); window.clearTimeout(saveTimer.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -366,10 +398,12 @@ export default function Workspace() {
 
   function queueSave(nextTitle: string, nextBody: string) {
     if (!selected || selected.kind !== 'note') return;
+    const generation = identityGeneration.current;
     window.clearTimeout(saveTimer.current); setSaving(true);
     saveTimer.current = window.setTimeout(() => void patchEntry(selected.id, { title: nextTitle, body: nextBody }).then(entry => {
+      if (generation !== identityGeneration.current) return;
       setSelected(entry); setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSaving(false);
-    }).catch(() => { setSaving(false); setError('保存失败，请稍后再试。'); }), 650);
+    }).catch(() => { if (generation === identityGeneration.current) { setSaving(false); setError('保存失败，请稍后再试。'); } }), 650);
   }
 
   function switchView(next: 'notes' | 'sessions' | 'anki') {
@@ -383,8 +417,10 @@ export default function Workspace() {
 
   async function createNote(noteTitle = '未命名笔记', initialBody = '', folderId?: string) {
     if (!library) return;
+    const generation = identityGeneration.current;
     try {
       const entry = await createEntry(library.id, { kind: 'note', title: noteTitle, body: initialBody });
+      if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
       if (folderId) persistPlacements({ ...placements, [entry.id]: folderId });
       setView('notes');
@@ -396,7 +432,7 @@ export default function Workspace() {
       setRailOpen(window.innerWidth > 1050);
       if (window.innerWidth <= 720) setSidebarOpen(false);
       window.setTimeout(() => titleRef.current?.focus(), 0);
-    } catch { setError('暂时无法创建笔记。'); }
+    } catch { if (generation === identityGeneration.current) setError('暂时无法创建笔记。'); }
   }
 
   async function deleteNote(id: string) {
@@ -421,7 +457,7 @@ export default function Workspace() {
 
   function saveAnkiCards(cards: AnkiCard[]) {
     setAnkiCards(cards);
-    localStorage.setItem('tjuclaw.anki.cards.v1', JSON.stringify(cards));
+    if (identityRef.current) localStorage.setItem(`tjuclaw.anki.cards.v1.${identityRef.current}`, JSON.stringify(cards));
   }
 
   function exportAnki() {

@@ -117,8 +117,8 @@ test.describe('Workspace mocked contract suite', () => {
     const state = defaultState();
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
-    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toBeVisible();
+    await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
 
     state.session = syntheticSessionB;
     state.libraries = [libB];
@@ -130,8 +130,42 @@ test.describe('Workspace mocked contract suite', () => {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toHaveCount(0);
-    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.locator('.note-title')).toHaveCount(0);
+    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await expect(page.getByRole('button', { name: '新手向导' })).toBeVisible();
+  });
+
+  test('keeps local folders and flashcards separate between identities', async ({ page }) => {
+    const state = defaultState();
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+    await page.getByRole('button', { name: '新建文件夹' }).click();
+    await page.locator('.tree-inline-input').fill('A 私有目录');
+    await page.locator('.tree-inline-input').press('Enter');
+    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '新建卡片' }).click();
+    await page.getByPlaceholder('问题或提示').fill('A 的卡片');
+    await page.getByRole('button', { name: '笔记', exact: true }).click();
+
+    state.session = syntheticSessionB;
+    state.libraries = [libB];
+    state.entries = [guideB];
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'A 私有目录' })).toHaveCount(0);
+    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await expect(page.getByText('A 的卡片')).toHaveCount(0);
+    await expect(page.getByText('还没有闪卡')).toBeVisible();
+
+    state.session = syntheticSessionA;
+    state.libraries = [libA];
+    state.entries = [guideA, noteA];
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(page.getByRole('button', { name: 'A 私有目录' })).toBeVisible();
+    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'A 的卡片' })).toBeVisible();
   });
 
   test('late creation response cannot restore a previous identity note', async ({ page }) => {
@@ -140,8 +174,8 @@ test.describe('Workspace mocked contract suite', () => {
     state.holdCreate = new Promise(resolve => { releaseCreate = resolve; });
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
-    await page.getByRole('button', { name: '新建笔记' }).click();
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click();
     state.session = syntheticSessionB;
     state.libraries = [libB];
     state.entries = [guideB];
@@ -152,8 +186,8 @@ test.describe('Workspace mocked contract suite', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     releaseCreate();
-    await expect(page.getByRole('treeitem', { name: '未命名笔记' })).toHaveCount(0);
-    await expect(page.getByRole('treeitem', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '未命名笔记' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
   });
 
   test('preserves note text on save failure and allows retry', async ({ page }) => {
@@ -161,20 +195,22 @@ test.describe('Workspace mocked contract suite', () => {
     state.patchError = true;
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await page.getByRole('treeitem', { name: 'First note for user A' }).click();
-    const editor = page.getByLabel('正文');
-    await expect(editor).toHaveValue('Private note body');
-    await editor.fill('Edited body still here');
-    await expect(page.getByRole('alert')).toContainText('知识库服务暂时不可用');
-    await expect(editor).toHaveValue('Edited body still here');
+    const editor = page.locator('.codemirror-editor .cm-content');
+    await expect(editor).toContainText('Private note body');
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Edited body still here');
+    await expect(page.locator('.workspace-error')).toContainText('保存失败');
+    await expect(editor).toContainText('Edited body still here');
   });
 
   test('shows knowledge tree and guide without claiming execution', async ({ page }) => {
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
-    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
-    await expect(page.getByLabel('发给智能体')).toBeVisible();
+    await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
+    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导' }).click();
+    await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
     await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
     await expect(page.getByText('执行记录与运行')).toHaveCount(0);
   });
@@ -184,94 +220,47 @@ test.describe('Workspace mocked contract suite', () => {
     state.model = { configured: false, source: 'none', quota: { limit: 20, used: 0, remaining: 20 } };
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('treeitem', { name: '新手向导' })).toBeVisible();
-    await expect(page.getByText('还没有可用的模型')).toBeVisible();
+    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导' }).click();
     await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
-    await expect(page.getByLabel('发给智能体')).toBeDisabled();
+    await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
   });
 
 
-  test('nests a new note under the selected note', async ({ page }) => {
+  test('opens a new note immediately after creation', async ({ page }) => {
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await page.getByRole('treeitem', { name: 'First note for user A' }).click();
-    await page.getByRole('button', { name: '新建笔记' }).click();
-    await expect(page.getByRole('treeitem', { name: '未命名笔记' })).toBeVisible();
-    await expect(page.getByLabel('标题')).toHaveValue('未命名笔记');
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click();
+    await expect(page.getByRole('button', { name: '未命名笔记' })).toBeVisible();
+    await expect(page.locator('.note-title')).toHaveValue('未命名笔记');
   });
 
-  test('opens and closes the sidebar drawer on mobile', async ({ page }) => {
+  test('starts with the mobile file pane closed and dismisses it with Escape or a note selection', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-     const sidebar = page.locator('#workspace-sidebar');
-     await expect(sidebar).toHaveAttribute('aria-hidden', 'false');
-     await expect(sidebar).toHaveAttribute('role', 'dialog');
-     await expect(sidebar).toHaveAttribute('aria-modal', 'true');
-     await expect(page.locator('.workspace-stage')).toHaveAttribute('inert', '');
-     await expect(page.getByRole('button', { name: '关闭侧栏' })).toBeVisible();
-
+    const sidebar = page.locator('.obsidian-sidebar');
+    await expect(sidebar).toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await expect(sidebar).not.toHaveAttribute('inert');
+    await expect(page.locator('.obsidian-main')).toHaveAttribute('inert', '');
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: '展开侧栏' })).toHaveAttribute('aria-expanded', 'false');
-     await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
-     await expect(sidebar).toHaveAttribute('inert', '');
-     await expect(page.locator('.workspace-stage')).not.toHaveAttribute('inert');
-     await expect(page.getByRole('button', { name: '关闭侧栏' })).toHaveCount(0);
-
-     await page.getByRole('button', { name: '展开侧栏' }).click();
-     await expect(page.getByRole('combobox', { name: '当前知识库' })).toBeFocused();
-     await page.getByRole('combobox', { name: '当前知识库' }).focus();
-     await page.getByRole('button', { name: '关闭侧栏' }).click({ position: { x: 320, y: 100 } });
-     await expect(page.getByRole('button', { name: '展开侧栏' })).toBeFocused();
+    await expect(sidebar).toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.getByRole('button', { name: 'First note for user A' }).click();
+    await expect(sidebar).toHaveAttribute('inert', '');
   });
 
-  test('contains forward and reverse Tab focus while the mobile drawer is open', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await mockWorkspace(page, defaultState());
-    await page.goto('/workspace');
-    const sidebar = page.locator('#workspace-sidebar');
-    const controls = sidebar.locator('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
-    const first = controls.first();
-    const last = controls.last();
-    await first.focus();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: '展开侧栏' })).toHaveAttribute('aria-expanded', 'false');
-    await page.getByRole('button', { name: '展开侧栏' }).click();
-    await expect(first).toBeFocused();
-    await last.focus();
-    await page.keyboard.press('Tab');
-    await expect(first).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
-    await expect(last).toBeFocused();
-  });
-
-  test('closes the mobile drawer with Escape and selection', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await mockWorkspace(page, defaultState());
-    await page.goto('/workspace');
-    await page.getByRole('combobox', { name: '当前知识库' }).focus();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: '展开侧栏' })).toBeFocused();
-
-    await page.getByRole('button', { name: '展开侧栏' }).click();
-    await page.getByRole('treeitem', { name: 'First note for user A' }).click();
-    await expect(page.getByRole('button', { name: '展开侧栏' })).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('keeps the sidebar persistent and backdrop hidden on desktop', async ({ page }) => {
+  test('expands the document when the desktop file pane closes', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await expect(page.locator('#workspace-sidebar')).toBeVisible();
-    await expect(page.getByRole('button', { name: '关闭侧栏' })).toBeHidden();
-    await expect(page.locator('.workspace-shell')).toHaveCSS('grid-template-columns', '256px 1184px');
-
-    await page.getByRole('button', { name: '收起侧栏' }).click();
-    await expect(page.getByRole('button', { name: '展开侧栏' })).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('.workspace-shell')).toHaveCSS('grid-template-columns', '0px 1440px');
-    await page.getByRole('button', { name: '展开侧栏' }).click();
-    await expect(page.getByRole('button', { name: '收起侧栏' })).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('.workspace-shell')).toHaveCSS('grid-template-columns', '256px 1184px');
+    const main = page.locator('.obsidian-main');
+    const before = await main.evaluate(element => element.getBoundingClientRect().width);
+    await page.locator('.sidebar-pane-header').getByRole('button', { name: '收起侧栏' }).click();
+    await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
+    const after = await main.evaluate(element => element.getBoundingClientRect().width);
+    expect(after).toBeGreaterThan(before + 200);
   });
 });
 
@@ -282,11 +271,11 @@ for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900],
       await page.emulateMedia({ colorScheme: theme });
       await mockWorkspace(page, defaultState());
       await page.goto('/workspace');
-      await expect(page.getByRole('heading', { level: 1, name: '我的知识库' })).toBeVisible();
+      await expect(page.locator('.note-title')).toHaveValue('First note for user A');
       const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
       expect(horizontalOverflow).toBe(true);
-      const titleHeight = await page.locator('.workspace-topbar h1').evaluate(element => element.getBoundingClientRect().height);
-      expect(titleHeight).toBeLessThan(40);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+      if (width <= 720) await page.getByRole('button', { name: '打开侧栏' }).click();
       await expect(page.getByRole('button', { name: '设置' })).toBeVisible();
       await page.screenshot({
         path: `test-results/workspace/workspace-${width}x${height}-${theme}.png`,
@@ -344,7 +333,7 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   await page.getByRole('button', { name: '打开侧栏' }).click();
   await expect(page.locator('.tree-children').getByRole('button', { name: 'First note for user A' })).toBeVisible();
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '设置' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-settings.png' });
   await page.getByRole('button', { name: '关闭设置' }).click();
   await page.keyboard.press('Escape');
