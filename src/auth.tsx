@@ -227,6 +227,11 @@ function FlowScreen() {
 
   useEffect(() => {
     const controller = new AbortController();
+    void readSession(controller.signal).then(session => {
+      if (!controller.signal.aborted && session) location.replace('/workspace');
+    }).catch(() => {
+      // Keep the login form available when the session check cannot complete.
+    });
     readFlow(controller.signal).then(result => {
       if (controller.signal.aborted) return;
       setFlow(result);

@@ -19,7 +19,7 @@
   --primary: oklch(17% 0 0);
   --primary-foreground: oklch(100% 0 0);
   --blue: oklch(50% .23 260);
-  --ring: oklch(51% .2 260);
+  --ring: oklch(30% 0 0);
   --destructive: oklch(47% .18 27);
   --overlay: oklch(20% 0 0 / .22);
   --floating-shadow: 0 8px 30px oklch(0% 0 0 / .07), 0 0 1px oklch(0% 0 0 / .04);
@@ -43,7 +43,7 @@
   --primary: oklch(97% 0 0);
   --primary-foreground: oklch(17% 0 0);
   --blue: oklch(67% .18 255);
-  --ring: oklch(74% .14 250);
+  --ring: oklch(90% 0 0);
   --destructive: oklch(76% .13 27);
   --overlay: oklch(0% 0 0 / .55);
   --floating-shadow: inset 0 0 0 1px oklch(100% 0 0 / .07), 0 8px 30px oklch(0% 0 0 / .08);
@@ -206,4 +206,3 @@ svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
-

@@ -120,6 +120,37 @@ test('search focus remains visible in forced colors', async ({ page }) => {
   await expect(page.locator('html')).toHaveCSS('scrollbar-color', 'auto');
 });
 
+for (const theme of ['浅色', '深色']) {
+  test(`focus rings use the neutral ${theme} theme token`, async ({ page }) => {
+    await page.goto('/preview/appearance');
+    await select(page, theme);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '搜索示例', exact: true }).click();
+    await page.keyboard.press('Tab');
+    const clearButton = page.getByRole('button', { name: '清空搜索', exact: true });
+    await expect(clearButton).toBeFocused();
+    await expect(clearButton).toHaveCSS('outline-style', 'solid');
+    await expect(clearButton).toHaveCSS('outline-width', '2px');
+    const colors = await clearButton.evaluate(element => {
+      const styles = getComputedStyle(element);
+      return {
+        outline: styles.outlineColor,
+        ring: getComputedStyle(document.documentElement).getPropertyValue('--ring').trim(),
+      };
+    });
+    const neutralLab = value => {
+      const match = value.match(/^lab\([^ ]+%?\s+([-\d.]+)\s+([-\d.]+)/);
+      return match ? { a: Number(match[1]), b: Number(match[2]) } : null;
+    };
+    expect(neutralLab(colors.ring)).not.toBeNull();
+    expect(neutralLab(colors.outline)).not.toBeNull();
+    expect(Math.abs(neutralLab(colors.ring).a)).toBeLessThan(0.1);
+    expect(Math.abs(neutralLab(colors.ring).b)).toBeLessThan(0.1);
+    expect(Math.abs(neutralLab(colors.outline).a)).toBeLessThan(0.1);
+    expect(Math.abs(neutralLab(colors.outline).b)).toBeLessThan(0.1);
+  });
+}
+
 test('thin scrollbars preserve real dialog and document scrolling', async ({ page }, info) => {
   await page.setViewportSize({ width: 1280, height: 480 });
   await page.goto('/preview/appearance');
