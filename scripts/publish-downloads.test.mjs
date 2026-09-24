@@ -98,6 +98,7 @@ test('validateReleaseAncestry rejects commits not on release ancestry', async ()
 test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and all required jobs pass', async () => {
   const sourceSha = '0123456789abcdef0123456789abcdef01234567';
   const repo = EXPECTED_GITHUB_REPO;
+  let includeAppleJobs = true;
 
   const mockFetchSuccess = async (url) => {
     if (url.includes('/actions/runs?')) {
@@ -142,6 +143,10 @@ test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and a
           jobs: [
             { name: 'Build Linux amd64 Debian package', status: 'completed', conclusion: 'success' },
             { name: 'Build Android debug arm64 APK', status: 'completed', conclusion: 'success' },
+            ...(includeAppleJobs ? [
+              { name: 'Build unsigned universal macOS app', status: 'completed', conclusion: 'success' },
+              { name: 'Compile unsigned iOS device and simulator archives', status: 'completed', conclusion: 'success' },
+            ] : []),
             { name: 'Portable checks', status: 'completed', conclusion: 'success' },
             { name: 'Build Web Client', status: 'completed', conclusion: 'success' },
             { name: 'Browser UI and workspace regression', status: 'completed', conclusion: 'success' },
@@ -166,6 +171,11 @@ test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and a
   const runs = await findSuccessfulWorkflowRuns(sourceSha, repo, 'token', mockFetchSuccess);
   assert.equal(runs['CI'].id, 100);
   assert.equal(runs['Windows Installer'].id, 101);
+  includeAppleJobs = false;
+  await assert.rejects(
+    () => findSuccessfulWorkflowRuns(sourceSha, repo, 'token', mockFetchSuccess),
+    /Required job "Build unsigned universal macOS app".*was not successful/
+  );
 });
 
 test('buildReleaseNotes generates expected release notes with provenance and disclaimer', () => {
@@ -256,6 +266,8 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
             jobs: [
               { name: 'Build Linux amd64 Debian package', status: 'completed', conclusion: 'success' },
               { name: 'Build Android debug arm64 APK', status: 'completed', conclusion: 'success' },
+              { name: 'Build unsigned universal macOS app', status: 'completed', conclusion: 'success' },
+              { name: 'Compile unsigned iOS device and simulator archives', status: 'completed', conclusion: 'success' },
               { name: 'Portable checks', status: 'completed', conclusion: 'success' },
               { name: 'Build Web Client', status: 'completed', conclusion: 'success' },
               { name: 'Browser UI and workspace regression', status: 'completed', conclusion: 'success' },

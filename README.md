@@ -1,7 +1,7 @@
 # TJUClaw Client
 
 天津大学校园行动智能体的共享客户端，使用 React、Vite 和 Tauri。
-同一份界面面向 Web、Linux、Windows 与 Android。
+同一份界面面向 Web、Linux、Windows、macOS、Android 与 iOS。
 
 本仓库独立管理依赖、版本与多平台构建。服务端和校园 CLI 分别维护；
 集成仓库通过 Git submodule 锁定组合版本。
@@ -35,20 +35,38 @@ task workspace:test
 task web:build
 task linux:build
 task windows:build
+task macos:build
 task android:targets
 task android:build
+task android:release:check
+task ios:build
 ```
 
 原生构建需要 Rust 和对应平台 SDK。Linux 需要 GTK 3、WebKitGTK 4.1、
 AppIndicator 和 patchelf；Windows 需要 MSVC；Android 使用 Java 17、SDK 36、
-Build Tools 35/36 和 NDK 27.2.12479018。具体安装步骤以 `.github/workflows/` 为准。
+Build Tools 35/36 和 NDK 27.2.12479018；macOS/iOS 需要 Xcode、
+对应的 Apple Rust targets，iOS 还需要设备与模拟器 SDK、XcodeGen 和 CocoaPods。
+具体安装步骤以 `.github/workflows/` 为准。
 
 `package.json` 决定客户端安装包版本。Windows 输出未签名 NSIS 安装程序，
 Android 输出 arm64 调试 APK。构建通过不代表已完成真机安装、原生登录或生产签名验收。
+Android 的 edge-to-edge 安全区由 `src-tauri/android/MainActivity.kt` 在原生
+Activity 中处理；`scripts/native.mjs` 在 `tauri android init/build/dev` 时将其同步到
+被忽略的生成工程。生成文件若与已知模板不符，构建会中止以避免覆盖原生修改。
+`android:release:check` 额外编译并核对仅含 arm64 库的 release APK；
+CI 同时执行这项检查并单独保存该产物；它未签名，不能安装或作为发布包。
+当前打包 WebView 的本地来源没有 `/api` 代理：Android 模拟器实测
+`/api/auth/session` 返回应用 HTML 而非认证 JSON，原生登录尚不可用。
+原生会话传输必须单独设计和验收，不应放宽后端同源校验或把会话 Cookie 暴露给前端。
+macOS 构建 unsigned universal `.app`（CI 中以 tar.gz 保留符号链接）；
+iOS 分别保留 unsigned 设备和模拟器 `.xcarchive`（CI 中以 tar.gz 保留符号链接），
+只做编译门禁，不是可安装 IPA。
+Apple 平台的发布和真机运行仍需签名、凭据与设备验收。
 
 ## CI 与比赛产物
 
-GitHub Actions 分别运行检查、外观/工作区回归及各平台构建，产物按提交 SHA 命名。
+GitHub Actions 分别运行检查、外观/工作区回归及五个原生平台构建，产物按提交 SHA 命名。
+macOS 应用和 iOS 无签名归档都是短期 CI 产物。
 日常构建不自动发布 Release。
 
 ## 两分支与 Web 发布

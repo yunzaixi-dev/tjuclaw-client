@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { prepareAndroidInsets } from './android-insets.mjs';
 import { prependToolPath } from './native-env.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -11,9 +12,12 @@ const bin = join(process.env.CARGO_HOME || join(homedir(), '.cargo'), 'bin');
 const rustup = join(bin, process.platform === 'win32' ? 'rustup.exe' : 'rustup');
 const env = existsSync(rustup) ? prependToolPath(process.env, bin) : { ...process.env };
 const command = tool === 'tauri' ? process.execPath : tool;
+const androidCommand = tool === 'tauri' && args[0] === 'android' ? args[1] : null;
+if (androidCommand === 'build' || androidCommand === 'dev') prepareAndroidInsets();
 if (tool === 'tauri') {
   args.unshift(fileURLToPath(new URL('../node_modules/@tauri-apps/cli/tauri.js', import.meta.url)));
 }
 const result = spawnSync(command, args, { env, stdio: 'inherit' });
 if (result.error) throw result.error;
+if (result.status === 0 && androidCommand === 'init') prepareAndroidInsets();
 process.exitCode = result.status ?? 1;

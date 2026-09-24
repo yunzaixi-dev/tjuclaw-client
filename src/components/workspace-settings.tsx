@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { BookOpen, ChevronRight, CircleHelp, Folder, GalleryHorizontal, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
+import { BookOpen, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { setAppearance, useAppearance, type Accent, type Mode } from '../lib/appearance';
 
@@ -8,8 +8,8 @@ export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards'
 const sections = [
   { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色' },
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
-  { id: 'library', label: '文件与链接', icon: Folder, keywords: '知识库 笔记 文件夹 目录' },
-  { id: 'flashcards', label: '闪卡', icon: GalleryHorizontal, keywords: 'Anki 导出 TSV' },
+  { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
+  { id: 'flashcards', label: '记忆闪卡', icon: Brain, keywords: 'Anki 导出 TSV' },
   { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
@@ -92,7 +92,7 @@ export function WorkspaceSettings({
             </> : null}
             {active === 'flashcards' ? <>
               <h3>卡片</h3>
-              <SettingRow title="闪卡" description="卡片包含正面、背面与标签。"><button type="button" className="settings-action-button" onClick={onShowCards}>查看 {cardCount} 张卡片 <ChevronRight size={14} /></button></SettingRow>
+              <SettingRow title="记忆闪卡" description="卡片包含正面、背面与标签。"><button type="button" className="settings-action-button" onClick={onShowCards}>查看 {cardCount} 张卡片 <ChevronRight size={14} /></button></SettingRow>
               <SettingRow title="导出到 Anki" description="导出制表符分隔的文本，在 Anki 中导入。"><button type="button" className="settings-action-button" onClick={onExportCards} disabled={!cardCount}>导出 TSV</button></SettingRow>
             </> : null}
             {active === 'account' ? <>
@@ -102,8 +102,8 @@ export function WorkspaceSettings({
             </> : null}
             {active === 'about' ? <>
               <h3>工作区</h3>
-              <SettingRow title="笔记工作区" description="笔记与会话连接服务端；文件夹和闪卡保存在当前浏览器。"><span className="settings-value">Web</span></SettingRow>
-              <p className="settings-about-note">闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器并未接入。会话能力以当前服务端实际可用范围为准。</p>
+              <SettingRow title="笔记工作区" description="笔记与 Agent 连接服务端；文件夹和记忆闪卡保存在当前浏览器。"><span className="settings-value">Web</span></SettingRow>
+              <p className="settings-about-note">记忆闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器尚未接入。Agent 能力以当前服务端实际可用范围为准；第三方插件尚未开放。</p>
             </> : null}
           </div>
         </div>

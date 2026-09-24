@@ -72,6 +72,8 @@ jobs:
         run: pnpm install --frozen-lockfile --fetch-timeout 600000 --network-concurrency 4
       - name: Build unsigned installer
         run: task windows:build
+      - name: Verify Windows executable and NSIS installer
+        run: node scripts/verify-windows-bundle.mjs
       - name: Record source and installer checksums
         env:
           SOURCE_SHA: ${{ github.sha }}

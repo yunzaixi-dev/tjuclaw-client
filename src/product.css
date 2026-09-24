@@ -1,3 +1,8 @@
+@import "@fontsource/cascadia-code/400.css";
+@import "@fontsource/cascadia-code/600.css";
+@import "@fontsource/cascadia-code/700.css";
+@import "lxgw-wenkai-webfont/lxgwwenkai-regular.css";
+@import "lxgw-wenkai-webfont/lxgwwenkai-bold.css";
 @import "tailwindcss" source(none);
 @source "./product.tsx";
 @source "./auth.tsx";
@@ -6,7 +11,11 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 :root {
-  font-family: "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+  --font-latin: "Cascadia Code";
+  --font-cjk: "LXGW WenKai";
+  --font-ui: var(--font-latin), var(--font-cjk), "Noto Sans CJK SC", monospace;
+  --font-code: var(--font-latin), var(--font-cjk), monospace;
+  font-family: var(--font-ui);
   font-synthesis: none;
   --background: oklch(98.5% 0 0);
   --foreground: oklch(17% 0 0);
@@ -64,6 +73,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 button, input { font: inherit; }
+textarea, select { font-family: inherit; }
 button { cursor: pointer; }
 button, input, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }

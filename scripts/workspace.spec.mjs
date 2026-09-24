@@ -27,6 +27,10 @@ function json(route, status, body) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
+async function mockUnavailableLoginFlow(page) {
+  await page.route('**/api/auth/flow', route => json(route, 503, { error: { id: 'auth_unavailable' } }));
+}
+
 function defaultState() {
   return {
     session: syntheticSessionA,
@@ -101,14 +105,22 @@ async function mockWorkspace(page, state) {
 
 test.describe('Workspace mocked contract suite', () => {
   test('redirects to /auth/login when session is missing or 401', async ({ page }) => {
+    await mockUnavailableLoginFlow(page);
     await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'session_required' } }));
     await page.goto('/workspace');
     await expect(page).toHaveURL(/\/auth\/login/);
   });
 
   test('redirects to /auth/login when libraries API returns 401 session_required', async ({ page }) => {
-    await page.route('**/api/auth/session', route => json(route, 200, syntheticSessionA));
-    await page.route('**/api/libraries', route => json(route, 401, { error: { id: 'session_required' } }));
+    await mockUnavailableLoginFlow(page);
+    let revoked = false;
+    await page.route('**/api/auth/session', route => revoked
+      ? json(route, 401, { error: { id: 'session_required' } })
+      : json(route, 200, syntheticSessionA));
+    await page.route('**/api/libraries', route => {
+      revoked = true;
+      return json(route, 401, { error: { id: 'session_required' } });
+    });
     await page.goto('/workspace');
     await expect(page).toHaveURL(/\/auth\/login/);
   });
@@ -132,7 +144,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
     await expect(page.locator('.note-title')).toHaveCount(0);
-    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await expect(page.getByRole('button', { name: '新手向导' })).toBeVisible();
   });
 
@@ -144,10 +156,10 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '新建文件夹' }).click();
     await page.locator('.tree-inline-input').fill('A 私有目录');
     await page.locator('.tree-inline-input').press('Enter');
-    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await page.getByRole('button', { name: '新建卡片' }).click();
     await page.getByPlaceholder('问题或提示').fill('A 的卡片');
-    await page.getByRole('button', { name: '笔记', exact: true }).click();
+    await page.locator('.sidebar-activity').getByRole('button', { name: '资料夹', exact: true }).click();
 
     state.session = syntheticSessionB;
     state.libraries = [libB];
@@ -155,16 +167,16 @@ test.describe('Workspace mocked contract suite', () => {
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'A 私有目录' })).toHaveCount(0);
-    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await expect(page.getByText('A 的卡片')).toHaveCount(0);
-    await expect(page.getByText('还没有闪卡')).toBeVisible();
+    await expect(page.getByText('还没有记忆闪卡')).toBeVisible();
 
     state.session = syntheticSessionA;
     state.libraries = [libA];
     state.entries = [guideA, noteA];
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect(page.getByRole('button', { name: 'A 私有目录' })).toBeVisible();
-    await page.getByRole('button', { name: '闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await expect(page.getByRole('button', { name: 'A 的卡片' })).toBeVisible();
   });
 
@@ -208,7 +220,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
     await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
-    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导' }).click();
     await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
     await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
@@ -220,7 +232,7 @@ test.describe('Workspace mocked contract suite', () => {
     state.model = { configured: false, source: 'none', quota: { limit: 20, used: 0, remaining: 20 } };
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await page.getByRole('button', { name: '会话', exact: true }).click();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导' }).click();
     await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
     await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
@@ -310,9 +322,9 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   await page.getByRole('button', { name: '新建文件夹' }).click();
   await page.locator('.tree-inline-input').fill('资料');
   await page.locator('.tree-inline-input').press('Enter');
-  await expect(page.getByRole('button', { name: '资料' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '资料', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-file-drawer.png' });
-  await page.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: '资料' }) }).getByRole('button', { name: '文件夹操作' }).click();
+  await page.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: '资料', exact: true }) }).getByRole('button', { name: '文件夹操作' }).click();
   await expect(page.getByRole('menu', { name: '文档操作' })).toBeVisible();
   await page.getByRole('button', { name: '关闭操作菜单' }).click();
   await page.getByRole('button', { name: 'First note for user A' }).click();
@@ -348,7 +360,7 @@ test('mobile sidebar keeps the desktop activity rail on the left with motion-awa
   await page.getByRole('button', { name: '打开侧栏' }).click();
   const sidebar = page.locator('.obsidian-sidebar');
   const rail = sidebar.locator('.sidebar-activity');
-  const notes = rail.getByRole('button', { name: '笔记' });
+  const notes = rail.getByRole('button', { name: '资料夹' });
   const positions = await page.evaluate(() => {
     const rect = selector => document.querySelector(selector).getBoundingClientRect();
     return {
@@ -363,8 +375,8 @@ test('mobile sidebar keeps the desktop activity rail on the left with motion-awa
   expect(positions.notes.y).toBeLessThan(positions.settings.y - 450);
   await expect(notes).toHaveAttribute('aria-current', 'page');
   await expect(rail.locator('.activity-current-mark')).toHaveCount(1);
-  await rail.getByRole('button', { name: '会话' }).click();
-  await expect(rail.getByRole('button', { name: '会话' })).toHaveAttribute('aria-current', 'page');
+  await rail.getByRole('button', { name: 'Agent' }).click();
+  await expect(rail.getByRole('button', { name: 'Agent' })).toHaveAttribute('aria-current', 'page');
   await expect(rail.locator('.activity-current-mark')).toHaveCount(1);
   await notes.click();
   await page.screenshot({ path: 'test-results/workspace/mobile-left-rail.png' });
@@ -375,6 +387,35 @@ test('mobile sidebar keeps the desktop activity rail on the left with motion-awa
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
   await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+});
+
+test('plugin directory opens real built-in features without claiming external installation', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  const activity = page.locator('.sidebar-activity');
+  await activity.getByRole('button', { name: '插件' }).click();
+  await expect(page.getByRole('heading', { name: 'Markdown 编辑器' })).toBeVisible();
+  await expect(page.getByText('第三方插件尚未开放').first()).toBeVisible();
+  await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
+  await page.getByRole('button', { name: '打开知识图谱' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.locator('.obsidian-tree').getByRole('button', { name: '记忆闪卡' }).click();
+  await page.getByRole('button', { name: '打开记忆闪卡' }).click();
+  await expect(page.getByRole('heading', { name: '记忆闪卡', exact: true })).toBeVisible();
+  await expect(activity.getByRole('button', { name: '记忆闪卡' })).toHaveAttribute('aria-current', 'page');
+});
+
+test('mobile plugin selection closes the drawer and keeps page scrolling internal', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await page.locator('.sidebar-activity').getByRole('button', { name: '插件' }).click();
+  await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
+  await expect(page.locator('.obsidian-sidebar')).toHaveAttribute('inert', '');
+  await expect(page.getByRole('button', { name: '打开知识图谱' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
@@ -472,6 +513,125 @@ test('live Markdown preview reveals only the construct being edited and keeps so
   await expect(editor.locator('.cm-md-checkbox')).not.toBeChecked();
   await page.screenshot({ path: 'test-results/workspace/markdown-live-preview.png' });
   expect(errors).toEqual([]);
+});
+
+test('typing a Markdown heading keeps the marker legible without underlining the heading', async ({ page }) => {
+  const state = defaultState();
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body: '' } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body: '' };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+
+  const editor = page.locator('.codemirror-editor .cm-content');
+  await editor.click();
+  await page.keyboard.type('#');
+  await expect(editor.locator('.cm-line')).toHaveText('#');
+  const loneMarker = await editor.locator('.cm-line').evaluate(line => ({
+    decorated: [line, ...line.querySelectorAll('*')].filter(element => getComputedStyle(element).textDecorationLine.includes('underline')).map(element => element.className),
+    font: getComputedStyle(line).fontFamily,
+  }));
+  expect(loneMarker.decorated).toEqual([]);
+  expect(loneMarker.font).toContain('Cascadia Code');
+  expect(loneMarker.font).toContain('LXGW WenKai');
+  await expect(page.locator('.codemirror-editor .cm-scroller')).toHaveCSS('font-family', /Cascadia Code.*LXGW WenKai/);
+  await expect(editor).toHaveAttribute('spellcheck', 'false');
+  await page.keyboard.type(' ');
+  await expect(editor.locator('.cm-line')).toHaveText('# ');
+  expect(await editor.locator('.cm-line').evaluate(line =>
+    [line, ...line.querySelectorAll('*')].some(element => getComputedStyle(element).textDecorationLine.includes('underline'))
+  )).toBe(false);
+  await page.keyboard.type('标题');
+  await expect(editor.locator('.cm-md-heading-line')).toHaveText('# 标题');
+  const styles = await editor.locator('.cm-md-heading-line').evaluate(line => {
+    const marker = line.querySelector('.cm-md-syntax');
+    return {
+      decorated: [line, ...line.querySelectorAll('*')].filter(element => getComputedStyle(element).textDecorationLine.includes('underline')).map(element => element.className),
+      markerColor: marker ? getComputedStyle(marker).color : null,
+      background: getComputedStyle(line).backgroundColor,
+    };
+  });
+  expect(styles.decorated).toEqual([]);
+  expect(styles.markerColor).not.toBeNull();
+  await expect(editor.locator('.cm-md-heading-line .cm-md-syntax').first()).toHaveCSS('font-weight', '700');
+  const markerContrast = await editor.locator('.cm-md-syntax').first().evaluate(element => {
+    const ink = getComputedStyle(element).color;
+    const body = getComputedStyle(element.closest('.cm-line')).color;
+    return { ink, body };
+  });
+  expect(markerContrast.ink).not.toBe(markerContrast.body);
+  const markerVisibility = await editor.locator('.cm-md-syntax').first().evaluate(element => {
+    const rgb = (color) => {
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    };
+    const luminance = (color) => rgb(color).map(value => {
+      const channel = value / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    }).reduce((total, value, index) => total + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const foreground = luminance(getComputedStyle(element).color);
+    const body = luminance(getComputedStyle(element.closest('.cm-line')).color);
+    const background = luminance(getComputedStyle(element.closest('.cm-line')).backgroundColor === 'rgba(0, 0, 0, 0)' ? getComputedStyle(document.documentElement).getPropertyValue('--surface') : getComputedStyle(element.closest('.cm-line')).backgroundColor);
+    return {
+      readability: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
+      separation: Math.abs(foreground - body),
+    };
+  });
+  expect(markerVisibility.readability).toBeGreaterThanOrEqual(10);
+  expect(markerVisibility.separation).toBeGreaterThanOrEqual(0.02);
+  const markerSize = await editor.locator('.cm-md-heading-line').evaluate(line => ({
+    marker: getComputedStyle(line.querySelector('.cm-md-syntax')).fontSize,
+    heading: getComputedStyle(line).fontSize,
+  }));
+  expect(markerSize.marker).toBe(markerSize.heading);
+  await page.getByRole('button', { name: '切换信息栏' }).focus();
+  await expect(editor.locator('.cm-md-syntax')).toHaveCount(0);
+  await expect(editor.locator('.cm-md-heading-line')).not.toHaveCSS('text-decoration-line', 'underline');
+  await editor.locator('.cm-md-heading-line').click();
+  await expect(editor.locator('.cm-md-syntax').first()).toHaveCSS('text-decoration-line', 'none');
+  const fontFaces = await page.evaluate(async () => {
+    const [latin, chinese] = await Promise.all([
+      document.fonts.load('400 16px "Cascadia Code"', 'ABC#'),
+      document.fonts.load('400 16px "LXGW WenKai"', '中文'),
+    ]);
+    return { latin: latin.length, chinese: chinese.length };
+  });
+  expect(fontFaces.latin).toBeGreaterThan(0);
+  expect(fontFaces.chinese).toBeGreaterThan(0);
+  const latinCoverage = await page.evaluate(() => [...document.fonts].some(face =>
+    face.family === 'Cascadia Code' && face.weight === '400' && face.unicodeRange.includes('U+0-FF')
+  ));
+  expect(latinCoverage).toBe(true);
+  await page.keyboard.type(' [链接](https://example.com)');
+  await expect(editor.locator('.cm-md-link-label')).toHaveCSS('text-decoration-line', 'underline');
+  const linkSyntax = await editor.locator('.cm-md-syntax').filter({ hasText: 'https://example.com' }).evaluate(element => ({
+    markerColor: getComputedStyle(element).color,
+    nestedColors: [...element.querySelectorAll('*')].map(child => getComputedStyle(child).color),
+  }));
+  expect(linkSyntax.nestedColors.every(color => color === linkSyntax.markerColor)).toBe(true);
+  await page.screenshot({ path: 'test-results/workspace/heading-markers-fonts.png' });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await expect(editor.locator('.cm-md-heading-line .cm-md-syntax').first()).toHaveCSS('text-decoration-line', 'none');
+  await expect(editor.locator('.cm-md-link-label')).toHaveCSS('text-decoration-line', 'underline');
+  await page.screenshot({ path: 'test-results/workspace/heading-markers-fonts-dark.png' });
+});
+
+test('inactive list bullets remain readable beside Markdown syntax', async ({ page }) => {
+  const state = defaultState();
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body: '# 标题\n\n- 列表项' } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body: '# 标题\n\n- 列表项' };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const editor = page.locator('.codemirror-editor .cm-content');
+  await expect(editor.locator('.cm-md-bullet')).toBeVisible();
+  await editor.locator('.cm-md-heading-line').click();
+  const contrast = await editor.locator('.cm-md-bullet').evaluate(element => ({
+    bullet: getComputedStyle(element).color,
+    marker: getComputedStyle(element.closest('.cm-content').querySelector('.cm-md-syntax')).color,
+  }));
+  expect(contrast.bullet).toBe(contrast.marker);
 });
 
 test('focused Markdown toolbar formats selections and lines without losing the cursor', async ({ page }) => {
@@ -596,7 +756,7 @@ test('library entry shows live note and folder counts and opens file settings', 
   await page.getByRole('button', { name: '新建文件夹' }).click();
   await expect(libraryButton).toContainText('2 个文件 · 1 个文件夹');
   await libraryButton.click();
-  await expect(page.getByRole('dialog').getByRole('heading', { name: '文件与链接' })).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '资料夹与链接' })).toBeVisible();
   await expect(page.getByRole('dialog').getByText('2', { exact: true })).toHaveCount(1);
   await expect(page.getByRole('dialog').getByText('1', { exact: true })).toHaveCount(2);
   await page.getByRole('button', { name: '关闭设置' }).click();
