@@ -1,34 +1,44 @@
 :root {
-  --scrollbar-thumb: rgb(0 0 0 / .28);
-  --scrollbar-thumb-hover: rgb(0 0 0 / .46);
+  --scrollbar-visible-opacity: 12%;
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--foreground) 25%, transparent);
 }
 
-:root[data-theme=dark] {
-  --scrollbar-thumb: rgb(255 255 255 / .30);
-  --scrollbar-thumb-hover: rgb(255 255 255 / .48);
+@property --scrollbar-visibility {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
 }
 
 /* Keep native scrolling and dragging; only change the visual treatment. */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-corner { background: transparent; box-shadow: none; }
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: transparent;
   background-clip: padding-box;
   border: 2px solid transparent;
   border-radius: 999px;
 }
-::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
-::-webkit-scrollbar-button { display: none; }
+:where([data-scroll-active])::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--foreground) var(--scrollbar-visibility), transparent);
+}
+:where([data-scroll-active])::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 
 /* Standard properties override WebKit geometry, so use them only as fallback. */
 @supports not selector(::-webkit-scrollbar) {
-  * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  :where([data-scroll-active]) {
+    scrollbar-color: color-mix(in oklch, var(--foreground) var(--scrollbar-visibility), transparent) transparent;
+  }
 }
 
 @media (forced-colors: active) {
   * { scrollbar-width: auto; scrollbar-color: auto; }
   ::-webkit-scrollbar,
   ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-track-piece,
   ::-webkit-scrollbar-corner,
   ::-webkit-scrollbar-thumb,
   ::-webkit-scrollbar-thumb:hover,

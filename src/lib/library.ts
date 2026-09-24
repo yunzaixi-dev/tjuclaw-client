@@ -2,7 +2,7 @@ import { authRequest, AuthError } from './auth';
 
 const HEX_32 = /^[0-9a-f]{32}$/;
 
-export type EntryKind = 'note' | 'agent' | 'work_env' | 'file';
+export type EntryKind = 'note' | 'agent' | 'work_env' | 'file' | 'folder';
 export type LibraryRole = 'owner' | 'subscribed';
 
 export interface Library {
@@ -17,6 +17,7 @@ export interface Entry {
   id: string;
   library_id: string;
   parent_id: string;
+  sort_order?: number;
   kind: EntryKind;
   preset?: string;
   title: string;
@@ -80,7 +81,7 @@ function isEntry(value: unknown): value is Entry {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
   return typeof r.id === 'string' && HEX_32.test(r.id) && typeof r.library_id === 'string' && HEX_32.test(r.library_id)
-    && typeof r.parent_id === 'string' && (r.kind === 'note' || r.kind === 'agent' || r.kind === 'work_env' || r.kind === 'file')
+    && typeof r.parent_id === 'string' && (r.kind === 'note' || r.kind === 'agent' || r.kind === 'work_env' || r.kind === 'file' || r.kind === 'folder')
     && typeof r.title === 'string' && isTime(r.created_at) && isTime(r.updated_at)
     && (r.body === undefined || typeof r.body === 'string')
     && (r.preset === undefined || typeof r.preset === 'string')
@@ -148,6 +149,22 @@ export async function createEntry(libraryId: string, input: { kind: EntryKind; t
   return data.entry;
 }
 
+export async function listFolders(libraryId: string, signal?: AbortSignal): Promise<Entry[]> {
+  const data = await authRequest<{ folders: unknown }>(`/api/libraries/${libraryId}/folders`, { signal });
+  if (!Array.isArray(data.folders) || !data.folders.every(isEntry)) throw new AuthError(503);
+  return data.folders;
+}
+
+export async function createFolder(libraryId: string, title: string, parent_id?: string, signal?: AbortSignal): Promise<Entry> {
+  const data = await authRequest<{ folder: unknown }>(`/api/libraries/${libraryId}/folders`, {
+    method: 'POST',
+    body: JSON.stringify({ title, ...(parent_id ? { parent_id } : {}) }),
+    signal,
+  });
+  if (!isEntry(data.folder) || data.folder.kind !== 'folder') throw new AuthError(503);
+  return data.folder;
+}
+
 export async function getEntry(id: string, signal?: AbortSignal): Promise<Entry> {
   const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}`, { signal });
   if (!isEntry(data.entry)) throw new AuthError(503);
@@ -158,6 +175,26 @@ export async function patchEntry(id: string, patch: { title?: string; body?: str
   const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}`, { method: 'PATCH', body: JSON.stringify(patch), signal });
   if (!isEntry(data.entry)) throw new AuthError(503);
   return data.entry;
+}
+
+export async function moveEntry(id: string, parent_id: string, signal?: AbortSignal): Promise<Entry> {
+  const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}/move`, { method: 'POST', body: JSON.stringify({ parent_id }), signal });
+  if (!isEntry(data.entry)) throw new AuthError(503);
+  return data.entry;
+}
+
+export async function patchFolder(id: string, patch: { title?: string; parent_id?: string }, signal?: AbortSignal): Promise<Entry> {
+  const data = await authRequest<{ folder: unknown }>(`/api/folders/${id}`, { method: 'PATCH', body: JSON.stringify(patch), signal });
+  if (!isEntry(data.folder) || data.folder.kind !== 'folder') throw new AuthError(503);
+  return data.folder;
+}
+
+export async function deleteFolder(id: string, signal?: AbortSignal): Promise<void> {
+  await authRequest(`/api/folders/${id}`, { method: 'DELETE', signal });
+}
+
+export async function reorderEntries(libraryId: string, parent_id: string, ids: string[], signal?: AbortSignal): Promise<void> {
+  await authRequest(`/api/libraries/${libraryId}/entries/order`, { method: 'PUT', body: JSON.stringify({ parent_id, ids }), signal });
 }
 
 export async function deleteEntry(id: string, signal?: AbortSignal): Promise<void> {

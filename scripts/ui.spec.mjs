@@ -153,6 +153,7 @@ for (const theme of ['浅色', '深色']) {
 
 test('thin scrollbars preserve real dialog and document scrolling', async ({ page }, info) => {
   await page.setViewportSize({ width: 1280, height: 480 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('/preview/appearance');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -165,16 +166,25 @@ test('thin scrollbars preserve real dialog and document scrolling', async ({ pag
     button: getComputedStyle(el, '::-webkit-scrollbar-button').display,
   }));
   const light = await readScrollbar();
-  expect(light.width).toBe('8px');
+  expect(light.width).toBe('11px');
   expect(light.radius).toBe('999px');
   expect(light.track).toBe('rgba(0, 0, 0, 0)');
   expect(light.button).toBe('none');
+  expect(light.thumb).toBe('rgba(0, 0, 0, 0)');
   await dialog.hover();
   await page.mouse.wheel(0, 350);
   await expect.poll(() => dialog.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await expect(dialog).toHaveAttribute('data-scroll-active', '');
+  await expect.poll(() => dialog.evaluate(el => Number.parseFloat(getComputedStyle(el).getPropertyValue('--scrollbar-visibility')))).toBe(12);
+  const activeLight = await readScrollbar();
+  expect(activeLight.thumb).not.toBe(light.thumb);
   await page.screenshot({ path: info.outputPath('scrollbar-light.png') });
+  await expect(dialog).not.toHaveAttribute('data-scroll-active', '', { timeout: 3000 });
+  expect((await readScrollbar()).thumb).toBe(light.thumb);
   await select(page, '深色');
-  expect((await readScrollbar()).thumb).not.toBe(light.thumb);
+  await dialog.evaluate(el => { el.scrollTop = 0; });
+  await expect.poll(() => dialog.evaluate(el => Number.parseFloat(getComputedStyle(el).getPropertyValue('--scrollbar-visibility')))).toBe(12);
+  expect((await readScrollbar()).thumb).not.toBe(activeLight.thumb);
   await page.screenshot({ path: info.outputPath('scrollbar-dark.png') });
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 390, height: 480 });

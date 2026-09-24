@@ -51,10 +51,14 @@ Never remove focus indicators from interactive elements to improve screenshots.
 Compound search controls put their focus ring on the rounded container using
 `:focus-within`, replacing the input outline without hiding keyboard focus.
 
-Shared native scrollbar styling lives in `src/scrollbars.css`: transparent tracks,
-thin rounded thumbs, theme-aware contrast, and no arrow buttons. Keep native
-wheel, touch, keyboard and drag behavior; do not add a JavaScript scroll engine or
-hide scrollbars. Forced-colors mode restores browser styling. Rounded dialogs
+Shared native scrollbar styling lives in `src/scrollbars.css`: an 11px gutter with
+a 7px faint rounded thumb, transparent tracks, theme-aware contrast, and no arrow
+buttons. The same treatment covers the editor, file tree, panels, dialogs and
+overflowing toolbars; avoid per-panel width/color overrides. The thumb stays
+transparent while idle, fades in during scrolling and fades out after settling;
+`src/lib/scroll-activity.ts` only tracks scroll activity and never moves content.
+Keep native wheel, touch, keyboard and drag behavior. Forced-colors mode restores
+browser styling. Rounded dialogs
 inset their scrollbar track to keep it away from the corners.
 
 ## Appearance State
@@ -112,7 +116,7 @@ or turn the editor into a card-based dashboard. `src/obsidian-shell.css` owns
 workspace-specific geometry; it still uses `src/product.css` semantic tokens
 and the shared appearance state.
 
-- The activity rail labels are 资料夹, Agent, 记忆闪卡, and 插件. The plugin
+- The activity rail labels are 资料夹, Agent, 记忆闪卡, 插件, and 小工具. The plugin
   section lists existing built-in capabilities with working entry points;
   third-party installation and runtime are not available. The current library
   name and live file/folder counts stay at the foot of the folder pane. Files
@@ -120,17 +124,49 @@ and the shared appearance state.
   indicates the library details entry, not an unsupported multi-library picker.
   The graph occupies the activity rail foot; the gear sits beside the library
   entry. Account actions belong in settings.
+- 小工具 has eight independent surfaces: a device-local repeating timetable,
+  live campus entry code and encrypted account vault, campus map links, school
+  calendar links, live timetable/GPA with a local estimator fallback, live vacant
+  classroom status, read-only official forum feeds, and a resumable Pomodoro timer. Tools have their
+  own tabs; selecting a different tool replaces the active tool tab, while +
+  opens another. Side items follow the shared reorder/sort behavior. Campus
+credentials use a user-supplied 6-64 character passphrase, PBKDF2-SHA256 and
+  AES-256-GCM with a random salt and nonce; the key and passphrase are never
+  stored. Encrypted data is scoped to the signed-in identity and this device,
+  not synced. The BFF keeps only a short-lived WePeiYang token in memory and
+  never persists office-network passwords. Live results are labelled separately
+  from local fallback data; forum actions remain read-only until their write
+  contract is explicitly implemented.
 - Settings use a compact category list and independent content scrolling on
   desktop; mobile categories scroll horizontally above the content. Preferences
   shown there must be wired to real state, not decorative plugin/sync switches.
   Graph nodes derive from existing notes and `[[title]]` links, not a server
   index. Flashcards currently export tab-separated front/back/tag text for
   import into Anki; its template interpreter and review scheduler are not
-  implemented. Upstream Anki (AGPL) and pi source are design research, not
+  implemented. Empty flashcard collections offer four optional sample cards;
+  loading them is explicit and persists only for the active identity. Upstream
+  Anki (AGPL) and pi source are design research, not
   code to copy into this client.
 - File/folder creation, inline rename, drag-to-move, search and context menus remain
   reachable from the tree. Notes use CodeMirror 6 live preview and save Markdown
-  through `patchEntry()`; agent entries open persisted sessions.
+  through `patchEntry()`. Notes, Agent sessions and flashcards keep separate
+  tab strips. Plus adds an empty tab in the current section, while choosing
+  a file or Agent from the sidebar replaces that section's active tab content.
+  Every sidebar section offers manual and name sorting; notes and Agents also
+  offer recently modified sorting. Drag between siblings to save a manual order,
+  or use the item's up/down actions on touch devices. Dragging onto a folder's
+  center still moves the item into it; edge drops reorder its siblings. Sorting
+  never changes the server-side folder relationship. Sidebar order and sort mode
+  are device-local, scoped to the signed-in identity; they do not sync across
+  clients. Searching disables drag to avoid reordering a filtered subset.
+  A note tab keeps its own back/forward history, shown as small controls in
+  the content pane's upper-left corner. Closing a tab returns to a neighbor
+  in the same section without deleting data. Pending note edits flush before switching.
+  Agent entries open persisted sessions. The conversation
+  reads as a narrow task thread with quiet role labels, Markdown-rendered Agent
+  replies and a bottom-docked composer, inspired by Codex Desktop without
+  implying unavailable tools or execution. Sending locks the composer, keeps
+  the draft on failure and offers inline retry feedback.
 - Live preview reads the Markdown syntax tree; it never rewrites source just to
   display formatted text. Show heading/list/quote syntax dimmed on the focused
   line, but show inline delimiters only when the caret or selection enters that
@@ -144,17 +180,36 @@ and the shared appearance state.
   fonts locally so Web and native clients do not rely on installed system fonts.
   Revealed Markdown punctuation uses the same font size as the heading and a
   distinct, readable neutral color; syntax-only headings never gain an underline.
-- A compact, horizontally scrollable Markdown command dock appears only while
-  the note editor has focus. On mobile it replaces bottom navigation and sits
-  above the virtual keyboard, with a separate dismiss-keyboard control. Commands
-  edit CodeMirror's source and preserve the selection and keyboard focus;
-  heading, list and indentation commands act on whole selected lines. Do not
-  make the dock a permanent second header or replace it with decorative icons.
+- Markdown commands live in a searchable contextual menu rather than a
+  persistent toolbar. On desktop, right-click the CodeMirror document or press
+  Shift+F10; on touch devices, long-press the document. Scrolling or releasing
+  early cancels the long-press. Keep the desktop menu compact with a restrained
+  neutral shadow; on phones it becomes a short bottom sheet with its own scrolling.
+  Group real formatting, heading, paragraph, insertion and editing commands;
+  keep file/folder context actions separate. Commands edit the original
+  CodeMirror source and preserve its selection and undo history. Headings,
+  lists and indentation act on whole selected lines. Clipboard failures must
+  be visible instead of silently discarding edits. Block markers include their
+  separator spaces when revealed and hide them together when inactive; keep
+  the underlying Markdown and cursor positions intact.
+- Context menu rows and note-tree rows use the same surface color for hover and
+  selection, including portal-mounted menus outside the workspace token scope.
+  Separate adjacent highlighted rows by a hairline gap without reducing touch
+  target heights.
 - The document is the only primary surface. Templates and recent notes are
   lightweight choices on an empty note tab, not promotional cards.
 - The shell fits one viewport; scrolling happens inside the tree, editor, chat,
   flashcard list or outline. Desktop panes can be resized. On mobile the sidebar
   floats above content and dismisses by tapping outside or choosing an entry.
+  After the 48px desktop activity rail, default file-tree and outline panes
+  each take about 19% of the remaining width (clamped to 245–340px), leaving
+  roughly 62% for the note. The left pane's total width includes its activity
+  rail; drag resizing remains available.
+  Panel scrollbars use the shared faint thumb without visible tracks or end buttons.
+  The contextual Markdown menu renders above the editor without clipping and
+  leaves the document chrome unchanged when it is closed.
+  Desktop pane dividers keep a wide drag target but reveal only a 1px accent line
+  on hover or while dragging; collapsed panes have no active resize target.
   Its activity rail stays on the left with the graph anchored at its foot, not
   as a bottom tab bar. Motion smooths drawer/outline entry, backdrop dismissal,
   and the active rail indicator; reduced-motion preferences disable these

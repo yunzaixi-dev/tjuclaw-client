@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
@@ -7,7 +7,7 @@ import { EditorState, RangeSet } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from '@codemirror/commands';
 import { keymap } from '@codemirror/view';
-import { MarkdownToolbar } from './markdown-toolbar';
+import { MarkdownContextMenu } from './markdown-context-menu';
 
 const hide = Decoration.replace({});
 const mark = (className: string) => Decoration.mark({ class: className });
@@ -77,6 +77,10 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
   const line = (from: number, className: string) => {
     decorations.push(Decoration.line({ attributes: { class: className } }).range(doc.lineAt(from).from));
   };
+  const withSeparator = (to: number) => {
+    const remainder = text.slice(to, doc.lineAt(to).to);
+    return to + (/^[ \t]+/.exec(remainder)?.[0].length ?? 0);
+  };
 
   syntaxTree(view.state).iterate({
     enter(node) {
@@ -87,7 +91,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
       if (/^SetextHeading[12]$/.test(name)) line(from, `cm-md-heading-line cm-md-heading-line-${name.at(-1)}`);
       if (name === 'HeaderMark') {
         // Setext underlines occupy their own line; retain them while editing.
-        syntax(from, to, activeLine || parent?.name.startsWith('SetextHeading') === true);
+        syntax(from, parent?.name.startsWith('SetextHeading') ? to : withSeparator(to), activeLine || parent?.name.startsWith('SetextHeading') === true);
       }
       if (name === 'StrongEmphasis') add(from, to, mark('cm-md-strong'));
       if (name === 'Emphasis') add(from, to, mark('cm-md-emphasis'));
@@ -111,19 +115,24 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         if (parent?.name === 'Link' || parent?.name === 'Image') return;
       }
       if (name === 'ListMark') {
-        if (activeLine) add(from, to, mark('cm-md-syntax'));
-        else if (parent?.parent?.name === 'OrderedList') add(from, to, mark('cm-md-ordered-marker'));
-        else decorations.push(Decoration.replace({ widget: new BulletWidget() }).range(from, to));
+        const end = withSeparator(to);
+        if (activeLine) add(from, end, mark('cm-md-syntax'));
+        else if (parent?.parent?.name === 'OrderedList') add(from, end, mark('cm-md-ordered-marker'));
+        else if (/^\[[ xX]\]/.test(text.slice(end))) {
+          const range = hide.range(from, end);
+          decorations.push(range);
+          atomic.push(range);
+        } else decorations.push(Decoration.replace({ widget: new BulletWidget() }).range(from, end));
       }
       if (name === 'TaskMarker') {
         const checked = text[from + 1]?.toLowerCase() === 'x';
-        const range = Decoration.replace({ widget: new TaskWidget(from, checked) }).range(from, to);
+        const range = Decoration.replace({ widget: new TaskWidget(from, checked) }).range(from, withSeparator(to));
         decorations.push(range);
         atomic.push(range);
       }
       if (name === 'QuoteMark') {
         line(from, 'cm-md-quote-line');
-        syntax(from, to, activeLine);
+        syntax(from, withSeparator(to), activeLine);
       }
       if (name === 'FencedCode') {
         for (let pos = doc.lineAt(from).from; pos <= to; ) {
@@ -170,7 +179,9 @@ const previewAtomicRanges = EditorView.atomicRanges.of(view => view.plugin(liveP
 export function MarkdownEditor({ value, onChange, editorRef }: { value: string; onChange: (value: string) => void; editorRef?: MutableRefObject<EditorView | null> }) {
   const host = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const [focusedView, setFocusedView] = useState<EditorView | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; view: EditorView } | null>(null);
+  const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const consumedContextMenu = useRef(false);
   const onChangeRef = useRef(onChange);
   const initialValueRef = useRef(value);
 
@@ -195,7 +206,6 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           EditorView.contentAttributes.of({ spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
-            if (update.focusChanged) setFocusedView(update.view.hasFocus ? update.view : null);
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
@@ -213,6 +223,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
     viewRef.current = view;
     if (editorRef) editorRef.current = view;
     return () => {
+      if (longPress.current) window.clearTimeout(longPress.current.timer);
       if (editorRef?.current === view) editorRef.current = null;
       view.destroy();
     };
@@ -224,5 +235,65 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
   }, [value]);
 
-  return <><div ref={host} className="codemirror-editor" aria-label="Markdown 编辑器" />{focusedView ? <MarkdownToolbar view={focusedView} /> : null}</>;
+  function cancelLongPress() {
+    if (longPress.current) window.clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  }
+
+  function openMenu(x: number, y: number) {
+    if (viewRef.current) setMenu({ x, y, view: viewRef.current });
+  }
+
+  function onContextMenu(event: ReactMouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (consumedContextMenu.current) {
+      consumedContextMenu.current = false;
+      return;
+    }
+    if (event.clientX === 0 && event.clientY === 0) {
+      openMenuAtCursor();
+    } else {
+      openMenu(event.clientX, event.clientY);
+    }
+  }
+
+  function openMenuAtCursor() {
+    const view = viewRef.current;
+    const cursor = view?.coordsAtPos(view.state.selection.main.head);
+    const bounds = host.current?.getBoundingClientRect();
+    openMenu(cursor?.left ?? bounds?.left ?? 12, cursor?.bottom ?? bounds?.top ?? 12);
+  }
+
+  function onKeyDown(event: ReactKeyboardEvent) {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openMenuAtCursor();
+  }
+
+  function onPointerDown(event: ReactPointerEvent) {
+    if (event.pointerType !== 'touch') return;
+    cancelLongPress();
+    const { clientX: x, clientY: y } = event;
+    longPress.current = {
+      x, y,
+      timer: window.setTimeout(() => {
+        consumedContextMenu.current = true;
+        openMenu(x, y);
+        longPress.current = null;
+        window.setTimeout(() => { consumedContextMenu.current = false; }, 700);
+      }, 500),
+    };
+  }
+
+  function onPointerMove(event: ReactPointerEvent) {
+    if (longPress.current && Math.hypot(event.clientX - longPress.current.x, event.clientY - longPress.current.y) > 10) cancelLongPress();
+  }
+
+  return <><div ref={host} className="codemirror-editor" aria-label="Markdown 编辑器"
+    onContextMenu={onContextMenu} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+    onPointerUp={cancelLongPress} onPointerCancel={cancelLongPress} onTouchMove={cancelLongPress} onKeyDown={onKeyDown} />
+    {menu ? <MarkdownContextMenu view={menu.view} position={menu} onClose={() => setMenu(null)} /> : null}
+  </>;
 }

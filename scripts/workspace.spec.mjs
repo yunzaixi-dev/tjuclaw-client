@@ -18,6 +18,7 @@ const libA = { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', name: '我的知识库', 
 const libB = { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', name: '我的知识库', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 const guideA = { id: 'cccccccccccccccccccccccccccccccc', library_id: libA.id, parent_id: '', kind: 'agent', preset: 'guide', title: '新手向导', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 const noteA = { id: 'dddddddddddddddddddddddddddddddd', library_id: libA.id, parent_id: '', kind: 'note', title: 'First note for user A', body: 'Private note body', created_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z' };
+const noteC = { ...noteA, id: 'abababababababababababababababab', title: 'Second note for user A', body: 'Another document' };
 const createdNote = { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', library_id: libA.id, parent_id: '', kind: 'note', title: '未命名笔记', created_at: '2026-01-01T00:00:02.000Z', updated_at: '2026-01-01T00:00:02.000Z' };
 const sessionA = { id: 'ffffffffffffffffffffffffffffffff', entry_id: guideA.id, messages: [], created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 const guideB = { id: '11111111111111111111111111111111', library_id: libB.id, parent_id: '', kind: 'agent', preset: 'guide', title: '新手向导', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
@@ -41,17 +42,42 @@ function defaultState() {
     sessionById: { [sessionA.id]: sessionA },
     model: { configured: false, source: 'product', quota: { limit: 20, used: 0, remaining: 20 } },
     patchError: null,
+    sendError: false,
     holdCreate: null,
   };
 }
 
-async function mockWorkspace(page, state) {
+async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
+  if (seedWorkspaceUnlock) {
+    await page.addInitScript(({ identities, workspaceIds }) => {
+      for (const identity of identities) {
+        for (const workspaceId of workspaceIds) {
+          localStorage.setItem(`tjuclaw.workspace.vault.v1.${identity}.${workspaceId}`, JSON.stringify({
+            version: 1,
+            salt: 'dGVzdC1zYWx0',
+            verifier: 'test-verifier',
+            created_at: '2026-01-01T00:00:00.000Z',
+          }));
+          sessionStorage.setItem(`tjuclaw.workspace.unlock.v1.${identity}.${workspaceId}`, 'unlocked');
+        }
+      }
+    }, {
+      identities: [syntheticSessionA.id, syntheticSessionB.id],
+      workspaceIds: [libA.id, libB.id],
+    });
+  }
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url());
     const method = route.request().method();
     const path = url.pathname.replace(/\/$/, '');
     if (path === '/api/auth/session') return json(route, 200, state.session);
     if (path === '/api/libraries' && method === 'GET') return json(route, 200, { libraries: state.libraries });
+    if (path === '/api/libraries' && method === 'POST') {
+      const posted = route.request().postDataJSON() || {};
+      const library = { ...libA, name: posted.name || '我的知识库' };
+      state.libraries = [library];
+      return json(route, 201, { library });
+    }
     const libEntries = path.match(/^\/api\/libraries\/([0-9a-f]{32})\/entries$/);
     if (libEntries && method === 'GET') {
       const id = libEntries[1];
@@ -90,6 +116,19 @@ async function mockWorkspace(page, state) {
       const found = state.sessionById[oneSession[1]] ?? sessionA;
       return json(route, 200, { session: found });
     }
+    const message = path.match(/^\/api\/sessions\/([0-9a-f]{32})\/messages$/);
+    if (message && method === 'POST') {
+      if (state.sendError) return json(route, 503, { error: { id: 'agent_unavailable' } });
+      const content = route.request().postDataJSON().content;
+      const previous = state.sessionById[message[1]] ?? sessionA;
+      const next = { ...previous, messages: [
+        ...(previous.messages ?? []),
+        { role: 'user', content, created_at: '2026-01-01T00:00:10.000Z' },
+        { role: 'assistant', content: '**已收到**你的问题。', created_at: '2026-01-01T00:00:11.000Z' },
+      ] };
+      state.sessionById[message[1]] = next;
+      return json(route, 200, { session: next });
+    }
     if (path === '/api/account/model') {
       return json(route, 200, { model: state.model });
     }
@@ -104,6 +143,350 @@ async function mockWorkspace(page, state) {
 }
 
 test.describe('Workspace mocked contract suite', () => {
+  test('requires a workspace passphrase before opening workspace data', async ({ page }) => {
+    await mockWorkspace(page, defaultState(), { seedWorkspaceUnlock: false });
+    await page.goto('/workspace');
+    await expect(page.getByRole('heading', { name: '创建工作区口令' })).toBeVisible();
+    await expect(page.getByText('口令丢失后不可找回，也不能修改。不同工作区不会共用口令。')).toBeVisible();
+    await expect(page.getByText('Private note body')).toHaveCount(0);
+    await page.getByRole('textbox', { name: '创建工作区口令' }).fill('workspace-secret-2026');
+    await page.getByLabel('再次输入口令').fill('workspace-secret-2026');
+    await page.getByRole('checkbox').check();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '创建并下载备份' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('passphrase.txt');
+    await expect(page.getByRole('heading', { name: '口令已创建' })).toBeVisible();
+    await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    await page.evaluate(() => sessionStorage.clear());
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
+    await page.getByLabel('工作区口令').fill('wrong-workspace-secret');
+    await page.getByRole('button', { name: '解锁进入工作区' }).click();
+    await expect(page.getByRole('alert')).toHaveText('口令错误，或本地验证材料已损坏。');
+  });
+
+  test('creates the first workspace before configuring its passphrase', async ({ page }) => {
+    const state = { ...defaultState(), libraries: [], entries: [], entryById: {} };
+    await mockWorkspace(page, state, { seedWorkspaceUnlock: false });
+    await page.goto('/workspace');
+    await expect(page.getByRole('heading', { name: '创建工作空间' })).toBeVisible();
+    await page.getByLabel('工作空间名称').fill('课程资料库');
+    await page.getByLabel('创建工作区口令').fill('first-workspace-secret');
+    await page.getByLabel('再次输入口令').fill('first-workspace-secret');
+    await page.getByRole('checkbox').check();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '创建并下载备份' }).click();
+    expect((await downloadPromise).suggestedFilename()).toContain('课程资料库-passphrase.txt');
+    await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
+    await expect(page.getByRole('button', { name: '课程资料库，0 个文件，0 个文件夹' })).toBeVisible();
+  });
+
+  test('campus tools keep local timetable and GPA separate from school data', async ({ page }) => {
+    await mockWorkspace(page, defaultState());
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '小工具', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '课程表' })).toBeVisible();
+    await page.getByPlaceholder('例如：高等数学').fill('离散数学');
+    await page.getByPlaceholder('教室（可选）').fill('教学楼 A101');
+    await page.getByRole('button', { name: '添加到课表' }).click();
+    await expect(page.locator('.campus-class').first()).toContainText('离散数学');
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: 'GPA', exact: true }).click();
+    await page.getByPlaceholder('课程名').fill('离散数学');
+    await page.getByRole('spinbutton', { name: '学分' }).fill('3');
+    await page.getByRole('spinbutton', { name: '绩点（0–4）' }).fill('3.7');
+    await page.getByRole('button', { name: '计入平均' }).click();
+    await expect(page.locator('.campus-gpa-result strong')).toHaveText('3.700');
+    await page.reload();
+    await page.getByRole('button', { name: '小工具', exact: true }).click();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: 'GPA', exact: true }).click();
+    await expect(page.locator('.campus-gpa-result strong')).toHaveText('3.700');
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '课程表', exact: true }).click();
+    await expect(page.locator('.campus-class').first()).toContainText('离散数学');
+    await expect(page.locator('.workspace-tabs .workspace-tab')).toHaveCount(1);
+    await page.getByRole('button', { name: '新建标签页' }).click();
+    await expect(page.locator('.workspace-tabs .workspace-tab')).toHaveCount(2);
+  });
+
+  test('campus vault stores only authenticated ciphertext and is identity scoped', async ({ page }) => {
+    const state = defaultState();
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '小工具', exact: true }).click();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+    await expect(page.getByText('入校码需要实时认证')).toBeVisible();
+    await page.getByRole('button', { name: '绑定账号后获取' }).click();
+    if (await page.getByRole('button', { name: '更换绑定' }).count()) {
+      await page.getByRole('button', { name: '更换绑定' }).click();
+    }
+    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-secret-user');
+    await page.getByLabel('微北洋密码').fill('campus-secret-password');
+    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-secret-user');
+    await page.getByLabel('办公网密码').fill('office-secret-password');
+    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
+    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await expect(page.getByText('已绑定')).toBeVisible();
+    const storage = await page.evaluate(() => localStorage.getItem('tjuclaw.campus.credentials.v1.user-identity-uuid-aaaa'));
+    expect(storage).toBeTruthy();
+    expect(storage).not.toContain('campus-secret-user');
+    expect(storage).not.toContain('campus-secret-password');
+    await page.reload();
+    await page.getByRole('button', { name: '小工具', exact: true }).click();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+    await page.getByRole('button', { name: '解锁已绑定账号' }).click();
+    await page.getByPlaceholder('输入独立解锁口令').fill('wrong-password');
+    await page.getByRole('button', { name: '解锁并继续' }).click();
+    await expect(page.getByRole('dialog').getByText('解锁失败：口令错误或本地数据已损坏。')).toBeVisible();
+    await page.getByPlaceholder('输入独立解锁口令').fill('long-local-secret-2026');
+    await page.getByRole('button', { name: '解锁并继续' }).click();
+    await expect(page.getByText('微北洋 campus-secret-user · 办公网 office-secret-user')).toBeVisible();
+    state.session = syntheticSessionB;
+    state.libraries = [libB];
+    state.entries = [{ ...guideB }];
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.getByRole('button', { name: '小工具', exact: true }).click();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+    await expect(page.getByRole('button', { name: '绑定微北洋与办公网账号' })).toBeVisible();
+    await expect(page.getByText('campus-secret-user')).toHaveCount(0);
+  });
+
+  test('mobile tools float over the content and focus timer resumes on return', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockWorkspace(page, defaultState());
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '打开小工具' }).click();
+    await expect(page.locator('.campus-sidebar-list')).toBeVisible();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
+    await expect(page.locator('.campus-focus-clock')).toBeVisible();
+    await page.getByRole('button', { name: '开始专注' }).click();
+    await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
+    await page.reload();
+    await page.getByRole('button', { name: '打开小工具' }).click();
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
+    await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 380 } });
+    await expect(page.locator('.obsidian-sidebar')).toHaveAttribute('aria-hidden', 'true');
+    const viewportFits = await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight);
+    expect(viewportFits).toBe(true);
+  });
+
+  test('sorts sidebar sections independently and persists manual order per identity', async ({ page }) => {
+    const state = defaultState();
+    state.entries.push(noteC);
+    state.entryById[noteC.id] = noteC;
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    const tree = page.locator('.obsidian-tree');
+    const noteNames = () => tree.locator('.obsidian-tree-row .tree-item span').allTextContents();
+    await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await page.getByRole('menuitemradio', { name: '名称 Z → A' }).click();
+    await expect.poll(noteNames).toEqual(['Second note for user A', 'First note for user A']);
+    await page.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: 'First note for user A', exact: true }) })
+      .getByRole('button', { name: '文档操作' }).click();
+    await page.getByRole('menuitem', { name: '上移' }).click();
+    await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: '名称 A → Z' }).click();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: '手动排序' }).click();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await expect(page.getByRole('menuitemradio', { name: '最近修改' })).toHaveCount(0);
+    await page.getByRole('menuitemradio', { name: '手动排序' }).click();
+    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await page.getByRole('menuitemradio', { name: '手动排序' }).click();
+    await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
+    await page.reload();
+    await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    state.session = syntheticSessionB;
+    state.libraries = [libB];
+    state.entries = [{ ...guideB }, { ...noteA, library_id: libB.id, title: 'Other note' }];
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(tree.getByRole('button', { name: 'Other note' })).toBeVisible();
+    await page.getByRole('button', { name: '侧栏排序' }).click();
+    await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('reorders notes by dragging an edge without moving them into a folder', async ({ page }) => {
+    const state = defaultState();
+    state.entries.push(noteC);
+    state.entryById[noteC.id] = noteC;
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    const tree = page.locator('.obsidian-tree');
+    const first = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: 'First note for user A', exact: true }) });
+    const second = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: 'Second note for user A', exact: true }) });
+    await second.dragTo(first, { targetPosition: { x: 24, y: 2 } });
+    await expect.poll(() => tree.locator('.obsidian-tree-row .tree-item span').allTextContents()).toEqual(['Second note for user A', 'First note for user A']);
+    await page.getByRole('button', { name: '新建文件夹' }).click();
+    await page.locator('.tree-inline-input').fill('资料');
+    await page.locator('.tree-inline-input').press('Enter');
+    const folder = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: '资料', exact: true }) });
+    await first.dragTo(folder, { targetPosition: { x: 50, y: 16 } });
+    await expect(folder.locator('.tree-item span')).toHaveText('资料');
+    await expect(tree.locator('.tree-children').getByRole('button', { name: 'First note for user A' })).toBeVisible();
+  });
+
+  test('offers touch-friendly order actions for plugins and keeps file moves separate', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockWorkspace(page, defaultState());
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.getByRole('button', { name: '插件', exact: true }).click();
+    const pluginList = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
+    await expect.poll(() => pluginList.allTextContents()).toEqual(['Markdown 编辑器', '知识图谱', '记忆闪卡']);
+    await page.locator('.sidebar-sort-row').filter({ has: page.getByRole('button', { name: '知识图谱', exact: true }) }).getByRole('button', { name: '排序操作' }).click();
+    await page.getByRole('menuitem', { name: '上移' }).click();
+    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
+    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '新建文件夹' }).click();
+    await page.locator('.tree-inline-input').fill('资料');
+    await page.locator('.tree-inline-input').press('Enter');
+    await page.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: '资料', exact: true }) }).getByRole('button', { name: '文件夹操作' }).click();
+    await page.getByRole('menuitem', { name: '新建笔记' }).click();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await expect(page.locator('.obsidian-tree .tree-children').getByRole('button', { name: '未命名笔记' })).toBeVisible();
+    await page.getByRole('button', { name: '插件', exact: true }).click();
+    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
+    await page.reload();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.getByRole('button', { name: '插件', exact: true }).click();
+    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
+  });
+
+  test('reorders Agents and flashcards without changing their data', async ({ page }) => {
+    const state = defaultState();
+    const otherAgent = { ...guideA, id: '33333333333333333333333333333333', title: '课程助手' };
+    state.entries.push(otherAgent);
+    state.entryById[otherAgent.id] = otherAgent;
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    const agentNames = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
+    await expect.poll(() => agentNames.allTextContents()).toEqual(['新手向导', '课程助手']);
+    await page.locator('.obsidian-tree .sidebar-sort-row').nth(1).dragTo(page.locator('.obsidian-tree .sidebar-sort-row').nth(0), { targetPosition: { x: 20, y: 2 } });
+    await expect.poll(() => agentNames.allTextContents()).toEqual(['课程助手', '新手向导']);
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '加载 4 张示例卡片' }).click();
+    const cardNames = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
+    await expect(cardNames).toHaveCount(4);
+    const original = await cardNames.allTextContents();
+    await page.locator('.sidebar-sort-row').filter({ has: page.getByRole('button', { name: original[1], exact: true }) }).getByRole('button', { name: '排序操作' }).click();
+    await page.getByRole('menuitem', { name: '上移' }).click();
+    await expect.poll(() => cardNames.allTextContents()).toEqual([original[1], original[0], ...original.slice(2)]);
+    await expect(page.locator('.anki-card')).toHaveCount(4);
+    await page.reload();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await expect.poll(() => cardNames.allTextContents()).toEqual([original[1], original[0], ...original.slice(2)]);
+  });
+
+  test('reorders sibling folders without changing their parent', async ({ page }) => {
+    await mockWorkspace(page, defaultState());
+    await page.goto('/workspace');
+    for (const name of ['课程', '资料']) {
+      await page.getByRole('button', { name: '新建文件夹' }).click();
+      await page.locator('.tree-inline-input').fill(name);
+      await page.locator('.tree-inline-input').press('Enter');
+    }
+    const folderNames = page.locator('.obsidian-tree > .obsidian-tree-node > .obsidian-tree-row:has(.tree-toggle) .tree-item span');
+    await expect.poll(() => folderNames.allTextContents()).toEqual(['课程', '资料']);
+    const second = page.locator('.obsidian-tree > .obsidian-tree-node').filter({ has: page.getByRole('button', { name: '资料', exact: true }) }).locator(':scope > .obsidian-tree-row');
+    const first = page.locator('.obsidian-tree > .obsidian-tree-node').filter({ has: page.getByRole('button', { name: '课程', exact: true }) }).locator(':scope > .obsidian-tree-row');
+    await second.dragTo(first, { targetPosition: { x: 20, y: 2 } });
+    await expect.poll(() => folderNames.allTextContents()).toEqual(['资料', '课程']);
+    await expect(page.locator('.obsidian-tree > .obsidian-tree-node')).toHaveCount(3);
+    await page.reload();
+    await expect.poll(() => folderNames.allTextContents()).toEqual(['资料', '课程']);
+  });
+
+  test('keeps section tabs separate and replaces the current note with navigable history', async ({ page }) => {
+    const state = defaultState();
+    state.entries.push(noteC);
+    state.entryById[noteC.id] = noteC;
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    const tablist = page.getByRole('tablist', { name: '打开的标签页' });
+    await expect(tablist.getByRole('tab', { name: '笔记 First note for user A' })).toBeVisible();
+    await page.getByRole('button', { name: '新建标签页' }).click();
+    await expect(tablist.getByRole('tab', { name: '笔记 First note for user A' })).toBeVisible();
+    await expect(tablist.getByRole('tab', { name: '笔记 新建笔记' }).last()).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await expect(tablist.getByRole('tab', { name: '笔记 First note for user A' })).toHaveCount(0);
+    await page.getByRole('button', { name: '新手向导' }).click();
+    await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: '新建标签页' }).click();
+    await expect(tablist.getByRole('tab', { name: '会话 新会话' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
+    await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveCount(2);
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: '新建标签页' }).click();
+    await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveCount(2);
+    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await tablist.getByRole('tab', { name: '笔记 First note for user A' }).click();
+    await page.locator('.note-title').fill('修改后的标题');
+    await expect(page.getByRole('button', { name: '上一个笔记' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Second note for user A', exact: true }).click();
+    await expect(tablist.getByRole('tab')).toHaveCount(2);
+    await expect(tablist.getByRole('tab', { name: '笔记 Second note for user A' })).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => state.entryById[noteA.id].title).toBe('修改后的标题');
+    await page.getByRole('button', { name: '上一个笔记' }).click();
+    await expect(page.locator('.note-title')).toHaveValue('修改后的标题');
+    await page.getByRole('button', { name: '下一个笔记' }).click();
+    await expect(page.locator('.note-title')).toHaveValue('Second note for user A');
+    await tablist.getByRole('button', { name: '关闭标签 Second note for user A' }).click();
+    await expect(tablist.getByRole('tab', { name: '笔记 新建笔记' })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await expect(tablist.getByRole('tab', { name: '会话 新手向导' }).last()).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('keeps a failed Agent message draft and renders a successful reply as Markdown', async ({ page }) => {
+    const state = defaultState();
+    state.sendError = true;
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导' }).click();
+    const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+    await expect(composer).toBeEnabled();
+    await composer.fill('请解释主动回忆');
+    await composer.press('Enter');
+    await expect(page.getByRole('alert')).toContainText('草稿已保留');
+    await expect(composer).toHaveValue('请解释主动回忆');
+    state.sendError = false;
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect(page.locator('.chat-message.user')).toContainText('请解释主动回忆');
+    await expect(page.locator('.chat-message.assistant strong')).toHaveText('已收到');
+    await expect(composer).toHaveValue('');
+  });
+
+  test('loads sample flashcards only on request and exports them as Anki TSV', async ({ page }) => {
+    const state = defaultState();
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await expect(page.getByText('还没有记忆闪卡')).toBeVisible();
+    await page.getByRole('button', { name: '加载 4 张示例卡片' }).click();
+    await expect(page.locator('.anki-card')).toHaveCount(4);
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出 Anki' }).click();
+    const file = await download;
+    const content = await readFile(await file.path(), 'utf8');
+    expect(content).toContain('什么是主动回忆？\t');
+    expect(content.trim().split('\n')).toHaveLength(4);
+    await page.reload();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await expect(page.locator('.anki-card')).toHaveCount(4);
+  });
+
   test('redirects to /auth/login when session is missing or 401', async ({ page }) => {
     await mockUnavailableLoginFlow(page);
     await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'session_required' } }));
@@ -130,7 +513,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
 
     state.session = syntheticSessionB;
     state.libraries = [libB];
@@ -142,17 +525,17 @@ test.describe('Workspace mocked contract suite', () => {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toHaveCount(0);
     await expect(page.locator('.note-title')).toHaveCount(0);
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await expect(page.getByRole('button', { name: '新手向导' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '新手向导', exact: true })).toBeVisible();
   });
 
   test('keeps local folders and flashcards separate between identities', async ({ page }) => {
     const state = defaultState();
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '新建文件夹' }).click();
     await page.locator('.tree-inline-input').fill('A 私有目录');
     await page.locator('.tree-inline-input').press('Enter');
@@ -165,7 +548,7 @@ test.describe('Workspace mocked contract suite', () => {
     state.libraries = [libB];
     state.entries = [guideB];
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'A 私有目录' })).toHaveCount(0);
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await expect(page.getByText('A 的卡片')).toHaveCount(0);
@@ -186,7 +569,7 @@ test.describe('Workspace mocked contract suite', () => {
     state.holdCreate = new Promise(resolve => { releaseCreate = resolve; });
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '新建笔记', exact: true }).click();
     state.session = syntheticSessionB;
     state.libraries = [libB];
@@ -198,8 +581,8 @@ test.describe('Workspace mocked contract suite', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     releaseCreate();
-    await expect(page.getByRole('button', { name: '未命名笔记' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'First note for user A' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '未命名笔记', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toHaveCount(0);
   });
 
   test('preserves note text on save failure and allows retry', async ({ page }) => {
@@ -222,7 +605,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导' }).click();
-    await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
     await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
     await expect(page.getByText('执行记录与运行')).toHaveCount(0);
   });
@@ -235,7 +618,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导' }).click();
     await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
-    await expect(page.getByRole('textbox', { name: '输入消息，按 Enter 发送...' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
   });
 
 
@@ -243,7 +626,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
     await page.getByRole('button', { name: '新建笔记', exact: true }).click();
-    await expect(page.getByRole('button', { name: '未命名笔记' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '未命名笔记', exact: true })).toBeVisible();
     await expect(page.locator('.note-title')).toHaveValue('未命名笔记');
   });
 
@@ -251,6 +634,15 @@ test.describe('Workspace mocked contract suite', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
+    const back = page.getByRole('button', { name: '上一个笔记' });
+    const forward = page.getByRole('button', { name: '下一个笔记' });
+    await expect(back).toBeVisible();
+    await expect(forward).toBeVisible();
+    await expect(back).toBeDisabled();
+    const arrowBox = await back.boundingBox();
+    const mainBox = await page.locator('.obsidian-main').boundingBox();
+    const topbarBox = await page.locator('.obsidian-topbar').boundingBox();
+    expect(Math.abs((arrowBox.x - mainBox.x) - (arrowBox.y - topbarBox.y - topbarBox.height))).toBeLessThan(6);
     const sidebar = page.locator('.obsidian-sidebar');
     await expect(sidebar).toHaveAttribute('inert', '');
     await page.getByRole('button', { name: '打开侧栏' }).click();
@@ -259,7 +651,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.keyboard.press('Escape');
     await expect(sidebar).toHaveAttribute('inert', '');
     await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.getByRole('button', { name: 'First note for user A' }).click();
+    await page.getByRole('button', { name: 'First note for user A', exact: true }).click();
     await expect(sidebar).toHaveAttribute('inert', '');
   });
 
@@ -297,6 +689,99 @@ for (const [width, height] of [[360, 800], [390, 844], [768, 1024], [1440, 900],
   }
 }
 
+test('desktop panes share scrollbars, scroll independently and resize from a quiet divider', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = defaultState();
+  state.entries[1] = { ...noteA, body: Array.from({ length: 100 }, (_, index) => `Paragraph ${index + 1}`).join('\n\n') };
+  state.entryById[noteA.id] = state.entries[1];
+  state.entries.push(...Array.from({ length: 40 }, (_, index) => ({
+    ...noteA,
+    id: (index + 10).toString(16).padStart(32, '0'),
+    title: `Note ${index + 1}`,
+  })));
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+
+  const tree = page.locator('.obsidian-tree');
+  const editor = page.locator('.note-editor');
+  await expect.poll(() => tree.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await expect.poll(() => editor.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.locator('.cm-content').click({ position: { x: 15, y: 15 } });
+  await expect(page.getByRole('dialog', { name: 'Markdown 编辑菜单' })).toHaveCount(0);
+  for (const scroller of [tree, editor, page.locator('.cm-scroller')]) {
+    const visuals = await scroller.evaluate(element => {
+      const style = part => getComputedStyle(element, part);
+      return {
+        width: style('::-webkit-scrollbar').width,
+        track: style('::-webkit-scrollbar-track').backgroundColor,
+        trackPiece: style('::-webkit-scrollbar-track-piece').backgroundColor,
+        button: style('::-webkit-scrollbar-button').display,
+        thumb: style('::-webkit-scrollbar-thumb').backgroundColor,
+        border: style('::-webkit-scrollbar-thumb').borderLeftWidth,
+        scrollbarWidth: getComputedStyle(element).scrollbarWidth,
+      };
+    });
+    expect(visuals).toEqual({
+      width: '11px',
+      track: 'rgba(0, 0, 0, 0)',
+      trackPiece: 'rgba(0, 0, 0, 0)',
+      button: 'none',
+      thumb: 'rgba(0, 0, 0, 0)',
+      border: '2px',
+      scrollbarWidth: 'auto',
+    });
+  }
+  expect(await page.locator('.obsidian-app').evaluate(element => getComputedStyle(element).getPropertyValue('--scrollbar-visible-opacity'))).toBe('12%');
+  await tree.hover();
+  await page.mouse.wheel(0, 360);
+  await expect.poll(() => tree.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(tree).toHaveAttribute('data-scroll-active', '');
+  const treeScroll = await tree.evaluate(element => element.scrollTop);
+  await editor.hover();
+  await page.mouse.wheel(0, 360);
+  await expect.poll(() => editor.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(editor).toHaveAttribute('data-scroll-active', '');
+  expect(await tree.evaluate(element => element.scrollTop)).toBe(treeScroll);
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  await page.screenshot({ path: info.outputPath('panes-scrollbars.png') });
+
+  const sidebar = page.locator('.obsidian-sidebar');
+  const left = page.getByRole('separator', { name: '调整左侧面板宽度' });
+  const inactive = await left.evaluate(element => getComputedStyle(element, '::after').backgroundColor);
+  const leftBox = await left.boundingBox();
+  expect(leftBox.width).toBe(7);
+  expect(leftBox.x + leftBox.width / 2).toBe(314);
+  expect(await sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(314);
+  expect(await page.locator('.sidebar-activity').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(48);
+  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(860);
+  expect(await left.evaluate(element => getComputedStyle(element, '::after').width)).toBe('1px');
+  await page.mouse.move(314, 200);
+  await expect.poll(() => left.evaluate(element => getComputedStyle(element, '::after').backgroundColor)).not.toBe(inactive);
+  await page.mouse.down();
+  await page.mouse.move(384, 200, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(384);
+
+  if (await page.locator('.obsidian-app').evaluate(element => element.classList.contains('rail-collapsed'))) {
+    await page.getByRole('button', { name: '切换信息栏' }).click();
+  }
+  const rail = page.locator('.obsidian-rail');
+  const right = page.getByRole('separator', { name: '调整右侧面板宽度' });
+  const rightBox = await right.boundingBox();
+  expect(rightBox.x + rightBox.width / 2).toBe(1174);
+  await page.mouse.move(1174, 200);
+  await page.mouse.down();
+  await page.mouse.move(1114, 200, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => rail.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(326);
+
+  await page.getByRole('button', { name: '切换信息栏' }).click();
+  await expect(right).toHaveCSS('pointer-events', 'none');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(left).toBeHidden();
+  await expect(right).toBeHidden();
+});
+
 test('mobile note shell keeps navigation, actions and settings within one viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = defaultState();
@@ -327,7 +812,7 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   await page.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: '资料', exact: true }) }).getByRole('button', { name: '文件夹操作' }).click();
   await expect(page.getByRole('menu', { name: '文档操作' })).toBeVisible();
   await page.getByRole('button', { name: '关闭操作菜单' }).click();
-  await page.getByRole('button', { name: 'First note for user A' }).click();
+  await page.getByRole('button', { name: 'First note for user A', exact: true }).click();
   await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
 
   await page.getByRole('button', { name: '更多操作' }).click();
@@ -515,6 +1000,35 @@ test('live Markdown preview reveals only the construct being edited and keeps so
   expect(errors).toEqual([]);
 });
 
+test('block Markdown markers include their separating spaces in live preview', async ({ page }) => {
+  const state = defaultState();
+  const body = '##  标题\n\n>  引用\n\n-  列表\n\n1.  顺序\n\n- [ ]  待办';
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const editor = page.locator('.codemirror-editor');
+  const heading = editor.locator('.cm-md-heading-line');
+  const quote = editor.locator('.cm-md-quote-line');
+  const bullet = editor.locator('.cm-line').filter({ hasText: '列表' });
+  const ordered = editor.locator('.cm-line').filter({ hasText: '顺序' });
+  const task = editor.locator('.cm-line').filter({ hasText: '待办' });
+
+  expect(await heading.textContent()).toBe('标题');
+  expect(await quote.textContent()).toBe('引用');
+  expect(await bullet.textContent()).toBe('•列表');
+  expect(await ordered.locator('.cm-md-ordered-marker').textContent()).toBe('1.  ');
+  expect(await task.textContent()).toBe('待办');
+
+  await heading.click();
+  expect(await heading.locator('.cm-md-syntax').textContent()).toBe('##  ');
+  await quote.click();
+  expect(await quote.locator('.cm-md-syntax').textContent()).toBe('>  ');
+  await bullet.click();
+  expect(await bullet.locator('.cm-md-syntax').textContent()).toBe('-  ');
+  await expect.poll(() => state.entryById[noteA.id].body).toBe(body);
+});
+
 test('typing a Markdown heading keeps the marker legible without underlining the heading', async ({ page }) => {
   const state = defaultState();
   state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body: '' } : entry);
@@ -634,69 +1148,160 @@ test('inactive list bullets remain readable beside Markdown syntax', async ({ pa
   expect(contrast.bullet).toBe(contrast.marker);
 });
 
-test('focused Markdown toolbar formats selections and lines without losing the cursor', async ({ page }) => {
+test('editor right-click menu formats selections and lines without losing undo history', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
   await page.goto('/workspace');
   const editor = page.locator('.codemirror-editor .cm-content');
-  const toolbar = page.getByRole('toolbar', { name: 'Markdown 格式工具栏' });
-  await expect(toolbar).toHaveCount(0);
+  const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
+  await expect(menu).toHaveCount(0);
   await editor.click();
-  await expect(toolbar).toBeVisible();
+  await expect(menu).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+a');
-  await toolbar.getByRole('button', { name: '加粗' }).click();
+  await editor.click({ button: 'right', position: { x: 30, y: 12 } });
+  await expect(menu).toBeVisible();
+  expect((await menu.boundingBox()).width).toBeLessThanOrEqual(286);
+  expect((await menu.boundingBox()).height).toBeLessThanOrEqual(392);
+  await expect(page.getByRole('toolbar', { name: 'Markdown 格式工具栏' })).toHaveCount(0);
+  await menu.getByRole('button', { name: '加粗' }).click();
   await expect(editor).toContainText('Private note body');
   await expect.poll(() => state.entryById[noteA.id].body).toBe('**Private note body**');
-  await expect(toolbar).toBeVisible();
-  await toolbar.getByRole('button', { name: '加粗' }).click();
+  await expect(menu).toHaveCount(0);
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '加粗' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
-  await toolbar.getByRole('button', { name: '标题' }).click();
-  await toolbar.getByRole('menuitem', { name: '标题 2' }).click();
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '标题 2' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('## Private note body');
-  await toolbar.getByRole('button', { name: '标题' }).click();
-  await toolbar.getByRole('menuitem', { name: '正文' }).click();
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '正文' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
-  await toolbar.getByRole('button', { name: '撤销' }).click();
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '撤销' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('## Private note body');
   await page.keyboard.press('ControlOrMeta+a');
-  await toolbar.getByRole('button', { name: '双向链接' }).click();
-  await expect.poll(() => state.entryById[noteA.id].body).toBe('[[## Private note body]]');
-  await page.getByRole('button', { name: '切换信息栏' }).focus();
-  await expect(toolbar).toHaveCount(0);
+  await editor.click({ button: 'right' });
+  await menu.getByRole('textbox', { name: '查找 Markdown 命令' }).fill('双向链接');
+  await expect(menu.getByRole('button', { name: '双向链接' })).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('## [[Private note body]]');
+  await editor.click({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu).toBeVisible();
+  await expect(menu).toBeInViewport();
+  await page.keyboard.press('Escape');
 });
 
-test('mobile editing replaces bottom navigation with a scrollable keyboard-aware Markdown toolbar', async ({ page }) => {
+test('Markdown context menu cuts and pastes the selected source text', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.evaluate(() => {
+    let clipboard = '';
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async text => { clipboard = text; },
+        readText: async () => clipboard,
+      },
+    });
+  });
+  const editor = page.locator('.codemirror-editor .cm-content');
+  const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '剪切' }).click();
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('');
+  await editor.click({ button: 'right' });
+  await menu.getByRole('button', { name: '粘贴', exact: true }).click();
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
+});
+
+test('context options and note rows keep hover and selection colors aligned', async ({ page }) => {
+  const state = defaultState();
+  const other = { ...noteA, id: '33333333333333333333333333333333', title: 'Other note' };
+  state.entries.push(other);
+  state.entryById[other.id] = other;
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    const selectedRow = page.locator('.obsidian-tree-row.is-active');
+    const otherRow = page.locator('.obsidian-tree-row').filter({ hasText: 'Other note' });
+    const selectedColor = await selectedRow.evaluate(element => getComputedStyle(element).backgroundColor);
+    const selectedBounds = await selectedRow.boundingBox();
+    const otherBounds = await otherRow.boundingBox();
+    expect(otherBounds.y - selectedBounds.y - selectedBounds.height).toBeGreaterThanOrEqual(1);
+    expect(otherBounds.y - selectedBounds.y - selectedBounds.height).toBeLessThanOrEqual(3);
+    await otherRow.hover();
+    expect(await otherRow.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(selectedColor);
+    await selectedRow.hover();
+    expect(await selectedRow.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(selectedColor);
+
+    await page.locator('.codemirror-editor .cm-content').click({ button: 'right' });
+    const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
+    const active = menu.getByRole('button', { name: '加粗' });
+    const next = menu.getByRole('button', { name: '斜体' });
+    const activeColor = await active.evaluate(element => getComputedStyle(element).backgroundColor);
+    const activeBounds = await active.boundingBox();
+    const nextBounds = await next.boundingBox();
+    expect(nextBounds.y - activeBounds.y - activeBounds.height).toBe(2);
+    await next.hover();
+    expect(await next.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(activeColor);
+    expect(activeColor).not.toBe('rgba(0, 0, 0, 0)');
+    await page.keyboard.press('Escape');
+  }
+});
+
+test('mobile Markdown commands appear as a scrollable sheet instead of a permanent toolbar', async ({ page }) => {
   const state = defaultState();
   await page.setViewportSize({ width: 390, height: 844 });
   await mockWorkspace(page, state);
   await page.goto('/workspace');
   const editor = page.locator('.codemirror-editor .cm-content');
   await editor.click();
-  const toolbar = page.getByRole('toolbar', { name: 'Markdown 格式工具栏' });
-  await expect(toolbar).toBeVisible();
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeHidden();
-  await expect(page.getByRole('button', { name: '收起键盘' })).toBeVisible();
-  await toolbar.getByRole('button', { name: '任务列表' }).click({ force: true });
+  await expect(page.getByRole('dialog', { name: 'Markdown 编辑菜单' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  await editor.click({ button: 'right' });
+  const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
+  await expect(menu).toBeVisible();
+  expect((await menu.boundingBox()).height).toBeLessThanOrEqual(844 * .55);
+  await menu.getByRole('button', { name: '任务列表' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('- [ ] Private note body');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-  await page.screenshot({ path: 'test-results/workspace/mobile-markdown-toolbar.png' });
+  await editor.click({ button: 'right' });
+  await page.screenshot({ path: 'test-results/workspace/mobile-markdown-menu.png' });
+  await page.getByRole('button', { name: '关闭 Markdown 菜单' }).click({ position: { x: 10, y: 10 } });
+  await expect(menu).toHaveCount(0);
 });
 
-test('touching a Markdown command retains the active mobile editor', async ({ browser }) => {
+test('long-press opens Markdown commands on touch and moving cancels the gesture', async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   try {
     const state = defaultState();
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await page.locator('.codemirror-editor .cm-content').tap();
-    const toolbar = page.getByRole('toolbar', { name: 'Markdown 格式工具栏' });
-    await expect(toolbar).toBeVisible();
-    await toolbar.getByRole('button', { name: '无序列表' }).tap();
+    const editor = page.locator('.codemirror-editor .cm-content');
+    await editor.tap();
+    const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
+    await expect(menu).toHaveCount(0);
+    const box = await editor.boundingBox();
+    const point = { pointerType: 'touch', clientX: box.x + 35, clientY: box.y + 20 };
+    await editor.dispatchEvent('pointerdown', point);
+    await editor.dispatchEvent('pointermove', { ...point, clientX: point.clientX + 30 });
+    await page.waitForTimeout(550);
+    await expect(menu).toHaveCount(0);
+    await editor.dispatchEvent('pointerdown', point);
+    await expect(menu).toBeVisible();
+    await editor.dispatchEvent('pointerup', point);
+    await menu.getByRole('button', { name: '无序列表' }).tap();
     await expect.poll(() => state.entryById[noteA.id].body).toBe('- Private note body');
-    await expect(toolbar).toBeVisible();
-    await page.getByRole('button', { name: '收起键盘' }).tap();
-    await expect(toolbar).toHaveCount(0);
+    await expect(menu).toHaveCount(0);
   } finally {
     await context.close();
   }
