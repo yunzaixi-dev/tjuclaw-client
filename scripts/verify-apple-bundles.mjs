@@ -21,7 +21,7 @@ function executableInApp(app, platform, run) {
 
 export function verifyMacosApp(app, run = runTool) {
   const { binary } = executableInApp(app, 'macos', run);
-  run('xcrun', ['lipo', '-verify_arch', 'arm64', 'x86_64', binary]);
+  run('xcrun', ['lipo', binary, '-verify_arch', 'arm64', 'x86_64']);
   return binary;
 }
 
@@ -41,7 +41,7 @@ export function verifyIosArchives(root, run = runTool) {
     if (actualPlatform !== platform) {
       throw new Error(`Expected ${platform} for ${target}, got ${actualPlatform}`);
     }
-    run('xcrun', ['lipo', '-verify_arch', 'arm64', binary]);
+    run('xcrun', ['lipo', binary, '-verify_arch', 'arm64']);
     verified.push(binary);
   }
   return verified;

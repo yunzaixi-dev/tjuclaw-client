@@ -24,7 +24,7 @@ function fixture() {
       }
       throw new Error(`Unexpected plist key: ${args[1]}`);
     }
-    if (command !== 'xcrun' || args[0] !== 'lipo' || args[1] !== '-verify_arch') {
+    if (command !== 'xcrun' || args[0] !== 'lipo' || !args[1].endsWith('/TJUClaw') || args[2] !== '-verify_arch') {
       throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
     }
     return '';
@@ -43,7 +43,7 @@ test('macOS bundle requires a real universal executable', () => {
       return run(command, args);
     }), binary);
     assert.deepEqual(calls[0], ['/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleExecutable', join(app, 'Contents', 'Info.plist')]]);
-    assert.deepEqual(calls.at(-1), ['xcrun', ['lipo', '-verify_arch', 'arm64', 'x86_64', binary]]);
+    assert.deepEqual(calls.at(-1), ['xcrun', ['lipo', binary, '-verify_arch', 'arm64', 'x86_64']]);
     rmSync(binary);
     assert.throws(() => verifyMacosApp(app, run), /Missing app executable/);
     writeFileSync(binary, 'fixture');
@@ -65,7 +65,7 @@ test('iOS archives verify device and simulator platforms separately', () => {
       return run(command, args);
     }), /Expected iphonesimulator for simulator/);
     assert.throws(() => verifyIosArchives(root, (command, args) => {
-      if (command === 'xcrun' && args.at(-1).includes('/simulator/')) throw new Error('wrong architecture');
+      if (command === 'xcrun' && args[1].includes('/simulator/')) throw new Error('wrong architecture');
       return run(command, args);
     }), /wrong architecture/);
     rmSync(join(simulator, 'TJUClaw'));
