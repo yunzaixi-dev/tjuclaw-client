@@ -679,8 +679,23 @@ export default function Workspace() {
       const cachedCards = localData<AnkiCard[]>('tjuclaw.anki.cards.v1', []);
       setAnkiCards(Array.isArray(cachedCards) ? cachedCards : []);
     }
-    const first = items.find(item => item.kind === 'note') ?? items[0];
-    if (first) void openEntry(first.id, first);
+    // A new workspace always contains the guide agent, but opening that agent
+    // automatically would switch the user away from the notes home and hide
+    // the primary "new note" action. Only restore a real note here; otherwise
+    // keep the notes home visible.
+    const firstNote = items.find(item => item.kind === 'note');
+    if (firstNote) void openEntry(firstNote.id, firstNote);
+    else {
+      ++chatRequestRef.current;
+      setView('notes');
+      chooseTab('home');
+      setSelected(null);
+      setSelectedId(null);
+      setTitle('');
+      setBody('');
+      setChat(null);
+      setRailOpen(false);
+    }
   }
 
   async function continueAfterWorkspaceUnlock(createdWorkspace?: Library) {
