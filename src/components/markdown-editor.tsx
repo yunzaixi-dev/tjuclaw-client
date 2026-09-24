@@ -203,7 +203,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           livePreview,
           previewAtomicRanges,
           EditorView.lineWrapping,
-          EditorView.contentAttributes.of({ spellcheck: 'false' }),
+          EditorView.contentAttributes.of({ 'aria-label': '正文', role: 'textbox', spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           }),
