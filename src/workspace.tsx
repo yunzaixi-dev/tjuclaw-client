@@ -87,7 +87,7 @@ function TreeItem({ entry, entries, group, selectedId, onSelect, onContextMenu, 
   const [open, setOpen] = useState(true);
   const children = orderChildren(entries.filter(item => item.parent_id === entry.id && item.kind === 'note'), `notes:entry:${entry.id}`);
   return <div className="obsidian-tree-node">
-    <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, 'note', `entry:${entry.id}`, group)}>
+    <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} role="treeitem" aria-label={entry.title || '未命名笔记'} aria-selected={selectedId === entry.id} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, 'note', `entry:${entry.id}`, group)}>
       {children.length ? <button className="tree-toggle" type="button" onClick={() => setOpen(value => !value)} aria-label="展开或折叠"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button> : <span className="tree-spacer" />}
       <button className="tree-item" type="button" onClick={() => onSelect(entry.id)}><FileText size={15} /><span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
     </div>
