@@ -42,6 +42,16 @@ runs:
         rustup toolchain install stable --profile minimal
         rustup default stable
 
+    - name: Install Apple Rust targets
+      if: inputs.profile == 'macos' || inputs.profile == 'ios'
+      shell: bash
+      run: |
+        if [ "${{ inputs.profile }}" = "macos" ]; then
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        else
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+        fi
+
     - name: Run CI preflight
       shell: bash
       run: node scripts/ci-preflight.mjs "${{ inputs.profile }}"

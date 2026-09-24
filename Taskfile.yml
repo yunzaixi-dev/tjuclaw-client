@@ -86,6 +86,32 @@ tasks:
           node -e "process.exit(process.platform === 'win32' ? 0 : 1)"
         msg: This build requires a Windows host with MSVC.
     cmds: [pnpm run tauri build --bundles nsis -- --locked]
+  macos:build:
+    desc: Build unsigned universal macOS app on macOS
+    preconditions:
+      - sh: >-
+          node -e "process.exit(process.platform === 'darwin' ? 0 : 1)"
+        msg: This build requires macOS with Xcode and both Apple desktop Rust targets.
+    cmds: [pnpm run tauri build --target universal-apple-darwin --bundles app --no-sign --ci -- --locked]
+  ios:init:
+    desc: Generate the iOS Xcode project on macOS
+    preconditions:
+      - sh: >-
+          node -e "process.exit(process.platform === 'darwin' ? 0 : 1)"
+        msg: This build requires macOS with Xcode.
+    cmds: [pnpm run tauri ios init --ci --skip-targets-install]
+  ios:build:
+    desc: Compile and preserve separate unsigned iOS device and simulator archives on macOS
+    preconditions:
+      - sh: >-
+          node -e "process.exit(process.platform === 'darwin' ? 0 : 1)"
+        msg: This build requires macOS with Xcode and the iOS Rust targets.
+    cmds:
+      - task: ios:init
+      - pnpm run tauri ios build --target aarch64 --no-sign --archive-only --ci -- --locked
+      - node scripts/ios-archive.mjs device
+      - pnpm run tauri ios build --target aarch64-sim --no-sign --archive-only --ci -- --locked
+      - node scripts/ios-archive.mjs simulator
   android:init:
     desc: Generate Android project
     cmds: [pnpm run tauri android init --ci --skip-targets-install]
@@ -103,4 +129,11 @@ tasks:
     desc: Build installable debug APK for arm64
     cmds:
       - task: android:init
-      - pnpm run tauri android build --debug --apk --target aarch64 --ci
+      - pnpm run tauri android build --debug --apk --target aarch64 --ci -- --locked
+      - node scripts/verify-android-apk.mjs debug
+  android:release:check:
+    desc: Compile an unsigned arm64 release APK (not installable)
+    cmds:
+      - task: android:init
+      - pnpm run tauri android build --apk --target aarch64 --ci -- --locked
+      - node scripts/verify-android-apk.mjs release

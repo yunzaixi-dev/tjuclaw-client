@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxTree } from '@codemirror/language';
+import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { EditorState, RangeSet } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from '@codemirror/commands';
@@ -10,6 +11,11 @@ import { MarkdownToolbar } from './markdown-toolbar';
 
 const hide = Decoration.replace({});
 const mark = (className: string) => Decoration.mark({ class: className });
+// Keep CodeMirror's syntax colors without its default heading underline.
+const noteHighlight = HighlightStyle.define([
+  ...defaultHighlightStyle.specs.filter(style => style.tag !== tags.heading),
+  { tag: tags.heading, fontWeight: 'bold', textDecoration: 'none' },
+]);
 
 class BulletWidget extends WidgetType {
   toDOM() {
@@ -182,16 +188,18 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           markdown({ base: markdownLanguage }),
+          syntaxHighlighting(noteHighlight),
           livePreview,
           previewAtomicRanges,
           EditorView.lineWrapping,
+          EditorView.contentAttributes.of({ spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
             if (update.focusChanged) setFocusedView(update.view.hasFocus ? update.view : null);
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
-            '.cm-scroller': { overflow: 'auto', fontFamily: 'inherit', lineHeight: '1.85' },
+            '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-ui)', lineHeight: '1.85' },
             '.cm-content': { minHeight: '60vh', padding: '0 0 100px', caretColor: 'var(--foreground)' },
             '.cm-line': { padding: '0' },
             '&.cm-focused': { outline: 'none' },

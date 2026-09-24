@@ -269,6 +269,8 @@ export async function findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken,
       const requiredJobNames = [
         'Build Linux amd64 Debian package',
         'Build Android debug arm64 APK',
+        'Build unsigned universal macOS app',
+        'Compile unsigned iOS device and simulator archives',
         'Portable checks',
         'Build Web Client',
         'Browser UI and workspace regression',

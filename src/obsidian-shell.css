@@ -3,6 +3,8 @@
   --shell-panel: var(--muted);
   --shell-editor: var(--surface);
   --shell-hover: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --shell-mark: color-mix(in oklch, var(--foreground) 82%, var(--shell-editor));
+  font-family: var(--font-ui);
   font-size: 13px;
 }
 
@@ -214,6 +216,23 @@
   color: var(--muted-foreground);
 }
 
+.plugin-sidebar-note { margin: 16px 8px; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
+.workspace-plugins { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: clamp(36px, 7vh, 72px) clamp(24px, 8vw, 96px) 64px; }
+.plugin-detail { max-width: 570px; margin: 0 auto; }
+.plugin-detail-heading { display: flex; align-items: center; gap: 16px; }
+.plugin-detail-icon { display: grid; flex: none; place-items: center; width: 52px; height: 52px; border: 1px solid var(--line); border-radius: 8px; background: var(--shell-panel); color: var(--foreground); }
+.plugin-eyebrow { color: var(--muted-foreground); font-size: 11px; }
+.plugin-detail h1 { margin: 5px 0 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.plugin-description { margin: 27px 0 24px; color: var(--muted-foreground); font-size: 14px; line-height: 1.7; }
+.plugin-feature-list { border-top: 1px solid var(--line); font-size: 13px; }
+.plugin-feature-list div { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.plugin-open-button { min-height: 36px; margin-top: 25px; padding: 0 15px; border: 1px solid var(--line); border-radius: 5px; background: var(--shell-panel); color: var(--foreground); font: inherit; cursor: pointer; }
+.plugin-open-button:hover { background: var(--shell-hover); }
+.plugin-availability { display: flex; gap: 13px; margin-top: 54px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted-foreground); }
+.plugin-availability svg { flex: none; margin-top: 2px; }
+.plugin-availability strong { color: var(--foreground); font-size: 12px; font-weight: 550; }
+.plugin-availability p { margin: 7px 0 0; font-size: 11px; line-height: 1.6; }
+
 .note-editor {
   padding-top: 46px;
   padding-bottom: 70px;
@@ -224,20 +243,25 @@
 .mode-switch button.is-active { background: var(--shell-hover); box-shadow: none; }
 .note-title {
   margin-bottom: 21px;
+  font-family: var(--font-ui);
   font-size: clamp(28px, 3vw, 34px);
   font-weight: 650;
   letter-spacing: -.025em;
 }
-.codemirror-editor, .markdown-preview { font-size: 15px; line-height: 1.8; }
+.codemirror-editor, .markdown-preview { font-family: var(--font-ui); font-size: 15px; line-height: 1.8; }
+.markdown-preview :is(code, kbd, samp) { font-family: var(--font-code); }
 .codemirror-editor .cm-editor, .codemirror-editor { min-height: 55vh; }
 .codemirror-editor .cm-activeLine { background: transparent; }
-.codemirror-editor .cm-md-heading span,
-.codemirror-editor .cm-md-syntax span { text-decoration: none; }
+.codemirror-editor .cm-md-heading-line .cm-md-link-label,
+.codemirror-editor .cm-md-heading-line .cm-md-wikilink { text-decoration: underline; }
 .codemirror-editor .cm-md-syntax,
 .codemirror-editor .cm-md-fence,
 .codemirror-editor .cm-md-ordered-marker {
-  color: color-mix(in srgb, var(--foreground) 48%, transparent);
+  color: var(--shell-mark);
+  font-weight: 700;
+  text-decoration: none;
 }
+.codemirror-editor .cm-md-syntax * { color: inherit; text-decoration: none; }
 .codemirror-editor .cm-md-heading-line { font-weight: 700; letter-spacing: -.02em; }
 .codemirror-editor .cm-md-heading-line-1 { font-size: 1.75em; }
 .codemirror-editor .cm-md-heading-line-2 { font-size: 1.4em; }
@@ -245,10 +269,17 @@
 .codemirror-editor .cm-md-heading-line-4,
 .codemirror-editor .cm-md-heading-line-5,
 .codemirror-editor .cm-md-heading-line-6 { font-size: 1.05em; }
-.codemirror-editor .cm-md-heading-line .cm-md-syntax { font-size: .75em; font-weight: 400; }
+.codemirror-editor .cm-md-heading-line .cm-md-syntax {
+  font-size: 1em;
+  font-weight: 700;
+  text-decoration-line: none;
+}
 .codemirror-editor .cm-md-strikethrough { text-decoration: line-through; }
+.codemirror-editor .cm-md-inline-code,
+.codemirror-editor .cm-md-code-line,
+.markdown-preview pre { font-family: var(--font-code); }
 .codemirror-editor .cm-md-image-label { color: var(--primary); }
-.codemirror-editor .cm-md-bullet { display: inline-block; width: 1ch; color: var(--muted-foreground); text-align: center; }
+.codemirror-editor .cm-md-bullet { display: inline-block; width: 1ch; color: var(--shell-mark); text-align: center; }
 .codemirror-editor .cm-md-checkbox {
   width: 16px;
   height: 16px;
@@ -271,8 +302,8 @@
 }
 .codemirror-editor .cm-md-checkbox:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .codemirror-editor .cm-md-quote-line { padding-left: 12px; border-left: 2px solid var(--border); color: var(--muted-foreground); }
-.codemirror-editor .cm-md-code-line { padding: 0 10px; background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-.codemirror-editor .cm-md-rule { color: var(--muted-foreground); }
+.codemirror-editor .cm-md-code-line { padding: 0 10px; background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); }
+.codemirror-editor .cm-md-rule { color: var(--shell-mark); }
 
 .new-note-home {
   width: min(710px, calc(100% - 80px));
@@ -407,6 +438,8 @@
   .tree-heading { min-height: 38px; padding: 0 17px 6px 23px; font-size: 12px; }
   .tree-heading button { width: 38px; height: 38px; }
   .obsidian-tree { padding: 0 13px 20px; }
+  .workspace-plugins { padding: 35px 22px calc(36px + env(safe-area-inset-bottom)); }
+  .plugin-open-button { min-height: 44px; }
   .obsidian-tree-row, .session-tree-item { min-height: 43px; font-size: 14px; }
   .tree-toggle, .tree-spacer { width: 28px; height: 42px; }
   .tree-item, .session-tree-item { height: 42px; }

@@ -32,7 +32,6 @@
 .obsidian-sidebar{transition:transform .2s ease,opacity .2s ease}
 .obsidian-sidebar{transition-property:transform,opacity}
 @media(max-width:720px){.obsidian-sidebar{transform:translateX(0);transition:transform .22s ease,opacity .22s ease}.sidebar-collapsed .obsidian-sidebar{width:min(86vw,320px);flex-basis:min(86vw,320px);transform:translateX(-100%);opacity:0;pointer-events:none}.sidebar-collapsed .obsidian-main{flex-basis:100%}}
-.codemirror-editor .cm-md-syntax{color:color-mix(in oklch,var(--muted-foreground) 55%,transparent)}
 .workspace-context-menu{position:fixed;z-index:100;min-width:220px;padding:5px;border:1px solid color-mix(in oklch,var(--foreground) 28%,var(--border));border-radius:9px;background:var(--surface);box-shadow:0 14px 38px #0007;color:var(--foreground);font-size:13px}
 .workspace-context-menu button{display:flex;align-items:center;width:100%;min-height:34px;padding:0 10px;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .workspace-context-menu button:hover,.workspace-context-menu button:focus-visible{background:var(--selected);outline:none}

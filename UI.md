@@ -29,7 +29,7 @@ tokens and data, not identical chrome.
 | Theme | `data-theme="light|dark"` on the document root |
 | Accent | `data-accent="mono|blue"` on the document root |
 | Text | Foreground and muted-foreground tokens; readable contrast in both themes |
-| Typography | Native-first sans stack; desktop compact, mobile editor text at least 16px |
+| Typography | Bundled Cascadia Code for Latin letters and symbols, LXGW WenKai for Chinese; desktop compact, mobile editor text at least 16px |
 | Geometry | Desktop workspace rows and controls use 4-6px radii; mobile icon buttons are circular, sheets round only at their exposed edge |
 | Touch | Interactive buttons at least 44x44px; radio tiles exceed this |
 | Icons | Official TJUClaw artwork through `src/components/brand-icon.tsx` for branding; Lucide for action and status icons |
@@ -112,8 +112,10 @@ or turn the editor into a card-based dashboard. `src/obsidian-shell.css` owns
 workspace-specific geometry; it still uses `src/product.css` semantic tokens
 and the shared appearance state.
 
-- Notes, sessions, and flashcards live in the activity rail; the current library
-  name and live file/folder counts stay at the foot of the file pane. Files
+- The activity rail labels are 资料夹, Agent, 记忆闪卡, and 插件. The plugin
+  section lists existing built-in capabilities with working entry points;
+  third-party installation and runtime are not available. The current library
+  name and live file/folder counts stay at the foot of the folder pane. Files
   include Markdown notes and attachments, not sessions. A chevron
   indicates the library details entry, not an unsupported multi-library picker.
   The graph occupies the activity rail foot; the gear sits beside the library
@@ -134,7 +136,14 @@ and the shared appearance state.
   line, but show inline delimiters only when the caret or selection enters that
   construct. Outside it, render emphasis, links, bullets and task controls in
   place. Hidden delimiters are atomic for cursor movement; selection, undo and
-  automatic save continue to operate on the original Markdown.
+  automatic save continue to operate on the original Markdown. Revealed syntax
+  remains legible in both themes; heading text is not underlined by the default
+  CodeMirror highlighter, while actual links retain their underline.
+- UI, note titles, Markdown editing and rendered Markdown use Cascadia Code for
+  Latin text and symbols, followed by LXGW WenKai for Chinese glyphs. Bundle both
+  fonts locally so Web and native clients do not rely on installed system fonts.
+  Revealed Markdown punctuation uses the same font size as the heading and a
+  distinct, readable neutral color; syntax-only headings never gain an underline.
 - A compact, horizontally scrollable Markdown command dock appears only while
   the note editor has focus. On mobile it replaces bottom navigation and sits
   above the virtual keyboard, with a separate dismiss-keyboard control. Commands
@@ -166,10 +175,11 @@ exists here. Implement only real actions for this product.
   mode, and context actions. A compact bottom bar holds frequent actions.
   The document outline is available from the note menu as a trailing overlay;
   choosing a heading returns to the editor.
-- File navigation is an overlay from the leading edge, never a second column
+- Folder navigation is an overlay from the leading edge, never a second column
   that squeezes the note. The document remains visible behind a scrim. Tapping
-  the scrim or choosing a note closes the drawer; switching between Files,
-  Sessions, and Flashcards keeps the drawer open until an item is chosen.
+  the scrim or choosing a note closes the drawer; switching between 资料夹,
+  Agent, 记忆闪卡, and 插件 keeps the drawer open until an item is chosen.
+  Choosing a built-in plugin closes the drawer to show its details.
 - In the drawer, creation tools precede the file list; the library and settings
   stay at the bottom. Folder disclosure, selection, and inline rename remain
   available. Desktop supports drag-to-move; touch uses the destination picker
@@ -187,6 +197,10 @@ exists here. Implement only real actions for this product.
   editor, tree, settings, sheets and dialogs own their scrolling. When an
   on-screen keyboard opens, visible controls must remain usable. Use native
   wheel, touch and keyboard scrolling inside each region, not scroll hijacking.
+  Android's edge-to-edge WebView receives system-bar and display-cutout insets
+  on its native content root (`src-tauri/android/MainActivity.kt`); CSS
+  `env(safe-area-inset-*)` remains for browsers and iOS. Do not assume older
+  Android WebViews expose nonzero CSS safe-area values.
 - Mobile controls have a 44px minimum hit target; do not mistake the reference
   screenshots' 3x pixel density for CSS pixels. Desktop remains compact and
   resizable. Keep light/dark semantic surfaces legible and reduced-motion

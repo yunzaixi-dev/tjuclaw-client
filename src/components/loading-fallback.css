@@ -7,7 +7,7 @@
   justify-content: center;
   background: var(--background, oklch(98.5% 0 0));
   color: var(--foreground, oklch(17% 0 0));
-  font-family: "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+  font-family: var(--font-ui);
   padding: 24px;
   box-sizing: border-box;
   user-select: none;
