@@ -23,4 +23,7 @@ export default defineConfig(({ mode }) => ({
     proxy: { '/api': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:8080', rewrite: path => path.replace(/^\/api/, '') } },
   },
   build: { target: ['es2022', 'chrome105', 'safari15'] },
+  // sqlite-wasm locates its .wasm relative to its own module; keep it out of prebundling.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  worker: { format: 'es' },
 }));

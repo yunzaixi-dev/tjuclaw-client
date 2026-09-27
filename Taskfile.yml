@@ -33,6 +33,11 @@ tasks:
     cmds:
       - task: web:build
       - pnpm exec playwright test --config scripts/playwright.config.mjs
+  store:test:
+    desc: Test the device-local SQLite store (OPFS in Chromium) and the native Tauri store
+    cmds:
+      - pnpm exec playwright test --config scripts/local-store.playwright.config.mjs
+      - cargo test --manifest-path src-tauri/Cargo.toml --lib
   workspace:test:
     desc: Test knowledge workspace client behavior using isolated mocks
 
