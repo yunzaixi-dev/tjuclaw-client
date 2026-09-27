@@ -66,6 +66,19 @@ export interface ModelStatus {
   quota: { limit: number; used: number; remaining: number };
 }
 
+// Product models are presented under their TJUClaw names, not upstream IDs.
+const productModelNames: Record<string, string> = {
+  'deepseek-flash': '蓝色大肥鱼',
+  'gpt-6-sol-lite': '太阳',
+};
+
+export function modelDisplayName(status: Pick<ModelStatus, 'source' | 'name'>): string {
+  const name = status.name?.trim() ?? '';
+  if (status.source === 'product') return productModelNames[name] ?? (name || 'TJUClaw 模型');
+  if (status.source === 'custom') return name || '自定义模型';
+  return '未配置';
+}
+
 
 function isTime(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));

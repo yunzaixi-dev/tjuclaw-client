@@ -1381,6 +1381,46 @@
 .settings-action-button.is-danger { color: var(--destructive); }
 .settings-value { color: var(--muted-foreground); font-size: 12px; }
 .settings-email { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-content-body .settings-entry + h3,
+.settings-content-body .settings-notice + h3 { margin-top: 30px; }
+.settings-badge {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.settings-action-button.is-primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.settings-action-button.is-primary:hover:not(:disabled) { background: color-mix(in oklch, var(--primary) 88%, var(--background)); }
+.settings-model-form { display: grid; max-width: 520px; gap: 14px; padding-top: 6px; }
+.settings-model-form label { display: grid; gap: 6px; }
+.settings-model-form label > span { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 550; }
+.settings-model-form label em { color: var(--muted-foreground); font-size: 11px; font-style: normal; font-weight: 400; }
+.settings-model-form input {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 150ms ease;
+}
+.settings-model-form input::placeholder { color: var(--muted-foreground); opacity: 1; }
+.settings-model-form input:hover:not(:disabled) { border-color: color-mix(in oklch, var(--foreground) 24%, var(--border)); }
+.settings-model-form input:disabled { opacity: .6; }
+.settings-model-hint { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.settings-model-form .settings-notice { margin: 0; color: var(--destructive); }
+.settings-model-saved { margin: 0; color: var(--foreground); font-size: 12px; }
+.settings-model-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 560px) {
+  .settings-model-form input { height: 44px; font-size: 16px; }
+  .settings-model-actions .settings-action-button { width: 100%; min-height: 44px; }
+}
 .settings-notice,
 .settings-about-note { max-width: 520px; margin: 20px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
 .workspace-settings button:focus-visible,

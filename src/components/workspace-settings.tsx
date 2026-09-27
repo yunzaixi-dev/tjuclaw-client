@@ -1,16 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { BookOpen, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { setAppearance, useAppearance, type Accent, type Mode } from '../lib/appearance';
-import { describeLibraryError, getModel, type ModelStatus } from '../lib/library';
+import { clearModel, describeLibraryError, getModel, modelDisplayName, putModel, type ModelStatus } from '../lib/library';
 
-export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'account' | 'about';
+export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'account' | 'about';
 
 const sections = [
   { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色' },
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
   { id: 'flashcards', label: '记忆闪卡', icon: Brain, keywords: 'Anki 导出 TSV' },
+  { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
   { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
@@ -20,6 +21,7 @@ const descriptions: Record<SettingsSection, string> = {
   editor: '专注书写，让 Markdown 保持可编辑。',
   library: '当前知识库中的内容概况。',
   flashcards: '管理记忆卡片与 Anki 格式导出。',
+  model: 'Agent 对话使用的模型服务。',
   account: '当前登录状态与账户操作。',
   about: '关于此工作区。',
 };
@@ -59,12 +61,16 @@ export function WorkspaceSettings({
   const [search, setSearch] = useState('');
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelError, setModelError] = useState('');
+  const [modelForm, setModelForm] = useState({ baseUrl: '', apiKey: '', name: '' });
+  const [modelBusy, setModelBusy] = useState(false);
+  const [modelNotice, setModelNotice] = useState('');
+  const [modelFormError, setModelFormError] = useState('');
   const matches = sections.filter(item => `${item.label} ${item.keywords}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const active = search && !matches.some(item => item.id === section) ? matches[0]?.id ?? section : section;
   const heading = sections.find(item => item.id === active)?.label ?? '设置';
 
   useEffect(() => {
-    if (!open || active !== 'account') return;
+    if (!open || (active !== 'account' && active !== 'model')) return;
     const controller = new AbortController();
     getModel(controller.signal).then(status => {
       setModelStatus(status);
@@ -77,10 +83,48 @@ export function WorkspaceSettings({
     return () => controller.abort();
   }, [open, active]);
 
+  function resetModelForm() {
+    setModelForm({ baseUrl: '', apiKey: '', name: '' });
+    setModelNotice('');
+    setModelFormError('');
+  }
+
+  async function saveModel(event: FormEvent) {
+    event.preventDefault();
+    if (modelBusy) return;
+    setModelBusy(true); setModelNotice(''); setModelFormError('');
+    try {
+      const name = modelForm.name.trim();
+      const status = await putModel({ base_url: modelForm.baseUrl.trim(), api_key: modelForm.apiKey.trim(), ...(name ? { model: name } : {}) });
+      setModelStatus(status);
+      setModelForm(form => ({ ...form, apiKey: '' }));
+      setModelNotice('已保存，后续对话将使用你的模型。');
+    } catch (error) {
+      setModelFormError(describeLibraryError(error));
+    } finally {
+      setModelBusy(false);
+    }
+  }
+
+  async function switchToProductModel() {
+    if (modelBusy) return;
+    setModelBusy(true); setModelNotice(''); setModelFormError('');
+    try {
+      await clearModel();
+      setModelStatus(await getModel());
+      setModelNotice('已改回 TJUClaw 提供的模型。');
+    } catch (error) {
+      setModelFormError(describeLibraryError(error));
+    } finally {
+      setModelBusy(false);
+    }
+  }
+
   return <Dialog open={open} onOpenChange={nextOpen => {
     if (!nextOpen) {
       setModelStatus(null);
       setModelError('');
+      resetModelForm();
     }
     onOpenChange(nextOpen);
   }}>
@@ -120,6 +164,38 @@ export function WorkspaceSettings({
               <SettingRow title="记忆闪卡" description="卡片包含正面、背面与标签。"><button type="button" className="settings-action-button" onClick={onShowCards}>查看 {cardCount} 张卡片 <ChevronRight size={14} /></button></SettingRow>
               <SettingRow title="导出到 Anki" description="导出制表符分隔的文本，在 Anki 中导入。"><button type="button" className="settings-action-button" onClick={onExportCards} disabled={!cardCount}>导出 TSV</button></SettingRow>
               {legacyAnkiBackupAvailable ? <SettingRow title="旧版浏览器数据" description="旧版卡片没有账号归属，不会自动合并到当前账号。请确认数据属于你后自行备份。"><button type="button" className="settings-action-button" onClick={onExportLegacyAnkiBackup}>下载原始备份</button></SettingRow> : null}
+            </> : null}
+            {active === 'model' ? <>
+              <h3>当前模型</h3>
+              <SettingRow
+                title={modelStatus ? modelDisplayName(modelStatus) : modelError ? '暂不可用' : '读取中…'}
+                description={modelStatus?.source === 'custom' ? '你自己的模型服务，使用你自己的额度。' : modelStatus?.source === 'product' ? '由 TJUClaw 提供，每天有调用次数上限。' : modelStatus ? '还没有可用的模型，请在下方配置。' : undefined}
+              >
+                {modelStatus?.source === 'custom'
+                  ? <button type="button" className="settings-action-button" disabled={modelBusy} onClick={() => void switchToProductModel()}>改回 TJUClaw 模型</button>
+                  : <span className="settings-badge">{modelStatus?.source === 'product' ? 'TJUClaw' : '—'}</span>}
+              </SettingRow>
+              {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
+              <h3>使用自己的模型</h3>
+              <form className="settings-model-form" onSubmit={event => void saveModel(event)}>
+                <label>
+                  <span>API 地址</span>
+                  <input type="url" inputMode="url" required autoComplete="off" spellCheck={false} placeholder="https://api.example.com/v1" value={modelForm.baseUrl} disabled={modelBusy} onChange={event => { setModelForm(form => ({ ...form, baseUrl: event.target.value })); setModelFormError(''); }} />
+                </label>
+                <label>
+                  <span>API Key</span>
+                  <input type="password" required autoComplete="off" spellCheck={false} maxLength={512} placeholder={modelStatus?.source === 'custom' ? '重新填写以更新' : 'sk-…'} value={modelForm.apiKey} disabled={modelBusy} onChange={event => { setModelForm(form => ({ ...form, apiKey: event.target.value })); setModelFormError(''); }} />
+                </label>
+                <label>
+                  <span>模型名<em>可选</em></span>
+                  <input type="text" autoComplete="off" spellCheck={false} maxLength={80} placeholder="例如 deepseek-chat" value={modelForm.name} disabled={modelBusy} onChange={event => { setModelForm(form => ({ ...form, name: event.target.value })); setModelFormError(''); }} />
+                </label>
+                <p className="settings-model-hint">需要公网 HTTPS、兼容 OpenAI Chat Completions 的地址。密钥保存在服务器上，只用于转发你的对话，不会写入笔记；使用自己的模型不占用每日额度。</p>
+                {modelFormError ? <p className="settings-notice" role="alert">{modelFormError}</p> : modelNotice ? <p className="settings-model-saved">{modelNotice}</p> : null}
+                <div className="settings-model-actions">
+                  <button type="submit" className="settings-action-button is-primary" disabled={modelBusy || !modelForm.baseUrl.trim() || !modelForm.apiKey.trim()}>{modelBusy ? '正在保存…' : '保存并使用'}</button>
+                </div>
+              </form>
             </> : null}
             {active === 'account' ? <>
               <h3>当前会话</h3>

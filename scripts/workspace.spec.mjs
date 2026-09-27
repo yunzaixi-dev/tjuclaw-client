@@ -3682,6 +3682,46 @@ test('account settings shows broker quota and fails closed when the ledger is un
   await expect(dialog.getByRole('alert')).toHaveText('暂时无法读取模型额度，请稍后重试。');
 });
 
+test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {
+  const state = defaultState();
+  state.model = { configured: false, source: 'product', name: 'deepseek-flash', quota: { limit: 20, used: 2, remaining: 18 } };
+  await mockWorkspace(page, state);
+  const puts = [];
+  let deletes = 0;
+  await page.route('**/api/account/model', async route => {
+    const method = route.request().method();
+    if (method === 'PUT') {
+      const body = route.request().postDataJSON();
+      puts.push(body);
+      state.model = { configured: true, source: 'custom', name: body.model ?? '', quota: state.model.quota };
+    } else if (method === 'DELETE') {
+      deletes++;
+      state.model = { configured: false, source: 'product', name: 'deepseek-flash', quota: state.model.quota };
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return json(route, 200, { model: state.model });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '模型' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('蓝色大肥鱼', { exact: true })).toBeVisible();
+  const save = dialog.getByRole('button', { name: '保存并使用' });
+  await expect(save).toBeDisabled();
+  await dialog.getByLabel('API 地址').fill('https://api.example.com/v1');
+  await dialog.getByLabel('API Key').fill('sk-test-secret');
+  await dialog.getByLabel(/模型名/).fill('deepseek-chat');
+  await save.click();
+  await expect(dialog.getByText('已保存，后续对话将使用你的模型。')).toBeVisible();
+  expect(puts).toEqual([{ base_url: 'https://api.example.com/v1', api_key: 'sk-test-secret', model: 'deepseek-chat' }]);
+  await expect(dialog.getByLabel('API Key')).toHaveValue('');
+  await expect(dialog.getByText('deepseek-chat', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '改回 TJUClaw 模型' }).click();
+  await expect(dialog.getByText('已改回 TJUClaw 提供的模型。')).toBeVisible();
+  await expect(dialog.getByText('蓝色大肥鱼', { exact: true })).toBeVisible();
+  expect(deletes).toBe(1);
+});
+
 test('graph links notes by wikilink title and opens its node', async ({ page }) => {
   const state = defaultState();
   const second = { ...noteA, id: '33333333333333333333333333333333', title: 'Second note', body: 'Backlink' };
