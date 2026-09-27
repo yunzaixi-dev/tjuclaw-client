@@ -676,9 +676,16 @@
 .anki-count-card small { color: var(--muted-foreground); font-size: 11px; }
 .anki-count-card strong { font-size: 28px; font-weight: 600; letter-spacing: -.04em; }
 .anki-count-card span { color: var(--muted-foreground); font-size: 10px; }
-.anki-count-card.is-new strong { color: oklch(70% .13 200); }
-.anki-count-card.is-learning strong { color: oklch(75% .13 78); }
-.anki-count-card.is-review strong { color: oklch(72% .13 145); }
+/* Anki's state colours, darkened for contrast on light surfaces; an empty
+   queue stays neutral instead of drawing the eye. */
+.anki-count-card.is-new strong { color: oklch(52% .13 230); }
+.anki-count-card.is-learning strong { color: oklch(56% .14 60); }
+.anki-count-card.is-review strong { color: oklch(52% .13 150); }
+:root[data-theme="dark"] .anki-count-card.is-new strong { color: oklch(76% .11 225); }
+:root[data-theme="dark"] .anki-count-card.is-learning strong { color: oklch(80% .12 75); }
+:root[data-theme="dark"] .anki-count-card.is-review strong { color: oklch(78% .12 150); }
+.anki-count-card.is-empty strong,
+:root[data-theme="dark"] .anki-count-card.is-empty strong { color: var(--muted-foreground); }
 .anki-overview-columns,
 .anki-template-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .anki-panel { min-width: 0; padding: 17px; border: 1px solid var(--line); background: var(--shell-panel); }
@@ -718,9 +725,12 @@
 .anki-tags { display: flex; gap: 4px; }
 .anki-tags i { overflow: hidden; padding: 3px 5px; background: var(--shell-hover); color: var(--muted-foreground); font-size: 10px; font-style: normal; text-overflow: ellipsis; }
 .anki-state-dot { font-size: 10px; }
-.anki-state-dot.is-new { color: oklch(70% .13 200); }
-.anki-state-dot.is-learning { color: oklch(75% .13 78); }
-.anki-state-dot.is-review { color: oklch(72% .13 145); }
+.anki-state-dot.is-new { color: oklch(52% .13 230); }
+.anki-state-dot.is-learning { color: oklch(56% .14 60); }
+.anki-state-dot.is-review { color: oklch(52% .13 150); }
+:root[data-theme="dark"] .anki-state-dot.is-new { color: oklch(76% .11 225); }
+:root[data-theme="dark"] .anki-state-dot.is-learning { color: oklch(80% .12 75); }
+:root[data-theme="dark"] .anki-state-dot.is-review { color: oklch(78% .12 150); }
 .anki-state-dot.is-suspended { color: var(--muted-foreground); }
 .anki-study-top { justify-content: space-between; padding-bottom: 18px; border-bottom: 1px solid var(--line); color: var(--muted-foreground); font-size: 11px; }
 .anki-study-top button { width: auto; gap: 6px; padding: 0 7px; font: inherit; font-size: 11px; }
@@ -870,7 +880,8 @@
   .obsidian-search { margin: 3px 16px 18px; border: 0; border-radius: 13px; }
   .obsidian-search input { height: 40px; font-size: 14px; }
   .tree-heading { min-height: 38px; padding: 0 17px 6px 23px; font-size: 12px; }
-  .tree-heading button { width: 38px; height: 38px; }
+  .tree-heading button { width: 34px; height: 38px; }
+  .tree-heading > span:first-child { flex: none; white-space: nowrap; }
   .obsidian-tree { padding: 0 13px 20px; }
   .workspace-plugins { padding: 35px 22px calc(36px + env(safe-area-inset-bottom)); }
   .plugin-open-button { min-height: 44px; }
@@ -911,7 +922,8 @@
   .sidebar-opener { width: 42px !important; height: 42px !important; border: 1px solid var(--line) !important; border-radius: 50% !important; }
   .workspace-tab { display: block; flex: 1; width: auto; height: auto; padding: 0 12px; border: 0; background: transparent; text-align: center; font-size: 14px; }
   .workspace-tabs { align-items: center; }
-  .workspace-tabs .workspace-tab { flex: 0 0 128px; height: 38px; padding: 0 5px 0 9px; border: 1px solid var(--line); border-bottom: 0; border-radius: 5px 5px 0 0; font-size: 11px; text-align: left; }
+  /* Keep title and close button on one row; the title truncates. */
+  .workspace-tabs .workspace-tab { display: flex; flex: 0 1 176px; align-items: center; min-width: 0; height: 38px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-bottom: 0; border-radius: 5px 5px 0 0; font-size: 11px; text-align: left; }
   .workspace-tab-close { width: 24px; height: 28px; margin-left: 2px; }
   .workspace-new-tab { width: 30px; height: 36px; margin: 0 2px; align-self: center; }
   .session-view { width: calc(100% - 32px); padding: 0; }
