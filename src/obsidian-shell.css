@@ -487,6 +487,16 @@
 .session-view .chat-message-content { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
 .session-view .chat-message-content > :first-child { margin-top: 0; }
 .session-view .chat-message-content > :last-child { margin-bottom: 0; }
+.session-view .chat-message-content img {
+  display: block;
+  max-width: min(100%, 520px);
+  max-height: 420px;
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+  object-fit: contain;
+}
 .session-view .chat-message-content pre { overflow-x: auto; }
 .session-start { display: grid; justify-items: start; align-content: center; flex: 1; min-height: 250px; padding: 30px 0 56px; }
 .session-start h2 { font-size: 21px; font-weight: 600; letter-spacing: -.02em; }

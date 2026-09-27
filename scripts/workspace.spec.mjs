@@ -3709,6 +3709,34 @@ test('Agent without a sandbox offers campus starters and shows which tools a rep
   await expect(log.getByText('使用了 学期 · 课表')).toBeVisible();
 });
 
+test('Agent replies show original campus images through the API proxy only', async ({ page }) => {
+  const state = defaultState();
+  state.model = { ...state.model, agent: { sandbox: false, tools: ['search_course_materials', 'read_image'] } };
+  await mockWorkspace(page, state);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const proxied = [];
+  await page.route('**/api/media/image?**', route => { proxied.push(new URL(route.request().url()).searchParams.get('url')); return route.fulfill({ status: 200, contentType: 'image/png', body: png }); });
+  await page.route('**/api/sessions/*/messages', async route => {
+    const body = route.request().postDataJSON();
+    return json(route, 200, { session: { ...sessionA, messages: [
+      { role: 'user', content: body.content, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '帖子原图如下：\n\n![校园卡](https://qnhdpic.twt.edu.cn/download/origin/a.jpg)\n\n![外链](https://evil.example/x.png)', tools: ['search_course_materials', 'read_image'], created_at: '2026-01-01T00:00:11.000Z' },
+    ] } });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByText('新手向导').first().click();
+  await page.getByLabel('发送给 Agent 的消息').fill('找一下丢失校园卡的帖子');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const log = page.getByRole('log', { name: '会话记录' });
+  await expect(log.getByText('使用了 课程资料 · 看图')).toBeVisible();
+  const image = log.getByRole('img', { name: '校园卡' });
+  await expect(image).toHaveAttribute('src', '/api/media/image?url=' + encodeURIComponent('https://qnhdpic.twt.edu.cn/download/origin/a.jpg'));
+  await expect.poll(() => image.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  expect(proxied).toEqual(['https://qnhdpic.twt.edu.cn/download/origin/a.jpg']);
+  await expect(log.locator('img[alt="外链"]')).not.toHaveAttribute('src', /evil/);
+});
+
 test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {
   const state = defaultState();
   const choices = ['deepseek-flash', 'gpt-6-sol-lite'];

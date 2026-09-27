@@ -190,9 +190,34 @@ function parseHeadings(markdown: string) {
   });
 }
 
+// Original campus images load through the authenticated API proxy, so the
+// client CSP stays img-src 'self'. Other external images are dropped.
+const PROXIED_IMAGE_HOSTS = new Set(['qnhdpic.twt.edu.cn']);
+function proxiedImage(node: Element) {
+  if (node.tagName !== 'IMG') return;
+  const src = node.getAttribute('src') ?? '';
+  let url: URL | null = null;
+  try { url = new URL(src); } catch { url = null; }
+  if (url && url.protocol === 'https:' && PROXIED_IMAGE_HOSTS.has(url.hostname)) {
+    node.setAttribute('src', `/api/media/image?url=${encodeURIComponent(url.href)}`);
+    node.setAttribute('loading', 'lazy');
+    node.setAttribute('decoding', 'async');
+    node.setAttribute('referrerpolicy', 'no-referrer');
+    node.setAttribute('data-original', url.href);
+    if (!node.getAttribute('alt')) node.setAttribute('alt', '原图');
+  } else if (!src.startsWith('data:') && !src.startsWith('/')) {
+    node.removeAttribute('src');
+  }
+}
+
 function renderMarkdown(markdown: string) {
   const html = marked.parse(markdown, { gfm: true, breaks: true }) as string;
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  DOMPurify.addHook('afterSanitizeAttributes', proxiedImage);
+  try {
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  } finally {
+    DOMPurify.removeHook('afterSanitizeAttributes');
+  }
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -202,6 +227,7 @@ const TOOL_LABELS: Record<string, string> = {
   campus_study_rooms: '自习室',
   campus_forum_posts: '校园论坛',
   search_course_materials: '课程资料',
+  read_image: '看图',
   list_tree: '笔记目录',
   create_entry: '新建笔记',
   update_entry: '修改笔记',
