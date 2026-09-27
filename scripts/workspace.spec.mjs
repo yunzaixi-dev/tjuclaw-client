@@ -353,7 +353,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, defaultState(), { seedWorkspaceUnlock: false });
     await page.goto('/workspace');
     await expect(page.getByRole('heading', { name: '创建工作区口令' })).toBeVisible();
-    await expect(page.getByText(/当前口令仅在此设备验证访问，不会加密现有云端笔记/)).toBeVisible();
+    await expect(page.getByText(/口令用于在这台设备上解锁工作区/)).toBeVisible();
     await expect(page.getByText('Private note body')).toHaveCount(0);
     await page.getByRole('textbox', { name: '创建工作区口令' }).fill('workspace-secret-2026');
     await page.getByLabel('再次输入口令').fill('workspace-secret-2026');
@@ -379,7 +379,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state, { seedWorkspaceUnlock: false });
     await page.goto('/workspace');
     await expect(page.getByRole('heading', { name: '创建工作区口令' })).toBeVisible();
-    await expect(page.getByText(/现有云端笔记仍是明文/)).toBeVisible();
+    await expect(page.getByText(/口令可在你的其他设备上解锁此工作区/)).toBeVisible();
     await page.getByRole('textbox', { name: '创建工作区口令' }).fill('remote-workspace-secret');
     await page.getByLabel('再次输入口令').fill('remote-workspace-secret');
     await page.getByRole('checkbox').check();

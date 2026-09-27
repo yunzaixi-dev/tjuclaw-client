@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   Download,
+  Info,
   KeyRound,
   LibraryBig,
   LogOut,
@@ -69,7 +70,7 @@ function downloadPassphraseBackup(workspaceId: string, workspaceName: string, pa
     verification === 'remote'
       ? '- 口令验证材料已存于当前账号的私有仓库；可在另一台设备用此口令解锁，忘记后无法找回。'
       : '- 本设备不提供口令找回或修改；清理浏览器数据后可重新设置。',
-    '- 当前口令不会加密现有云端笔记。',
+    '- 口令用于解锁工作区；笔记加密存储即将推出，目前笔记尚未加密。',
     '- 此文件包含明文口令，请存放在安全位置。',
     '- 不要上传到代码仓库、公开网盘或聊天工具。',
   ].join('\n');
@@ -269,10 +270,13 @@ export function WorkspacePassphraseGate({
                     : mode === 'migrate' ? '输入旧口令，迁移验证材料到私有仓库。' : '输入此工作区的口令以继续。'}
               </p>
               <div className="workspace-vault-warning">
-                <AlertTriangle size={16} />
-                <span>{verification === 'remote'
-                  ? '口令验证材料会加密存入私有仓库，可跨设备验证。现有云端笔记仍是明文，不属于端到端加密；忘记口令后无法找回。'
-                  : '当前口令仅在此设备验证访问，不会加密现有云端笔记；请勿将其当作端到端加密。清理浏览器数据后可能需要重新设置。'}</span>
+                <Info size={16} />
+                <span>
+                  {verification === 'remote'
+                    ? '口令可在你的其他设备上解锁此工作区。忘记口令将无法解锁，请妥善保存备份。'
+                    : '口令用于在这台设备上解锁工作区，清理浏览器数据后可以重新设置。'}
+                  <span className="workspace-vault-roadmap">即将推出：服务器仅保存加密后的笔记，支持自建沙箱和自定义模型 API。</span>
+                </span>
               </div>
               <form className="workspace-vault-form" onSubmit={submit}>
                 {firstWorkspace ? (

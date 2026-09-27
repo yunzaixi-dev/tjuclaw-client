@@ -1585,6 +1585,12 @@
   color: var(--auth-accent-ink);
 }
 
+.workspace-vault-roadmap {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-foreground);
+}
+
 .workspace-vault-warning-caution { background: oklch(96% .045 80); }
 .workspace-vault-warning-caution svg { color: oklch(55% .14 65); }
 :root[data-theme="dark"] .workspace-vault-warning-caution { background: oklch(27% .045 70); }
