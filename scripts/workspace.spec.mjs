@@ -3684,7 +3684,8 @@ test('account settings shows broker quota and fails closed when the ledger is un
 
 test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {
   const state = defaultState();
-  state.model = { configured: false, source: 'product', name: 'deepseek-flash', quota: { limit: 20, used: 2, remaining: 18 } };
+  const choices = ['deepseek-flash', 'gpt-6-sol-lite'];
+  state.model = { configured: false, source: 'product', name: 'deepseek-flash', choices, quota: { limit: 20, used: 2, remaining: 18 } };
   await mockWorkspace(page, state);
   const puts = [];
   let deletes = 0;
@@ -3693,10 +3694,12 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
     if (method === 'PUT') {
       const body = route.request().postDataJSON();
       puts.push(body);
-      state.model = { configured: true, source: 'custom', name: body.model ?? '', quota: state.model.quota };
+      state.model = body.product_model
+        ? { configured: false, source: 'product', name: body.product_model, choices, quota: state.model.quota }
+        : { configured: true, source: 'custom', name: body.model ?? '', choices, quota: state.model.quota };
     } else if (method === 'DELETE') {
       deletes++;
-      state.model = { configured: false, source: 'product', name: 'deepseek-flash', quota: state.model.quota };
+      state.model = { configured: false, source: 'product', name: 'deepseek-flash', choices, quota: state.model.quota };
       return route.fulfill({ status: 204, body: '' });
     }
     return json(route, 200, { model: state.model });
@@ -3705,7 +3708,12 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '模型' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByText('蓝色大肥鱼', { exact: true })).toBeVisible();
+  const picker = dialog.getByRole('group', { name: 'TJUClaw 模型' });
+  await expect(picker.getByRole('button', { name: '蓝色大肥鱼' })).toHaveAttribute('aria-pressed', 'true');
+  await picker.getByRole('button', { name: '太阳' }).click();
+  await expect(picker.getByRole('button', { name: '太阳' })).toHaveAttribute('aria-pressed', 'true');
+  expect(puts).toEqual([{ product_model: 'gpt-6-sol-lite' }]);
+  puts.length = 0;
   const save = dialog.getByRole('button', { name: '保存并使用' });
   await expect(save).toBeDisabled();
   await dialog.getByLabel('API 地址').fill('https://api.example.com/v1');
@@ -3718,7 +3726,7 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
   await expect(dialog.getByText('deepseek-chat', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: '改回 TJUClaw 模型' }).click();
   await expect(dialog.getByText('已改回 TJUClaw 提供的模型。')).toBeVisible();
-  await expect(dialog.getByText('蓝色大肥鱼', { exact: true })).toBeVisible();
+  await expect(picker.getByRole('button', { name: '蓝色大肥鱼' })).toHaveAttribute('aria-pressed', 'true');
   expect(deletes).toBe(1);
 });
 

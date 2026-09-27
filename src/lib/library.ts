@@ -63,6 +63,7 @@ export interface ModelStatus {
   configured: boolean;
   source: 'custom' | 'product' | 'none';
   name?: string;
+  choices?: string[];
   quota: { limit: number; used: number; remaining: number };
 }
 
@@ -137,6 +138,7 @@ function isModel(value: unknown): value is ModelStatus {
   return typeof r.configured === 'boolean' && (r.source === 'custom' || r.source === 'product' || r.source === 'none')
 
     && (r.name === undefined || typeof r.name === 'string')
+    && (r.choices === undefined || (Array.isArray(r.choices) && r.choices.every(choice => typeof choice === 'string')))
     && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number';
 }
 
@@ -339,6 +341,12 @@ export async function putModel(input: { base_url: string; api_key: string; model
       quota: { limit: 0, used: 0, remaining: 0 },
     };
   }
+  if (!isModel(data.model)) throw new AuthError(503);
+  return data.model;
+}
+
+export async function chooseProductModel(name: string, signal?: AbortSignal): Promise<ModelStatus> {
+  const data = await authRequest<{ model: unknown }>('/api/account/model', { method: 'PUT', body: JSON.stringify({ product_model: name }), signal });
   if (!isModel(data.model)) throw new AuthError(503);
   return data.model;
 }

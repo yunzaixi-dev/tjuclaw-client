@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { setAppearance, useAppearance, type Accent, type Mode } from '../lib/appearance';
-import { clearModel, describeLibraryError, getModel, modelDisplayName, putModel, type ModelStatus } from '../lib/library';
+import { chooseProductModel, clearModel, describeLibraryError, getModel, modelDisplayName, putModel, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'account' | 'about';
 
@@ -106,6 +106,19 @@ export function WorkspaceSettings({
     }
   }
 
+  async function pickProductModel(name: string) {
+    if (modelBusy || (modelStatus?.source === 'product' && modelStatus.name === name)) return;
+    setModelBusy(true); setModelNotice(''); setModelFormError('');
+    try {
+      // The title and pressed state update in place; no separate notice.
+      setModelStatus(await chooseProductModel(name));
+    } catch (error) {
+      setModelFormError(describeLibraryError(error));
+    } finally {
+      setModelBusy(false);
+    }
+  }
+
   async function switchToProductModel() {
     if (modelBusy) return;
     setModelBusy(true); setModelNotice(''); setModelFormError('');
@@ -175,6 +188,16 @@ export function WorkspaceSettings({
                   ? <button type="button" className="settings-action-button" disabled={modelBusy} onClick={() => void switchToProductModel()}>改回 TJUClaw 模型</button>
                   : <span className="settings-badge">{modelStatus?.source === 'product' ? 'TJUClaw' : '—'}</span>}
               </SettingRow>
+              {modelStatus?.choices && modelStatus.choices.length > 1 ? (
+                <SettingRow title="TJUClaw 模型" description="在 TJUClaw 提供的模型之间切换，共用每日调用额度。">
+                  <SettingChoices<string>
+                    label="TJUClaw 模型"
+                    value={modelStatus.source === 'product' ? modelStatus.name ?? '' : ''}
+                    onChange={name => void pickProductModel(name)}
+                    options={modelStatus.choices.map(name => ({ value: name, label: modelDisplayName({ source: 'product', name }) }))}
+                  />
+                </SettingRow>
+              ) : null}
               {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
               <h3>使用自己的模型</h3>
               <form className="settings-model-form" onSubmit={event => void saveModel(event)}>
