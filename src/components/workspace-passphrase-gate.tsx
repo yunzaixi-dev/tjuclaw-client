@@ -275,7 +275,7 @@ export function WorkspacePassphraseGate({
                   {verification === 'remote'
                     ? '口令可在你的其他设备上解锁此工作区。忘记口令将无法解锁，请妥善保存备份。'
                     : '口令用于在这台设备上解锁工作区，清理浏览器数据后可以重新设置。'}
-                  <span className="workspace-vault-roadmap">即将推出：服务器仅保存加密后的笔记，支持自建沙箱和自定义模型 API。</span>
+                  <span className="workspace-vault-roadmap">可在「设置 → 模型」使用自己的模型 API。即将推出：服务器仅保存加密后的笔记，支持自建沙箱。</span>
                 </span>
               </div>
               <form className="workspace-vault-form" onSubmit={submit}>
