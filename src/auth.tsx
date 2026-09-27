@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, Mail, MailCheck, Moon, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, LogOut, Mail, MailCheck, Moon, Sun } from 'lucide-react';
+import { BlueprintBackdrop } from './components/blueprint-backdrop';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
@@ -13,120 +14,10 @@ import './auth.css';
 function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
   const bannerOpen = useContestBannerOpen();
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const initialTransform = useRef({ x: 0, y: 0 });
-  const touchDist = useRef<number | null>(null);
-
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        const zoomFactor = -e.deltaY * 0.003;
-        setTransform(prev => ({
-          ...prev,
-          scale: Math.min(Math.max(prev.scale + zoomFactor, 0.4), 2.5),
-        }));
-      } else {
-        setTransform(prev => ({
-          ...prev,
-          x: prev.x - e.deltaX,
-          y: prev.y - e.deltaY,
-        }));
-      }
-    };
-
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    return () => window.removeEventListener('wheel', handleWheel);
-  }, []);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
-    isDragging.current = true;
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    initialTransform.current = { x: transform.x, y: transform.y };
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging.current) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    setTransform(prev => ({
-      ...prev,
-      x: initialTransform.current.x + dx,
-      y: initialTransform.current.y + dy,
-    }));
-  };
-
-  const handleMouseUp = () => {
-    isDragging.current = false;
-  };
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if ((e.target as HTMLElement)?.closest('.auth-card, .auth-footer, button, input, a')) return;
-    if (e.touches.length === 1) {
-      isDragging.current = true;
-      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      initialTransform.current = { x: transform.x, y: transform.y };
-    } else if (e.touches.length === 2) {
-      isDragging.current = false;
-      touchDist.current = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && isDragging.current) {
-      const dx = e.touches[0].clientX - dragStart.current.x;
-      const dy = e.touches[0].clientY - dragStart.current.y;
-      setTransform(prev => ({
-        ...prev,
-        x: initialTransform.current.x + dx,
-        y: initialTransform.current.y + dy,
-      }));
-    } else if (e.touches.length === 2 && touchDist.current !== null) {
-      const newDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const scaleChange = (newDist - touchDist.current) * 0.005;
-      touchDist.current = newDist;
-      setTransform(prev => ({
-        ...prev,
-        scale: Math.min(Math.max(prev.scale + scaleChange, 0.4), 2.5),
-      }));
-    }
-  };
-
-  const handleTouchEnd = () => {
-    isDragging.current = false;
-    touchDist.current = null;
-  };
-
-  const gridPatternSize = 24 * transform.scale;
-  const offsetX = transform.x % gridPatternSize;
-  const offsetY = transform.y % gridPatternSize;
 
   return (
-    <div
-      className="auth-shell auth-canvas-shell"
-      style={{
-        '--canvas-grid-size': `${gridPatternSize}px`,
-        '--canvas-offset-x': `${offsetX}px`,
-        '--canvas-offset-y': `${offsetY}px`,
-      } as React.CSSProperties}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <div className="auth-canvas-bg" aria-hidden="true" />
+    <div className="auth-shell blueprint-surface">
+      <BlueprintBackdrop />
       <main className="auth-main">
         {children}
       </main>
@@ -178,14 +69,49 @@ function Heading({ title, children }: { title: string; children: ReactNode }) {
   return <header className="auth-heading"><h1>{title}</h1><div className="auth-description">{children}</div></header>;
 }
 
+// Reads the current identity without redirecting, so signed-in visitors choose
+// between returning to the workspace and signing out.
+function useExistingSession() {
+  const [session, setSession] = useState<IdentitySession | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    readSession(controller.signal).then(value => {
+      if (!controller.signal.aborted) setSession(value);
+    }).catch(() => {
+      // Keep the signed-out screen usable when the session check cannot complete.
+    });
+    return () => controller.abort();
+  }, []);
+  return session;
+}
+
+function SignedIn({ session }: { session: IdentitySession }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  function signOut() {
+    setBusy(true); setError('');
+    void logout().catch(cause => { setError(describeError(cause)); setBusy(false); });
+  }
+  return <section className="auth-card auth-card-narrow auth-signed-in">
+    <div className="auth-card-logo"><BrandIcon size={64} /></div>
+    <Heading title="你已登录"><p>可以直接回到工作区，或退出后换一个账号。</p></Heading>
+    <div className="auth-assurance"><Check size={16} /><span className="auth-email" title={session.email}>{session.email}</span></div>
+    <a className="auth-primary-link" href="/workspace">进入工作区<ArrowRight size={18} /></a>
+    <button type="button" className="auth-secondary-link" disabled={busy} onClick={signOut}><LogOut size={16} />{busy ? '正在退出…' : '退出登录'}</button>
+    {error ? <p className="auth-inline-error" role="alert">{error}</p> : null}
+  </section>;
+}
+
 function loginMethodFromUrl() {
   return new URLSearchParams(location.search).get('method') === 'password' ? 'password' : 'code';
 }
 
 
 function Welcome() {
+  const session = useExistingSession();
+  if (session) return <SignedIn session={session} />;
   return <section className="auth-card auth-card-narrow auth-welcome">
-    <BrandIcon size={96} className="auth-welcome-logo" />
+    <BrandIcon size={88} className="auth-welcome-logo" />
     <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
     <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用验证码登录 / 注册<ArrowRight size={18} /></a>
     <a className="auth-secondary-link" href="/auth/login?method=password"><Lock size={18} />使用密码登录<ArrowRight size={18} /></a>
@@ -216,6 +142,7 @@ function FlowScreen() {
   const [forcedExpiry, setForcedExpiry] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [now, setNow] = useState(Date.now);
+  const session = useExistingSession();
   const lock = useRef(false);
   const mutation = useRef<AbortController | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -227,11 +154,6 @@ function FlowScreen() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void readSession(controller.signal).then(session => {
-      if (!controller.signal.aborted && session) location.replace('/workspace');
-    }).catch(() => {
-      // Keep the login form available when the session check cannot complete.
-    });
     readFlow(controller.signal).then(result => {
       if (controller.signal.aborted) return;
       setFlow(result);
@@ -285,6 +207,7 @@ function FlowScreen() {
         return;
       }
       if (method === 'register') {
+        if (!/^[^@]+@tju\.edu\.cn$/i.test(email.trim())) { setError('新账号仅支持使用 @tju.edu.cn 邮箱注册。'); return; }
         if (password !== confirmPassword) { setError('两次输入的密码不一致。'); return; }
         void perform(async signal => {
           try { acceptFlow(await registerWithPassword(email, password, capToken, signal)); setPassword(''); setConfirmPassword(''); }
@@ -311,6 +234,7 @@ function FlowScreen() {
     });
   }
 
+  if (session) return <SignedIn session={session} />;
   return <section className={`auth-card auth-card-narrow auth-flow-card${stage === 'code' ? ' auth-flow-card-code' : ''}`}>
     <div className="auth-card-topbar">
       <a href="/" className="auth-card-back-text" aria-label="返回首页" title="返回首页">
@@ -323,7 +247,7 @@ function FlowScreen() {
     </div>
     {stage === 'email' && !resending && (
       <div className="auth-card-logo">
-        <BrandIcon size={80} />
+        <BrandIcon size={64} />
       </div>
     )}
     <Heading title={resending && !expired ? '重发验证码' : stage === 'code' ? '输入验证码' : method === 'register' ? '注册 TJUClaw Cloud' : '登录 TJUClaw Cloud'}>
@@ -334,19 +258,17 @@ function FlowScreen() {
           </div>
           <div className="auth-stage-copy">
             <p className="auth-destination" title={email}>{email}</p>
-            <p className="auth-stage-tip">通过阿里云邮件推送服务投递，请留意收件箱或垃圾邮件</p>
+            <p className="auth-stage-tip">验证码已发送，也请检查垃圾邮件</p>
           </div>
         </div>
-      ) : <p>{method === 'register' ? '设置密码后，仍需验证邮箱才能登录。' : method === 'password' ? '使用已验证邮箱和密码登录。' : '欢迎使用 TJUClaw Cloud，输入邮箱以继续'}</p>}
+      ) : <p>{method === 'register' ? '仅限 @tju.edu.cn 邮箱，设置密码后仍需验证邮箱。' : method === 'password' ? '使用已验证的邮箱和密码登录。' : '新账号仅限 @tju.edu.cn 邮箱，验证后自动创建。'}</p>}
     </Heading>
     {stage === 'email' && !resending && (
       <div className="auth-divider">
-        <span className="auth-divider-line" />
         <div className="auth-method-tabs" role="tablist" aria-label="登录方式">
           <button type="button" role="tab" aria-selected={method === 'code'} className={method === 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('code'); setError(''); }}>验证码</button>
           <button type="button" role="tab" aria-selected={method === 'password' || method === 'register'} className={method !== 'code' ? 'is-active' : ''} disabled={busy} onClick={() => { setMethod('password'); setError(''); }}>密码</button>
         </div>
-        <span className="auth-divider-line" />
       </div>
     )}
     <form onSubmit={event => { if (resending) { event.preventDefault(); resend(); } else submit(event); }} aria-busy={busy}>
@@ -373,7 +295,7 @@ function FlowScreen() {
           <label className="auth-label auth-responsive-label" htmlFor="auth-input">邮箱地址</label>
           <div className={`auth-input-wrap ${error ? 'auth-input-error' : ''}`}>
             <Mail size={18} aria-hidden="true" />
-            <input ref={input} id="auth-input" type="email" name="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={200} placeholder="name@example.com" value={email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { setEmail(event.target.value); if (ready) setError(''); }} />
+            <input ref={input} id="auth-input" type="email" name="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={200} placeholder="name@tju.edu.cn" value={email} disabled={busy || expired} aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-form-error' : undefined} onChange={event => { setEmail(event.target.value); if (ready) setError(''); }} />
           </div>
           {usingPassword ? <>
             <label className="auth-label auth-responsive-label" htmlFor="auth-password">{method === 'register' ? '设置密码' : '密码'}</label>
@@ -426,17 +348,13 @@ function FlowScreen() {
       </div>
     )}
     <div className="auth-card-subfooter">
-      <p className="auth-card-subfooter-note">{usingPassword ? '忘记密码请改用验证码登录' : '由阿里云邮件推送服务投递 · 新邮箱将自动创建账号'}</p>
+      {stage === 'email' && !resending ? <p className="auth-card-subfooter-note">{usingPassword ? '忘记密码？请改用验证码登录。' : '验证码邮件由阿里云邮件推送服务投递。'}</p> : null}
       <p className="auth-legal-note">
         登录即表示同意我们的
         <a href="https://tjuclaw.cloud/docs/privacy" target="_blank" rel="noreferrer">隐私协议</a>
         和
         <a href="https://tjuclaw.cloud/docs/terms" target="_blank" rel="noreferrer">用户协议</a>
       </p>
-      <div className="auth-secured-by">
-        <span>Secured by</span>
-        <span className="auth-secured-brand">TJUClaw Auth</span>
-      </div>
     </div>
   </section>;
 }

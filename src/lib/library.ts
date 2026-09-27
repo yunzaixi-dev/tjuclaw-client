@@ -2,7 +2,7 @@ import { authRequest, AuthError } from './auth';
 
 const HEX_32 = /^[0-9a-f]{32}$/;
 
-export type EntryKind = 'note' | 'agent' | 'work_env' | 'file' | 'folder';
+export type EntryKind = 'note' | 'rich_text' | 'agent' | 'work_env' | 'file' | 'folder';
 export type LibraryRole = 'owner' | 'subscribed';
 
 export interface Library {
@@ -47,6 +47,7 @@ export interface SearchHit {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  client_request_id?: string;
   created_at: string;
 }
 
@@ -81,7 +82,7 @@ function isEntry(value: unknown): value is Entry {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
   return typeof r.id === 'string' && HEX_32.test(r.id) && typeof r.library_id === 'string' && HEX_32.test(r.library_id)
-    && typeof r.parent_id === 'string' && (r.kind === 'note' || r.kind === 'agent' || r.kind === 'work_env' || r.kind === 'file' || r.kind === 'folder')
+    && typeof r.parent_id === 'string' && (r.kind === 'note' || r.kind === 'rich_text' || r.kind === 'agent' || r.kind === 'work_env' || r.kind === 'file' || r.kind === 'folder')
     && typeof r.title === 'string' && isTime(r.created_at) && isTime(r.updated_at)
     && (r.body === undefined || typeof r.body === 'string')
     && (r.preset === undefined || typeof r.preset === 'string')
@@ -109,7 +110,8 @@ function isSession(value: unknown): value is ChatSession {
   return r.messages.every(item => {
     if (!item || typeof item !== 'object') return false;
     const m = item as Record<string, unknown>;
-    return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && isTime(m.created_at);
+    return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && isTime(m.created_at)
+      && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)));
   });
 }
 
@@ -171,14 +173,16 @@ export async function getEntry(id: string, signal?: AbortSignal): Promise<Entry>
   return data.entry;
 }
 
-export async function patchEntry(id: string, patch: { title?: string; body?: string; parent_id?: string }, signal?: AbortSignal): Promise<Entry> {
+export async function patchEntry(id: string, patch: { title?: string; body?: string; parent_id?: string; expected_updated_at?: string }, signal?: AbortSignal): Promise<Entry> {
   const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}`, { method: 'PATCH', body: JSON.stringify(patch), signal });
   if (!isEntry(data.entry)) throw new AuthError(503);
   return data.entry;
 }
 
-export async function moveEntry(id: string, parent_id: string, signal?: AbortSignal): Promise<Entry> {
-  const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}/move`, { method: 'POST', body: JSON.stringify({ parent_id }), signal });
+export async function moveEntry(id: string, parent_id: string, expected_updated_at: string, signal?: AbortSignal): Promise<Entry> {
+  const data = await authRequest<{ entry: unknown }>(`/api/entries/${id}/move`, {
+    method: 'POST', body: JSON.stringify({ parent_id, expected_updated_at }), signal,
+  });
   if (!isEntry(data.entry)) throw new AuthError(503);
   return data.entry;
 }
@@ -218,8 +222,8 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Chat
   return data.session;
 }
 
-export async function sendMessage(sessionId: string, content: string, signal?: AbortSignal): Promise<ChatSession> {
-  const data = await authRequest<{ session: unknown }>(`/api/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content }), signal });
+export async function sendMessage(sessionId: string, content: string, clientRequestId: string, signal?: AbortSignal): Promise<ChatSession> {
+  const data = await authRequest<{ session: unknown }>(`/api/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content, client_request_id: clientRequestId }), signal }, 195000);
   if (!isSession(data.session)) throw new AuthError(503);
   return data.session;
 }
@@ -336,7 +340,12 @@ export function describeLibraryError(error: unknown): string {
     if (error.status === 401) return '登录状态已失效，请重新登录。';
     if (id === 'upstream_blocked') return '只接受公网 HTTPS 上游，内网和云元数据地址已被拒绝。';
     if (id === 'model_unconfigured') return '还没有可用的模型。请配置自己的上游，或确认产品 NewAPI 已就绪。';
-    if (id === 'quota_exceeded') return '今日产品模型次数已用完。';
+    if (id === 'quota_exceeded') return '今日产品模型调用额度已用完。';
+    if (id === 'quota_unavailable') return '暂时无法读取模型额度，请稍后重试。';
+    if (id === 'sandbox_unavailable') return 'Agent 沙箱暂时不可用，请稍后重试。';
+    if (id === 'session_conflict') return '会话已在其他请求中更新，请刷新后重试。';
+    if (id === 'entry_conflict') return '笔记已在其他设备更新，请先处理版本冲突。';
+    if (id === 'message_request_conflict') return '这次重试的内容与原请求不同，请刷新会话后再发送。';
     if (id === 'upstream_unavailable') return '模型上游暂时不可用，请稍后重试。';
     if (id === 'invalid_model' || id === 'invalid_entry' || id === 'invalid_library' || id === 'invalid_search') return '提交内容不符合要求，请检查后重试。';
     if (id === 'library_read_only') return '接入的知识库是只读快照，不能改内容。';

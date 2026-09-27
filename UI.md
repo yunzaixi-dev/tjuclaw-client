@@ -31,13 +31,14 @@ tokens and data, not identical chrome.
 | Text | Foreground and muted-foreground tokens; readable contrast in both themes |
 | Typography | Bundled Cascadia Code for Latin letters and symbols, LXGW WenKai for Chinese; desktop compact, mobile editor text at least 16px |
 | Geometry | Desktop workspace rows and controls use 4-6px radii; mobile icon buttons are circular, sheets round only at their exposed edge |
+| Elevation | Cards use `--shadow-card`, menus use `--shadow-popover`, dialogs use `--shadow-dialog`; each is a soft two-layer neutral shadow with a dark-theme counterpart. Do not add shadows to nested content, selected rows, focus rings, or drag indicators. |
 | Touch | Interactive buttons at least 44x44px; radio tiles exceed this |
 | Icons | Official TJUClaw artwork through `src/components/brand-icon.tsx` for branding; Lucide for action and status icons |
 | Layering | Named `--z-overlay` and `--z-dialog` tokens, portal-based dialogs |
 | Motion | 160-200ms state transitions; respect reduced motion |
 
-Brand artwork uses the transparent whale-girl image through `src/assets/brand-icon.webp`
-for in-product surfaces. The black-background `app-icon.png` is reserved for native
+Brand artwork uses the transparent crystal mark through `src/assets/brand-icon.webp`
+for in-product surfaces. The white-background `app-icon.png` is reserved for native
 application icons; `favicon.png` is its lightweight browser-tab derivative. Use
 the shared `BrandIcon` component rather than
 substituting a generic sparkle or letter. Decorative marks beside the wordmark use
@@ -106,6 +107,17 @@ Native Windows/Android/Linux behavior still requires testing on those clients.
 
 The audit app and product app are separate lazy entry points. Private reference
 images, descriptions and research never enter this directory or a normal build.
+
+## Document Formats
+
+- Markdown notes use CodeMirror 6 and preserve their Markdown source.
+- Rich-text documents use Tiptap and store structured JSON as `rich_text` entries;
+  never silently convert them to or from Markdown.
+- Uploaded course materials remain separate binary `file` entries. Preview only
+  explicitly supported image, PDF, audio and video formats; other originals stay
+  downloadable without claiming a browser preview.
+- Keep the current 8 MiB upload limit visible until the storage API supports
+  larger files. The editor format does not determine the binary storage path.
 
 ## Knowledge Workspace Surface
 

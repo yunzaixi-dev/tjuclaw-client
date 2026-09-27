@@ -184,6 +184,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   const consumedContextMenu = useRef(false);
   const onChangeRef = useRef(onChange);
   const initialValueRef = useRef(value);
+  const applyingValueRef = useRef(false);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -205,7 +206,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': '正文', role: 'textbox', spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
-            if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            if (update.docChanged && !applyingValueRef.current) onChangeRef.current(update.state.doc.toString());
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
@@ -232,7 +233,12 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   useEffect(() => {
     const view = viewRef.current;
     if (!view || value === view.state.doc.toString()) return;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    applyingValueRef.current = true;
+    try {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    } finally {
+      applyingValueRef.current = false;
+    }
   }, [value]);
 
   function cancelLongPress() {

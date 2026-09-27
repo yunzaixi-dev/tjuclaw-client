@@ -1,0 +1,83 @@
+.sandbox-notes { margin: 0 10px 22px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--shell-panel); }
+.git-workspace-page { flex: 1; min-height: 0; overflow: auto; padding: 32px clamp(16px, 5vw, 64px); }
+.git-workspace-intro { display: flex; align-items: flex-start; gap: 12px; max-width: 840px; margin: 0 auto 24px; }
+.git-workspace-icon { display: grid; flex: 0 0 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: var(--shell-panel); }
+.git-workspace-intro h1 { margin: 0; font-size: 18px; line-height: 36px; }
+.git-workspace-intro p, .git-workspace-connect p { margin: 4px 0 0; color: var(--muted-foreground); line-height: 1.7; }
+.git-workspace-connect { max-width: 840px; margin: 0 auto; }
+.git-workspace-connect button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; margin-top: 15px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--shell-panel); color: var(--foreground); cursor: pointer; }
+.git-workspace-connect button:disabled { cursor: wait; opacity: .65; }
+.git-workspace-page .sandbox-notes { max-width: 840px; margin: 0 auto 24px; }
+.git-workspace-page .sandbox-notes-preview textarea { min-height: 46vh; max-height: none; }
+.git-workspace-page .sandbox-notes-preview pre { max-height: 52vh; }
+.git-workspace-mode { display: flex; gap: 6px; max-width: 840px; margin: 0 auto 18px; border-bottom: 1px solid var(--line); }
+.git-workspace-mode button { padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted-foreground); cursor: pointer; font-size: 12px; }
+.git-workspace-mode button[aria-pressed="true"] { border-bottom-color: var(--primary); color: var(--foreground); font-weight: 600; }
+.git-workspace-mode button:focus-visible, .private-notebook button:focus-visible, .private-notebook input:focus-visible, .private-notebook textarea:focus-visible, .private-notebook select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.private-notebook { max-width: 840px; margin: 0 auto 24px; color: var(--foreground); }
+.private-notebook h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
+.private-notebook > p { margin: 0 0 16px; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.private-notebook form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.private-notebook form label { flex-basis: 100%; font-size: 12px; }
+.private-notebook input, .private-notebook textarea, .private-notebook select { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); }
+.private-notebook input, .private-notebook select { flex: 1; min-height: 34px; padding: 6px 9px; }
+.private-notebook button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); cursor: pointer; font-size: 12px; }
+.private-notebook button:hover:not(:disabled) { border-color: var(--primary); }
+.private-notebook button:disabled { cursor: not-allowed; opacity: .6; }
+.private-notebook-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 12px; }
+.private-notebook-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.private-notebook-list button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+.private-notebook-import { margin: 12px 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
+.private-notebook-import form { margin: 6px 0 0; }
+.private-notebook-import span, .private-notebook-import p { color: var(--muted-foreground); font-size: 12px; }
+.private-notebook-editor { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.private-notebook-editor > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.private-notebook-editor textarea { display: block; width: 100%; min-height: 42vh; margin: 12px 0 8px; padding: 12px; resize: vertical; font: 13px/1.65 ui-monospace, monospace; }
+.private-notebook-editor pre { max-height: 52vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; }
+@media (max-width: 480px) {
+  .git-workspace-mode button { flex: 1; padding: 9px 5px; font-size: 11px; }
+  .private-notebook form button { width: 100%; }
+}
+@media (max-width: 720px) { .git-workspace-page { padding: 22px 16px; } }
+.sandbox-notes-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.sandbox-notes-heading strong, .sandbox-notes-heading small { display: block; }
+.sandbox-notes-heading strong { font-size: 13px; }
+.sandbox-notes-heading small { margin-top: 4px; color: var(--muted-foreground); font-size: 11px; }
+.sandbox-notes-heading button, .sandbox-notes-files button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); cursor: pointer; font-size: 11px; }
+.sandbox-notes button:disabled { cursor: wait; opacity: .6; }
+.sandbox-notes-files { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.sandbox-notes-files button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+.sandbox-notes-state, .sandbox-notes-error { display: flex; gap: 6px; align-items: center; margin-top: 12px; color: var(--muted-foreground); font-size: 12px; }
+.sandbox-notes-error { color: var(--destructive); }
+.sandbox-notes form { display: flex; gap: 7px; margin-top: 12px; }
+.sandbox-notes form input { min-width: 0; flex: 1; padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); font-size: 12px; }
+.sandbox-notes form button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); cursor: pointer; font-size: 11px; }
+.sandbox-notes-search button { display: inline-flex; align-items: center; gap: 5px; }
+.sandbox-notes-results { display: grid; gap: 5px; margin-top: 10px; }
+.sandbox-notes-results button { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); text-align: left; cursor: pointer; }
+.sandbox-notes-results strong { font-size: 11px; overflow-wrap: anywhere; }
+.sandbox-notes-results span { color: var(--muted-foreground); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.sandbox-notes-preview { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.sandbox-notes-preview strong { font-size: 12px; overflow-wrap: anywhere; }
+.sandbox-notes-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sandbox-notes-preview-heading button, .sandbox-notes-copy { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); font-size: 11px; cursor: pointer; }
+.sandbox-notes-actions { display: flex; flex-shrink: 0; gap: 6px; }
+.sandbox-notes-preview textarea { width: 100%; min-height: 180px; max-height: 320px; margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); resize: vertical; font: 12px/1.65 ui-monospace, monospace; }
+.sandbox-notes-copy { margin-top: 8px; }
+.sandbox-notes-preview pre { max-height: 300px; overflow: auto; margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
+.sandbox-notes-graph-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-size: 12px; }
+.sandbox-notes-graph-heading button, .sandbox-notes-connections button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--foreground); cursor: pointer; font-size: 11px; }
+.sandbox-notes-graph { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.sandbox-notes-graph p { margin: 0 0 10px; color: var(--muted-foreground); font-size: 11px; }
+.sandbox-notes-connections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: 11px; }
+.sandbox-notes-connections > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.sandbox-notes-connections strong { width: 100%; }
+.sandbox-notes-connections button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.sandbox-notes-graph svg { width: 100%; max-height: 310px; margin-top: 12px; overflow: visible; }
+.sandbox-notes-graph svg line { stroke: var(--line); stroke-width: 1.5; }
+.sandbox-notes-graph svg circle { fill: var(--muted-foreground); }
+.sandbox-notes-graph svg circle.is-selected { fill: var(--primary); }
+.sandbox-notes-graph svg text { fill: var(--foreground); font-size: 9px; pointer-events: none; }
+.sandbox-notes-graph svg .sandbox-notes-graph-target { fill: transparent; cursor: pointer; }
+.sandbox-notes-graph svg .sandbox-notes-graph-target:focus-visible { stroke: var(--primary); stroke-width: 2; }
+@media (max-width: 480px) { .sandbox-notes-connections { grid-template-columns: 1fr; } }

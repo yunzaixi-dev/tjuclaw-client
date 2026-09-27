@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { BookOpen, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { setAppearance, useAppearance, type Accent, type Mode } from '../lib/appearance';
+import { describeLibraryError, getModel, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'account' | 'about';
 
@@ -10,7 +11,7 @@ const sections = [
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
   { id: 'flashcards', label: '记忆闪卡', icon: Brain, keywords: 'Anki 导出 TSV' },
-  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 退出登录' },
+  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
 
@@ -33,7 +34,7 @@ function SettingChoices<T extends string>({ label, value, options, onChange }: {
 
 export function WorkspaceSettings({
   open, onOpenChange, section, onSectionChange, libraryName, fileCount, noteCount, folderCount, cardCount, email, editorMode, onEditorModeChange,
-  onShowNotes, onShowCards, onExportCards, onLogout,
+  onShowNotes, onShowCards, onExportCards, legacyAnkiBackupAvailable, onExportLegacyAnkiBackup, onLogout,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,15 +51,39 @@ export function WorkspaceSettings({
   onShowNotes: () => void;
   onShowCards: () => void;
   onExportCards: () => void;
+  legacyAnkiBackupAvailable: boolean;
+  onExportLegacyAnkiBackup: () => void;
   onLogout: () => void;
 }) {
   const appearance = useAppearance();
   const [search, setSearch] = useState('');
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [modelError, setModelError] = useState('');
   const matches = sections.filter(item => `${item.label} ${item.keywords}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const active = search && !matches.some(item => item.id === section) ? matches[0]?.id ?? section : section;
   const heading = sections.find(item => item.id === active)?.label ?? '设置';
 
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  useEffect(() => {
+    if (!open || active !== 'account') return;
+    const controller = new AbortController();
+    getModel(controller.signal).then(status => {
+      setModelStatus(status);
+      setModelError('');
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      setModelStatus(null);
+      setModelError(describeLibraryError(error));
+    });
+    return () => controller.abort();
+  }, [open, active]);
+
+  return <Dialog open={open} onOpenChange={nextOpen => {
+    if (!nextOpen) {
+      setModelStatus(null);
+      setModelError('');
+    }
+    onOpenChange(nextOpen);
+  }}>
     <DialogContent className="workspace-settings">
       <div className="settings-shell">
         <aside className="settings-navigation">
@@ -88,21 +113,24 @@ export function WorkspaceSettings({
               <SettingRow title={libraryName} description="工作区中的笔记与目录。"><button type="button" className="settings-action-button" onClick={onShowNotes}>查看笔记 <ChevronRight size={14} /></button></SettingRow>
               <SettingRow title="文件" description="Markdown 笔记与知识库附件。"><span className="settings-value">{fileCount}</span></SettingRow>
               <SettingRow title="笔记" description="保存在知识库中的 Markdown 文档。"><span className="settings-value">{noteCount}</span></SettingRow>
-              <SettingRow title="文件夹" description="当前浏览器中的目录组织。"><span className="settings-value">{folderCount}</span></SettingRow>
+              <SettingRow title="文件夹" description="知识库中的目录组织。"><span className="settings-value">{folderCount}</span></SettingRow>
             </> : null}
             {active === 'flashcards' ? <>
               <h3>卡片</h3>
               <SettingRow title="记忆闪卡" description="卡片包含正面、背面与标签。"><button type="button" className="settings-action-button" onClick={onShowCards}>查看 {cardCount} 张卡片 <ChevronRight size={14} /></button></SettingRow>
               <SettingRow title="导出到 Anki" description="导出制表符分隔的文本，在 Anki 中导入。"><button type="button" className="settings-action-button" onClick={onExportCards} disabled={!cardCount}>导出 TSV</button></SettingRow>
+              {legacyAnkiBackupAvailable ? <SettingRow title="旧版浏览器数据" description="旧版卡片没有账号归属，不会自动合并到当前账号。请确认数据属于你后自行备份。"><button type="button" className="settings-action-button" onClick={onExportLegacyAnkiBackup}>下载原始备份</button></SettingRow> : null}
             </> : null}
             {active === 'account' ? <>
               <h3>当前会话</h3>
               <SettingRow title="登录邮箱"><span className="settings-value settings-email">{email}</span></SettingRow>
+              <SettingRow title="今日模型调用" description="按 UTC 日期统计；一次会话可能调用模型多次。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>
+              {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
               <SettingRow title="退出登录" description="退出此设备上的当前会话。"><button type="button" className="settings-action-button is-danger" onClick={onLogout}><LogOut size={15} /> 退出登录</button></SettingRow>
             </> : null}
             {active === 'about' ? <>
               <h3>工作区</h3>
-              <SettingRow title="笔记工作区" description="笔记与 Agent 连接服务端；文件夹和记忆闪卡保存在当前浏览器。"><span className="settings-value">Web</span></SettingRow>
+              <SettingRow title="笔记工作区" description="笔记、文件夹与记忆闪卡保存在服务端；旧版浏览器卡片不会自动合并。"><span className="settings-value">Web</span></SettingRow>
               <p className="settings-about-note">记忆闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器尚未接入。Agent 能力以当前服务端实际可用范围为准；第三方插件尚未开放。</p>
             </> : null}
           </div>

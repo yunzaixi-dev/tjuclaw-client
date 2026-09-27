@@ -1,0 +1,14 @@
+.file-preview-pane { width: min(900px, calc(100% - 48px)); margin: 0 auto; padding: 30px 0 64px; min-height: 0; }
+.file-preview-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.file-preview-heading > div { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.file-preview-heading input { width: 100%; padding: 2px 0; border: 0; border-bottom: 1px solid transparent; outline: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 17px var(--font-ui); color: var(--foreground); background: transparent; }
+.file-preview-heading input:focus-visible { border-bottom-color: var(--ring); }
+.file-preview-heading small, .file-preview-placeholder small { color: var(--muted-foreground); font-size: 12px; }
+.file-preview-heading button { display: flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--foreground); white-space: nowrap; }
+.file-preview-heading button:hover { background: var(--selected); }
+.file-preview-heading button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.file-preview-pane > img { display: block; max-width: 100%; max-height: 75vh; margin: 0 auto; object-fit: contain; }
+.file-preview-pane > :is(video, iframe) { display: block; width: 100%; max-height: 75vh; min-height: 55vh; border: 1px solid var(--border); border-radius: 4px; }
+.file-preview-pane > audio { display: block; width: min(100%, 500px); margin: 45px auto; }
+.file-preview-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; min-height: 36vh; color: var(--muted-foreground); text-align: center; }
+.file-preview-message { padding: 12px; color: var(--muted-foreground); font-size: 13px; }

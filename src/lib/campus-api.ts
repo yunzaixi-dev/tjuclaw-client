@@ -14,9 +14,15 @@ export type CampusSession = {
 };
 
 export type CampusClasses = {
-  courses: unknown[];
-  exams: unknown[];
+  courses: Record<string, Record<string, unknown>[]>;
+  exams: Record<string, unknown>[];
   gpa: Record<string, unknown>;
+};
+
+export type CampusSemester = {
+  semesterName: string;
+  semesterStartAt: string;
+  semesterStartTimestamp: number;
 };
 
 export type OfficeCaptcha = {
@@ -32,6 +38,18 @@ export type OfficeSession = {
 };
 
 export type StudyroomItem = Record<string, unknown> & { id?: number; name?: string; free?: boolean };
+
+export type ForumPost = {
+  id: number | string;
+  title: string;
+  created_at: string;
+  content?: string;
+  comment_count?: number;
+  like_count?: number;
+  tag?: { name?: string } | null;
+};
+
+export type ForumPosts = { list: ForumPost[]; total: number };
 
 export function connectCampus(credentials: CampusCredentials, signal?: AbortSignal) {
   return authRequest<CampusSession>('/api/campus/session', {
@@ -50,7 +68,7 @@ export function disconnectCampus() {
 }
 
 export function readSemester(signal?: AbortSignal) {
-  return authRequest<{ semester: Record<string, unknown> }>('/api/campus/semester', { signal });
+  return authRequest<{ semester: CampusSemester }>('/api/campus/semester', { signal });
 }
 
 export function fetchOfficeCaptcha(signal?: AbortSignal) {
@@ -82,7 +100,7 @@ export function fetchAcademicClasses(signal?: AbortSignal) {
 }
 
 export function fetchAcademicExams(signal?: AbortSignal) {
-  return authRequest<{ exams: unknown[] }>('/api/campus/academic/exams', { signal });
+  return authRequest<{ exams: Record<string, unknown>[] }>('/api/campus/academic/exams', { signal });
 }
 
 export function fetchAcademicGPA(signal?: AbortSignal) {
@@ -115,5 +133,5 @@ export function fetchForumBanners(signal?: AbortSignal) {
 }
 
 export function fetchForumPosts(page = 1, signal?: AbortSignal) {
-  return authRequest<{ data: Record<string, unknown> }>(`/api/campus/forum/posts?page=${page}`, { signal });
+  return authRequest<{ data: ForumPosts }>(`/api/campus/forum/posts?page=${page}`, { signal });
 }

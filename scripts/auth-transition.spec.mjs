@@ -7,6 +7,33 @@ const reply = (route, body, status = 200) => route.fulfill({ status, contentType
 async function solveForUI(page) {
   await page.locator('cap-widget').evaluate(element => EventTarget.prototype.dispatchEvent.call(element, new CustomEvent('solve', { detail: { token: 'ui-contract-only' } })));
 }
+test('auth routes share the paper background across themes and viewports', async ({ page }) => {
+  await page.route('**/api/auth/flow', route => reply(route, fresh));
+  for (const theme of ['light', 'dark']) {
+    await page.addInitScript(mode => localStorage.setItem('tjuclaw.appearance.v1', JSON.stringify({ mode, accent: 'mono' })), theme);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const route of ['/auth/login', '/auth/help']) {
+        await page.goto(route);
+        const surface = await page.locator('.auth-shell').evaluate(shell => {
+          const background = getComputedStyle(shell);
+          const paper = getComputedStyle(shell, '::before');
+          return {
+            backdrop: background.backgroundImage,
+            paper: paper.backgroundImage,
+            backgroundColor: background.backgroundColor,
+            overflow: document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight,
+          };
+        });
+        expect(surface.backdrop).toContain('radial-gradient');
+        expect(surface.paper).toContain('feTurbulence');
+        expect(surface.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+        expect(surface.overflow).toBe(false);
+        await expect(page.locator('.auth-canvas-bg')).toHaveCount(0);
+      }
+    }
+  }
+});
 test('welcome offers a visible password login', async ({ page }) => {
   await page.route('**/api/auth/flow', route => reply(route, fresh));
   await page.goto('/');
@@ -64,6 +91,34 @@ test('password tab posts credentials and keeps OTP as default', async ({ page })
   await expect(page.getByRole('alert')).toContainText('邮箱或密码不正确');
   expect(passwordPosts).toBe(1);
   expect(startPosts).toBe(0);
+});
+
+test('password registration requires campus email without blocking old account login', async ({ page }) => {
+  let registrations = 0;
+  await page.route('**/api/auth/flow', route => reply(route, fresh));
+  await page.route('**/api/auth/register', route => {
+    registrations++;
+    return reply(route, { error: { id: 'campus_email_required' } }, 403);
+  });
+  await page.goto('/auth/registration');
+  await page.getByRole('tab', { name: '密码' }).click();
+  await page.getByRole('button', { name: '没有账号？注册' }).click();
+  await page.getByLabel('邮箱地址', { exact: true }).fill('new@example.com');
+  await page.getByLabel('设置密码').fill('correcthorse');
+  await page.getByLabel('确认密码').fill('correcthorse');
+  await solveForUI(page);
+  await page.getByRole('button', { name: '创建账号' }).click();
+  await expect(page.getByRole('alert')).toContainText('@tju.edu.cn');
+  expect(registrations).toBe(0);
+  await page.getByLabel('邮箱地址', { exact: true }).fill('new@tju.edu.cn');
+  await page.getByRole('button', { name: '创建账号' }).click();
+  expect(registrations).toBe(1);
+  await expect(page.getByRole('alert')).toContainText('@tju.edu.cn');
+  await page.getByRole('button', { name: '已有账号？登录' }).click();
+  await page.getByLabel('邮箱地址', { exact: true }).fill('existing@example.com');
+  await page.getByLabel('密码', { exact: true }).fill('correcthorse');
+  await solveForUI(page);
+  await expect(page.getByRole('button', { name: '登录', exact: true })).toBeEnabled();
 });
 
 test('restored OTP has no error until a rejected submission', async ({ page }) => {
@@ -178,4 +233,21 @@ for (const [width, height] of [[1366, 768], [1024, 600], [390, 844]]) {
       await stable('reset');
     });
   }
+}
+
+for (const route of ['/', '/auth/login']) {
+  test(`${route} shows the signed-in account instead of redirecting`, async ({ page }) => {
+    const session = { id: 'identity-1', email: 'student@tju.edu.cn', email_verified: true, expires_at: new Date(Date.now() + 3600000).toISOString() };
+    let signedOut = false;
+    await page.route('**/api/auth/flow', request => reply(request, fresh));
+    await page.route('**/api/auth/session', request => signedOut ? reply(request, { error: { id: 'unauthorized' } }, 401) : reply(request, session));
+    await page.route('**/api/auth/logout', request => { signedOut = true; return reply(request, {}); });
+    await page.goto(route);
+    await expect(page.getByRole('heading', { name: '你已登录' })).toBeVisible();
+    await expect(page.getByText('student@tju.edu.cn', { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: '进入工作区' })).toHaveAttribute('href', '/workspace');
+    expect(new URL(page.url()).pathname).toBe(route);
+    await page.getByRole('button', { name: '退出登录', exact: true }).click();
+    await expect(page).toHaveURL(/\/auth\/logged-out$/);
+  });
 }

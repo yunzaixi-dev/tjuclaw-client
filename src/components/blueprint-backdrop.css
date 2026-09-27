@@ -1,0 +1,171 @@
+/* Shared blueprint (light) / slate blackboard (dark) surface for the
+   authentication shell and the workspace passphrase gate. The --auth-*
+   tokens are the card vocabulary both surfaces share. */
+.blueprint-surface {
+  --auth-accent: oklch(50% .15 255);
+  --auth-accent-hover: oklch(45% .15 255);
+  --auth-accent-active: oklch(41% .14 255);
+  --auth-accent-ink: oklch(46% .15 255);
+  --auth-accent-soft: oklch(95.5% .018 255);
+  --auth-control: var(--surface);
+  --auth-track: oklch(95% 0 0);
+  --auth-tab-active: var(--surface);
+  --auth-edge: var(--border);
+  --auth-card-shadow: 0 1px 2px oklch(20% .06 252 / .18), 0 24px 48px -18px oklch(20% .08 252 / .55);
+  --auth-ease: cubic-bezier(.22, 1, .36, 1);
+  /* Blueprint in light mode, slate blackboard in dark mode. */
+  --board: oklch(48.5% .088 248);
+  --board-glow: oklch(100% 0 0 / .1);
+  --board-shade: oklch(22% .06 252 / .38);
+  --grid-major: oklch(100% 0 0 / .075);
+  --grid-minor: oklch(100% 0 0 / .035);
+  --chalk: oklch(97% .012 240 / .8);
+  --chalk-ink: oklch(97% .01 240 / .88);
+  --chalk-ink-strong: oklch(100% 0 0);
+
+  position: relative;
+  isolation: isolate;
+  background-color: var(--board);
+  background-image:
+    radial-gradient(ellipse 60% 55% at 50% 45%, var(--board-glow), transparent 75%),
+    radial-gradient(ellipse 120% 95% at 50% 48%, transparent 52%, var(--board-shade)),
+    linear-gradient(to right, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-minor) 1px, transparent 1px);
+  background-size: auto, auto, 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  background-position: center, center, calc(50% - 60px) 0, 0 calc(47% - 60px), calc(50% - 12px) 0, 0 calc(47% - 12px);
+}
+
+:root[data-theme="dark"] .blueprint-surface {
+  --auth-accent-hover: oklch(55% .15 255);
+  --auth-accent-active: oklch(46% .14 255);
+  --auth-accent-ink: oklch(78% .1 250);
+  --auth-accent-soft: oklch(27% .04 255);
+  --auth-control: oklch(22% 0 0);
+  --auth-track: oklch(16.5% 0 0);
+  --auth-tab-active: oklch(30% 0 0);
+  --auth-edge: oklch(29% 0 0);
+  --auth-card-shadow: 0 1px 2px oklch(0% 0 0 / .35), 0 24px 56px -20px oklch(0% 0 0 / .7);
+  --board: oklch(25.5% .03 238);
+  --board-glow: oklch(100% 0 0 / .045);
+  --board-shade: oklch(10% .02 240 / .5);
+  --grid-major: oklch(100% 0 0 / .04);
+  --grid-minor: oklch(100% 0 0 / .018);
+  --chalk: oklch(94% .012 235 / .6);
+  --chalk-ink: oklch(92% .01 235 / .78);
+  --chalk-ink-strong: oklch(98% 0 0);
+}
+
+.blueprint-surface::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: url("../assets/chalk-dust.svg") repeat;
+  opacity: .22;
+  content: "";
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .blueprint-surface::before { opacity: .16; }
+
+/* Chalk drawing layered over that surface. */
+.bp-backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  color: var(--chalk);
+  pointer-events: none;
+}
+
+.bp-defs { position: absolute; }
+
+.bp-layer {
+  position: absolute;
+  display: block;
+  overflow: visible;
+}
+
+.bp-chalk {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: url(#bp-chalk-filter);
+}
+
+.bp-faint { opacity: .55; }
+
+.bp-note {
+  fill: currentColor;
+  stroke: none;
+  font-family: var(--font-cjk), var(--font-ui);
+  font-size: 22px;
+  letter-spacing: .04em;
+}
+
+.bp-rings {
+  left: 50%;
+  top: 47%;
+  width: min(1180px, 118vmax);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+}
+
+.bp-rings .bp-chalk { stroke-width: 3.2; }
+.bp-rings .bp-note { font-size: 28px; }
+.bp-crystal .bp-note { font-size: 30px; }
+
+.bp-hatch {
+  top: -8px;
+  left: -12px;
+  width: clamp(220px, 32vw, 540px);
+}
+
+.bp-corner {
+  top: -10px;
+  right: -14px;
+  width: clamp(170px, 26vw, 460px);
+}
+
+.bp-crystal {
+  right: clamp(12px, 5vw, 96px);
+  bottom: clamp(56px, 11vh, 120px);
+  width: clamp(120px, 15vw, 250px);
+}
+
+.bp-scale {
+  bottom: 0;
+  left: 0;
+  width: clamp(170px, 22vw, 360px);
+}
+
+/* The two main arcs are drawn once on arrival; they are fully visible without it. */
+.bp-draw {
+  stroke-dasharray: 3200;
+  animation: bp-draw 1600ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.bp-draw-late { animation-delay: 180ms; }
+
+@keyframes bp-draw {
+  from { stroke-dashoffset: 3200; }
+  to { stroke-dashoffset: 0; }
+}
+
+@media (max-width: 600px) {
+  .bp-scale { display: none; }
+  .bp-crystal { right: -18px; bottom: 96px; width: 118px; opacity: .8; }
+  .bp-hatch { width: 250px; }
+  .bp-corner { width: 190px; }
+}
+
+@media (forced-colors: active) {
+  .bp-backdrop { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-draw { animation: none; }
+}

@@ -16,13 +16,13 @@ export class AuthError extends Error {
 }
 
 // Provider credentials remain in HttpOnly cookies; callers use the same-origin API.
-export async function authRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function authRequest<T>(path: string, init: RequestInit = {}, timeoutMs = 15000): Promise<T> {
   if (!path.startsWith('/api/')) throw new Error('Invalid API path');
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (init.signal?.aborted) abort();
   init.signal?.addEventListener('abort', abort, { once: true });
-  const timeout = window.setTimeout(abort, 15000);
+  const timeout = window.setTimeout(abort, timeoutMs);
   try {
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
@@ -82,6 +82,7 @@ export function describeError(error: unknown): string {
   if (!(error instanceof AuthError)) return '暂时连接不上认证服务，请稍后重试。';
   switch (error.body.error?.id) {
     case 'invalid_email': return '请输入有效的邮箱地址。';
+    case 'campus_email_required': return '新账号仅支持使用 @tju.edu.cn 邮箱注册。已有账号仍可直接登录。';
     case 'invalid_code': return '验证码不正确，请检查后再试。';
     case 'invalid_password': return '密码至少 8 个字符，最多 72 个字符。';
     case 'invalid_credentials': return '邮箱或密码不正确。若用验证码注册过，请改用验证码登录。';

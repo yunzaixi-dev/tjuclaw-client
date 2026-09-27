@@ -6,40 +6,56 @@ import {
   Download,
   KeyRound,
   LibraryBig,
+  LogOut,
 } from 'lucide-react';
+import { BlueprintBackdrop } from './blueprint-backdrop';
+import { BrandIcon } from './brand-icon';
+import { describeError as describeAuthError, logout } from '../lib/auth';
 import { createLibrary, type Library } from '../lib/library';
 import {
   createWorkspacePassphrase,
+  createRemoteWorkspacePassphrase,
   markWorkspaceUnlocked,
   MAX_WORKSPACE_PASSPHRASE_LENGTH,
+  migrateWorkspacePassphrase,
   MIN_WORKSPACE_PASSPHRASE_LENGTH,
+  type WorkspacePassphraseState,
   unlockWorkspace,
+  unlockRemoteWorkspace,
 } from '../lib/workspace-vault';
+import { VaultError } from '../lib/sealed-vault';
 
 type WorkspacePassphraseGateProps = {
   identity: string;
   workspaceId: string | null;
   workspaceName: string;
-  mode: 'setup' | 'unlock';
+  mode: WorkspacePassphraseState['mode'];
+  verification: WorkspacePassphraseState['verification'];
   firstWorkspace?: boolean;
+  accountEmail?: string;
   onUnlocked: (workspace?: Library) => Promise<void> | void;
 };
 
 type GateStage = 'form' | 'backup';
 
 function describeError(error: unknown) {
-  if (!(error instanceof Error)) return '当前设备无法完成安全验证，请稍后重试。';
+  if (error instanceof VaultError) {
+    if (error.message === 'vault_decryption_failed') return '口令不正确，或远端验证材料已损坏。';
+    if (error.status === 409) return '另一台设备已设置口令，请刷新后使用已有口令解锁。';
+    return '远端口令验证暂时不可用，请稍后重试；不会切换成本地验证。';
+  }
+  if (!(error instanceof Error)) return '当前设备无法完成口令验证，请稍后重试。';
   switch (error.message) {
     case 'workspace_passphrase_too_short': return `口令至少需要 ${MIN_WORKSPACE_PASSPHRASE_LENGTH} 个字符。`;
     case 'workspace_passphrase_too_long': return `口令最多支持 ${MAX_WORKSPACE_PASSPHRASE_LENGTH} 个字符。`;
     case 'workspace_passphrase_exists': return '这个工作区已经创建过口令，请直接解锁。';
-    case 'workspace_passphrase_invalid': return '口令错误，或本地验证材料已损坏。';
+    case 'workspace_passphrase_invalid': return '口令错误，或此设备上的验证材料已损坏。';
     case 'workspace_crypto_unavailable': return '当前环境不支持安全加密，无法打开工作区。';
-    default: return '当前设备无法完成安全验证，请稍后重试。';
+    default: return '当前设备无法完成口令验证，请稍后重试。';
   }
 }
 
-function downloadPassphraseBackup(workspaceId: string, workspaceName: string, passphrase: string) {
+function downloadPassphraseBackup(workspaceId: string, workspaceName: string, passphrase: string, verification: WorkspacePassphraseState['verification']) {
   const safeName = workspaceName.trim().replace(/[^\w\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
   const content = [
     'TJUClaw 工作区口令备份',
@@ -50,7 +66,10 @@ function downloadPassphraseBackup(workspaceId: string, workspaceName: string, pa
     `口令: ${passphrase}`,
     '',
     '重要提示：',
-    '- 口令丢失后不可找回，创建后不可修改。',
+    verification === 'remote'
+      ? '- 口令验证材料已存于当前账号的私有仓库；可在另一台设备用此口令解锁，忘记后无法找回。'
+      : '- 本设备不提供口令找回或修改；清理浏览器数据后可重新设置。',
+    '- 当前口令不会加密现有云端笔记。',
     '- 此文件包含明文口令，请存放在安全位置。',
     '- 不要上传到代码仓库、公开网盘或聊天工具。',
   ].join('\n');
@@ -70,9 +89,13 @@ export function WorkspacePassphraseGate({
   workspaceId,
   workspaceName,
   mode,
+  verification,
   firstWorkspace = false,
+  accountEmail,
   onUnlocked,
 }: WorkspacePassphraseGateProps) {
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -99,7 +122,7 @@ export function WorkspacePassphraseGate({
       return;
     }
     if (mode === 'setup' && !acknowledged) {
-      setError('请确认你已了解口令丢失后无法找回。');
+      setError('请确认你已了解此设备不提供口令找回。');
       return;
     }
     setBusy(true);
@@ -122,14 +145,23 @@ export function WorkspacePassphraseGate({
         return;
       }
       if (mode === 'setup') {
-        await createWorkspacePassphrase(identity, target.id, passphrase);
-        markWorkspaceUnlocked(identity, target.id);
-        downloadPassphraseBackup(target.id, target.name, passphrase);
+        if (verification === 'remote') await createRemoteWorkspacePassphrase(identity, target.id, passphrase);
+        else {
+          await createWorkspacePassphrase(identity, target.id, passphrase);
+          markWorkspaceUnlocked(identity, target.id);
+        }
+        downloadPassphraseBackup(target.id, target.name, passphrase, verification);
         setDownloaded(true);
         setStage('backup');
+      } else if (mode === 'migrate') {
+        await migrateWorkspacePassphrase(identity, target.id, passphrase);
+        await onUnlocked();
       } else {
-        await unlockWorkspace(identity, target.id, passphrase);
-        markWorkspaceUnlocked(identity, target.id);
+        if (verification === 'remote') await unlockRemoteWorkspace(identity, target.id, passphrase);
+        else {
+          await unlockWorkspace(identity, target.id, passphrase);
+          markWorkspaceUnlocked(identity, target.id);
+        }
         await onUnlocked();
       }
     } catch (cause) {
@@ -142,7 +174,7 @@ export function WorkspacePassphraseGate({
   function handleDownload() {
     const target = createdWorkspace ?? (workspaceId && workspaceName ? { id: workspaceId, name: workspaceName } : null);
     if (!passphrase || !target) return;
-    downloadPassphraseBackup(target.id, target.name, passphrase);
+    downloadPassphraseBackup(target.id, target.name, passphrase, verification);
     setDownloaded(true);
   }
 
@@ -158,8 +190,14 @@ export function WorkspacePassphraseGate({
     }
   }
 
+  function signOut() {
+    setSigningOut(true); setSignOutError('');
+    void logout().catch(cause => { setSignOutError(describeAuthError(cause)); setSigningOut(false); });
+  }
+
   return (
-    <main className="workspace-vault-screen">
+    <main className="workspace-vault-screen blueprint-surface">
+      <BlueprintBackdrop />
       <motion.section
         className="workspace-vault-card"
         aria-labelledby="workspace-vault-title"
@@ -177,9 +215,10 @@ export function WorkspacePassphraseGate({
               exit={{ opacity: 0, x: reduceMotion ? 0 : -12 }}
               transition={transition}
             >
+              <BrandIcon size={40} className="workspace-vault-logo" />
               <h1 id="workspace-vault-title">口令已创建</h1>
               <p className="workspace-vault-workspace">{targetWorkspace?.name}</p>
-              <p className="workspace-vault-description">备份文件已下载。口令丢失后不可找回，也不能修改。</p>
+              <p className="workspace-vault-description">备份文件已下载。{verification === 'remote' ? '口令可在其他设备验证，但现有云端笔记并未加密。' : '此口令目前只在此设备上验证，不加密现有云端笔记。'}</p>
               <div className="workspace-vault-warning workspace-vault-warning-caution">
                 <AlertTriangle size={16} />
                 <span>备份文件包含明文口令，请保存到安全位置。</span>
@@ -219,6 +258,7 @@ export function WorkspacePassphraseGate({
               exit={{ opacity: 0, x: reduceMotion ? 0 : 12 }}
               transition={transition}
             >
+              <BrandIcon size={40} className="workspace-vault-logo" />
               <h1 id="workspace-vault-title">{firstWorkspace ? '创建工作空间' : isSetup ? '创建工作区口令' : '解锁工作区'}</h1>
               {!firstWorkspace ? <p className="workspace-vault-workspace">{targetWorkspace?.name ?? workspaceName}</p> : null}
               <p className="workspace-vault-description">
@@ -226,11 +266,13 @@ export function WorkspacePassphraseGate({
                   ? '首次进入，设置名称和独立口令。'
                   : isSetup
                     ? '每个工作区使用独立口令。'
-                    : '输入此工作区的口令以继续。'}
+                    : mode === 'migrate' ? '输入旧口令，迁移验证材料到私有仓库。' : '输入此工作区的口令以继续。'}
               </p>
               <div className="workspace-vault-warning">
                 <AlertTriangle size={16} />
-                <span>{firstWorkspace ? '端到端加密保护工作区数据；口令丢失后不可找回，也不能修改。' : '口令丢失后不可找回，也不能修改。不同工作区不会共用口令。'}</span>
+                <span>{verification === 'remote'
+                  ? '口令验证材料会加密存入私有仓库，可跨设备验证。现有云端笔记仍是明文，不属于端到端加密；忘记口令后无法找回。'
+                  : '当前口令仅在此设备验证访问，不会加密现有云端笔记；请勿将其当作端到端加密。清理浏览器数据后可能需要重新设置。'}</span>
               </div>
               <form className="workspace-vault-form" onSubmit={submit}>
                 {firstWorkspace ? (
@@ -319,13 +361,21 @@ export function WorkspacePassphraseGate({
                   transition={{ duration: 0.14 }}
                 >
                   <KeyRound size={16} />
-                  {busy ? '正在处理…' : firstWorkspace || isSetup ? '创建并下载备份' : '解锁进入工作区'}
+                  {busy ? '正在处理…' : firstWorkspace || isSetup ? '创建并下载备份' : mode === 'migrate' ? '迁移口令并进入工作区' : '解锁进入工作区'}
                 </motion.button>
               </form>
             </motion.div>
           )}
         </AnimatePresence>
       </motion.section>
+      <div className="workspace-vault-account">
+        {accountEmail ? <span className="workspace-vault-account-email" title={accountEmail}>当前账号 <strong>{accountEmail}</strong></span> : null}
+        <button type="button" disabled={signingOut || busy} onClick={signOut}>
+          <LogOut size={14} aria-hidden="true" />
+          {signingOut ? '正在退出…' : '退出登录'}
+        </button>
+        {signOutError ? <p role="alert">{signOutError}</p> : null}
+      </div>
     </main>
   );
 }

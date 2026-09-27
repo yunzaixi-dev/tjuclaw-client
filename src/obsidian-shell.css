@@ -170,7 +170,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--shell-panel);
-  box-shadow: 0 5px 10px color-mix(in oklch, var(--foreground) 12%, transparent);
+  box-shadow: var(--shadow-popover);
   color: var(--foreground);
   letter-spacing: 0;
 }
@@ -291,6 +291,13 @@
   gap: 12px;
   color: var(--muted-foreground);
 }
+
+.anki-recovery { padding: 24px; text-align: center; }
+.anki-recovery p { max-width: 440px; line-height: 1.65; }
+.anki-recovery-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.anki-recovery-actions button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--shell-panel); color: var(--foreground); cursor: pointer; }
+.anki-recovery-actions button:hover { background: var(--selected); }
+.anki-recovery-actions button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 .plugin-sidebar-note { margin: 16px 8px; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
 .workspace-plugins { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: clamp(36px, 7vh, 72px) clamp(24px, 8vw, 96px) 64px; }
@@ -433,6 +440,12 @@
 .anki-header { align-items: center; }
 .anki-header h1 { margin: 0 0 5px; font-size: 25px; }
 .anki-card { border-radius: 5px; background: var(--shell-editor); }
+.anki-card,
+.rail-card,
+.anki-count-card,
+.anki-panel,
+.anki-review-card,
+.anki-note-preview { box-shadow: var(--shadow-card); }
 .session-icon { border-radius: 5px; }
 .chat-composer { border-radius: 6px; }
 .session-view { width: min(790px, calc(100% - 64px)); overflow: hidden; }
@@ -476,7 +489,8 @@
 .composer-capabilities { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
 .composer-capabilities > span { border: 0; padding: 0; }
 .session-view .chat-composer-footer button { width: 30px; height: 30px; border-radius: 5px; }
-.chat-inline-error { margin: 8px 2px 0; color: var(--destructive); font-size: 12px; }
+.chat-inline-error { margin: 8px 2px 0; color: var(--destructive); font-size: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.chat-inline-error button { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .anki-sample-button { margin-top: 12px; }
 
 .anki-workspace {
@@ -608,6 +622,8 @@
 .anki-add,
 .anki-templates { width: min(900px, calc(100% - 72px)); min-height: 100%; margin: 0 auto; padding: 38px 0 64px; }
 .anki-overview-lead { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
+.anki-overview-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.anki-overview-actions .anki-sample-button { margin-top: 0; }
 .anki-overview-lead h2,
 .anki-page-heading h2 { margin-top: 7px; color: var(--foreground); font-size: 25px; font-weight: 600; letter-spacing: -.025em; }
 .anki-overview-lead p { margin-top: 9px; color: var(--muted-foreground); font-size: 12px; }
@@ -768,7 +784,7 @@
 .workspace-settings > p { color: var(--muted-foreground); font-size: 12px; }
 .workspace-context-menu {
   border-color: var(--border);
-  box-shadow: 0 4px 14px oklch(0% 0 0 / .10), 0 1px 3px oklch(0% 0 0 / .05);
+  box-shadow: var(--shadow-popover);
 }
 .workspace-context-menu button { gap: 10px; }
 .workspace-context-menu button + button { margin-top: 2px; }
@@ -1061,7 +1077,7 @@
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--foreground);
-  box-shadow: 0 4px 14px oklch(0% 0 0 / .10), 0 1px 3px oklch(0% 0 0 / .05);
+  box-shadow: var(--shadow-popover);
   animation: markdown-menu-enter .16s ease-out both;
 }
 @keyframes markdown-menu-enter {
@@ -1215,8 +1231,10 @@
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface);
-  box-shadow: 0 24px 80px #0005;
+  box-shadow: var(--shadow-dialog);
 }
+.workspace-context-menu,
+.workspace-select-menu { box-shadow: var(--shadow-popover); }
 .settings-shell { display: flex; width: 100%; height: 100%; min-height: 0; }
 .settings-navigation {
   display: flex;
@@ -1440,6 +1458,7 @@
 }
 
 .anki-sidebar-list { display: grid; gap: 1px; }
+.anki-sidebar-deck-row { display: flex; align-items: center; min-width: 0; border-bottom: 1px solid var(--line); }
 .anki-sidebar-deck {
   display: flex;
   align-items: center;
@@ -1449,13 +1468,17 @@
   margin-bottom: 2px;
   padding: 0 8px;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  min-width: 0;
   background: transparent;
   color: var(--foreground);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
+.anki-sidebar-deck-row .anki-sidebar-deck { flex: 1; }
+.anki-deck-action { display: grid; flex: none; place-items: center; width: 24px; height: 32px; border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.anki-deck-action:hover { color: var(--primary); background: var(--selected); }
+.anki-deck-action:disabled { opacity: .4; cursor: not-allowed; }
 .anki-sidebar-deck:hover,
 .anki-sidebar-deck.is-active { background: var(--selected); }
 .anki-sidebar-deck > svg { flex: none; color: var(--primary); }
@@ -1471,6 +1494,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
 }
 .anki-sidebar-list .anki-card .session-tree-item {
   height: 32px;
@@ -1478,137 +1502,139 @@
 }
 .anki-sidebar-list .anki-card .session-tree-item svg { color: var(--muted-foreground); }
 
+/* Workspace passphrase gate: shares the blueprint surface and card
+   vocabulary of the authentication screens (blueprint-backdrop.css). */
 .workspace-vault-screen {
-  --workspace-vault-blue: #003366;
-  --workspace-vault-control: var(--surface);
-  --workspace-vault-edge: var(--border);
   display: grid;
   place-items: center;
-  min-height: 100dvh;
+  align-content: center;
+  gap: 18px;
+  min-height: calc(100dvh - var(--contest-banner-height, 0px));
   padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
   overflow: auto;
-  background:
-    radial-gradient(circle at 50% 22%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 36%),
-    var(--background);
   color: var(--foreground);
   font-family: var(--font-ui);
 }
 
-:root[data-theme="dark"] .workspace-vault-screen {
-  --workspace-vault-blue: #2563eb;
+.workspace-vault-card {
+  width: min(400px, 100%);
+  padding: 26px 28px 24px;
+  border: 1px solid var(--auth-edge);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--auth-card-shadow);
 }
 
-.workspace-vault-card {
-  width: min(360px, 100%);
-  padding: 20px 22px 18px;
-  border: 1.5px solid var(--pixel-border, var(--workspace-vault-edge));
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow:
-    var(--pixel-shadow, none),
-    0 12px 32px -12px color-mix(in oklch, var(--foreground) 8%, transparent),
-    inset 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+:root[data-theme="dark"] .workspace-vault-card {
+  border-color: oklch(36% .02 238);
+  background: oklch(19.5% .012 240);
 }
+
+.workspace-vault-logo {
+  display: block;
+  margin-bottom: 14px;
+  filter: drop-shadow(0 6px 10px oklch(50% .15 255 / .2));
+}
+
+:root[data-theme="dark"] .workspace-vault-logo { filter: none; }
 
 .workspace-vault-stage > h1 {
   margin: 0;
   color: var(--foreground);
   font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -.03em;
+  font-weight: 650;
+  letter-spacing: -.01em;
   line-height: 1.3;
-  text-align: left;
+  text-wrap: balance;
 }
 
 .workspace-vault-workspace {
   max-width: 100%;
-  margin: 5px 0 0;
+  margin: 6px 0 0;
   overflow: hidden;
   color: var(--foreground);
   font-size: 13px;
   font-weight: 600;
-  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .workspace-vault-description {
+  margin: 6px 0 14px;
   color: var(--muted-foreground);
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: left;
+  font-size: 13px;
+  line-height: 1.55;
 }
-
-.workspace-vault-description { margin: 6px 0 12px; }
 
 .workspace-vault-warning {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  margin: 0 0 13px;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--primary) 6%, var(--surface));
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--auth-accent-soft);
   color: var(--foreground);
-  font-size: 10.5px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .workspace-vault-warning svg {
   flex: none;
   margin-top: 2px;
-  color: var(--primary);
+  color: var(--auth-accent-ink);
 }
 
-.workspace-vault-warning-caution {
-  border-color: color-mix(in oklch, #d97706 34%, var(--border));
-  background: color-mix(in oklch, #d97706 8%, var(--surface));
-}
-
-.workspace-vault-warning-caution svg { color: #d97706; }
+.workspace-vault-warning-caution { background: oklch(96% .045 80); }
+.workspace-vault-warning-caution svg { color: oklch(55% .14 65); }
+:root[data-theme="dark"] .workspace-vault-warning-caution { background: oklch(27% .045 70); }
+:root[data-theme="dark"] .workspace-vault-warning-caution svg { color: oklch(80% .13 75); }
 
 .workspace-vault-form {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
 .workspace-vault-form > label:not(.workspace-vault-check) {
   display: block;
-  margin-bottom: -2px;
+  margin: 4px 0 -2px;
   color: var(--foreground);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
 }
+
+.workspace-vault-form > label:first-child { margin-top: 0; }
 
 .workspace-vault-input-wrap {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 38px;
-  padding: 0 11px;
-  border: 1px solid var(--workspace-vault-edge);
-  border-radius: 8px;
-  background: var(--workspace-vault-control);
+  gap: 10px;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--auth-edge);
+  border-radius: 10px;
+  background: var(--auth-control);
   color: var(--muted-foreground);
-  transition: border-color 140ms, box-shadow 140ms, background 140ms;
+  transition: border-color 160ms var(--auth-ease), box-shadow 160ms var(--auth-ease);
 }
 
+.workspace-vault-input-wrap:hover { border-color: color-mix(in oklch, var(--foreground) 22%, var(--auth-edge)); }
+
 .workspace-vault-input-wrap:focus-within {
-  border-color: var(--pixel-highlight, var(--ring));
-  box-shadow: 0 0 0 1px var(--pixel-highlight, var(--ring)), var(--pixel-shadow, none);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+  color: var(--foreground);
 }
 
 .workspace-vault-input-wrap input {
   width: 100%;
   min-width: 0;
-  height: 36px;
+  height: 40px;
   padding: 0;
   border: 0;
-  border-radius: inherit;
   background: transparent;
   color: var(--foreground);
-  font: 13px var(--font-mono);
+  font: 14px var(--font-ui);
 }
 
 .workspace-vault-input-wrap input:focus-visible { outline: none; }
@@ -1618,39 +1644,36 @@
   opacity: 1;
 }
 
-.workspace-vault-input-wrap .workspace-vault-name-input {
-  font-family: var(--font-ui);
-}
-
 .workspace-vault-check {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin: 5px 0 2px;
+  gap: 10px;
+  margin: 6px 0 2px;
   color: var(--muted-foreground);
-  font-size: 10.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   cursor: pointer;
 }
 
 .workspace-vault-check input {
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   margin: 1px 0 0;
-  accent-color: var(--workspace-vault-blue);
+  accent-color: var(--auth-accent);
 }
 
-.workspace-vault-check svg {
-  flex: none;
-  margin: 1px 3px 0 0;
-  color: var(--workspace-vault-blue);
+.workspace-vault-check input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
+
+.workspace-vault-check svg { display: none; }
 
 .workspace-vault-error {
-  margin: 2px 0;
+  margin: 4px 0 0;
   color: var(--destructive);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1667,55 +1690,125 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
-  min-height: 38px;
-  border-radius: 8px;
-  font: 550 12px var(--font-ui);
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font: 600 14px var(--font-ui);
   cursor: pointer;
-  transition: opacity 140ms, border-color 140ms, background 140ms, box-shadow 180ms;
+  transition: background-color 160ms var(--auth-ease), border-color 160ms var(--auth-ease), color 160ms var(--auth-ease);
 }
 
 .workspace-vault-submit {
-  margin-top: 7px;
-  border: 1px solid var(--workspace-vault-blue);
-  background: linear-gradient(180deg, color-mix(in oklch, var(--workspace-vault-blue) 92%, white), var(--workspace-vault-blue));
-  color: #fff;
-  box-shadow:
-    0 2px 8px color-mix(in oklch, var(--workspace-vault-blue) 32%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 28%);
+  margin-top: 10px;
+  border: 1px solid transparent;
+  background: var(--auth-accent);
+  color: oklch(100% 0 0);
+  box-shadow: 0 1px 2px oklch(30% .1 255 / .25);
 }
 
 .workspace-vault-actions .workspace-vault-submit { margin-top: 0; }
+.workspace-vault-submit:hover:not(:disabled) { background: var(--auth-accent-hover); }
+.workspace-vault-submit:active:not(:disabled) { background: var(--auth-accent-active); }
 
 .workspace-vault-secondary {
-  border: 1px solid var(--workspace-vault-edge);
-  background: var(--workspace-vault-control);
+  border: 1px solid var(--auth-edge);
+  background: var(--surface);
   color: var(--foreground);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
-.workspace-vault-submit:hover:not(:disabled),
-.workspace-vault-secondary:hover:not(:disabled) {
-  opacity: .9;
-  box-shadow:
-    0 4px 14px color-mix(in oklch, var(--workspace-vault-blue) 24%, transparent),
-    inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent);
-}
+.workspace-vault-secondary:hover:not(:disabled) { background: var(--muted); }
 
-.workspace-vault-submit:active:not(:disabled),
-.workspace-vault-secondary:active:not(:disabled) {
-  box-shadow: var(--pixel-shadow-active, inset 0 2px 4px rgb(0 0 0 / 18%));
-}
-
-.workspace-vault-submit:disabled,
-.workspace-vault-secondary:disabled {
+.workspace-vault-submit:disabled {
+  border-color: var(--auth-edge);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  box-shadow: none;
   cursor: not-allowed;
-  opacity: .48;
+}
+
+.workspace-vault-secondary:disabled {
+  cursor: progress;
+  opacity: .6;
+}
+
+.workspace-vault-submit:focus-visible,
+.workspace-vault-secondary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Account line sits on the board itself, in chalk. */
+.workspace-vault-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  max-width: min(400px, 100%);
+  color: var(--chalk-ink);
+  font-size: 12px;
+  text-align: center;
+  text-shadow: 0 1px 2px oklch(20% .06 252 / .35);
+}
+
+.workspace-vault-account-email {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-vault-account strong {
+  color: var(--chalk-ink-strong);
+  font-weight: 600;
+}
+
+.workspace-vault-account button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in oklch, var(--chalk-ink-strong) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--chalk-ink-strong) 8%, transparent);
+  color: var(--chalk-ink-strong);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 160ms var(--auth-ease), border-color 160ms var(--auth-ease);
+}
+
+.workspace-vault-account button:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--chalk-ink-strong) 60%, transparent);
+  background: color-mix(in oklch, var(--chalk-ink-strong) 16%, transparent);
+}
+
+.workspace-vault-account button:focus-visible {
+  outline: 2px solid var(--chalk-ink-strong);
+  outline-offset: 2px;
+}
+
+.workspace-vault-account button:disabled { cursor: progress; opacity: .7; }
+
+.workspace-vault-account p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--chalk-ink-strong);
 }
 
 @media (max-width: 560px) {
   .workspace-vault-screen { padding-inline: 16px; }
-  .workspace-vault-card { padding: 18px 16px 16px; }
+  .workspace-vault-card { padding: 20px 18px 18px; }
   .workspace-vault-stage > h1 { font-size: 19px; }
+  .workspace-vault-input-wrap input { font-size: 16px; }
+  /* The taller gate reaches the corner sketch; keep the account line clear. */
+  .workspace-vault-screen .bp-crystal { display: none; }
+}
+
+@media (forced-colors: active) {
+  .workspace-vault-card { outline: 1px solid CanvasText; }
+  .workspace-vault-submit { background: ButtonFace; color: ButtonText; outline: 1px solid ButtonText; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+  <filter id="dust" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="7" stitchTiles="stitch"/>
+    <feColorMatrix type="matrix" values="
+      0 0 0 0 1
+      0 0 0 0 1
+      0 0 0 0 1
+      0 0 1.9 0 -1.05"/>
+  </filter>
+  <rect width="320" height="320" filter="url(#dust)"/>
+</svg>

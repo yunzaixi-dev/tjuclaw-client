@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, LibraryBig, ListTree, Loader2, MousePointer2, Network, PanelLeft, Plus, Search, Settings, Sparkles, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, GitFork, LibraryBig, ListTree, Loader2, MousePointer2, Network, PanelLeft, Plus, Search, Settings, Sparkles, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
@@ -7,32 +7,39 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
+import { FilePreview } from './components/file-preview';
+import { EMPTY_RICH_TEXT } from './lib/rich-text';
 import { KnowledgeGraph } from './components/knowledge-graph';
+import { SandboxNotes } from './components/sandbox-notes';
+import { GitWorkspace } from './components/git-workspace';
+import { clearPrivateDrafts, hasPrivateDrafts } from './components/private-notebook';
 import { WorkspaceSettings, type SettingsSection } from './components/workspace-settings';
 import { WorkspacePassphraseGate } from './components/workspace-passphrase-gate';
 import { builtInPlugins, WorkspacePlugins, type BuiltInPluginId } from './components/workspace-plugins';
 import { campusToolList, CampusTools, type CampusToolId } from './components/campus-tools';
-import { createCard as createAnkiCard, createDeck, deleteCard as deleteAnkiCard, exportDeck as exportAnkiDeck, listCards as listAnkiCards, listDecks, patchCard as patchAnkiCard, type AnkiDeck as RemoteAnkiDeck } from './lib/anki';
-import { AnkiWorkspace, type AnkiCard, type AnkiWorkspaceHandle } from './components/anki-workspace';
+import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard as deleteAnkiCard, deleteDeck as deleteAnkiDeck, exportDeck as exportAnkiDeck, getReviewRequest, importDeck as importAnkiDeck, listCards as listAnkiCards, listDecks, patchCard as patchAnkiCard, renameDeck as renameAnkiDeck, reviewCard as reviewAnkiCard, type AnkiCard as RemoteAnkiCard, type AnkiDeck as RemoteAnkiDeck } from './lib/anki';
+import { AnkiWorkspace, type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
-import { createEntry, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, type ChatSession, type Entry, type Library } from './lib/library';
-import { clearWorkspaceUnlock, hasWorkspacePassphrase, isWorkspaceUnlocked } from './lib/workspace-vault';
+import { VaultError } from './lib/sealed-vault';
+import { createEntry, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
 
 type VaultFolder = { id: string; name: string; parentId: string | null };
 type VaultPlacement = Record<string, string | null>;
-type SidebarView = 'notes' | 'sessions' | 'anki' | 'plugins' | 'tools';
+type SidebarView = 'notes' | 'git' | 'sessions' | 'anki' | 'plugins' | 'tools';
 type SortMode = 'manual' | 'name-asc' | 'name-desc' | 'recent';
 type SidebarSort = Record<SidebarView, SortMode>;
 type Sortable = { id: string; title: string; updated_at?: string };
-type ContextMenuState = { x: number; y: number; kind: 'folder' | 'note' | 'editor' | 'sidebar'; id?: string; group?: string } | null;
-type WorkspaceGateState = { workspaceId: string | null; workspaceName: string; mode: 'setup' | 'unlock'; firstWorkspace?: boolean } | null;
+type ContextMenuState = { x: number; y: number; kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar'; id?: string; group?: string } | null;
+type WorkspaceGateState = { workspaceId: string | null; workspaceName: string; mode: WorkspacePassphraseState['mode']; verification: WorkspacePassphraseState['verification']; firstWorkspace?: boolean } | null;
 const ACTIVITY_RAIL_WIDTH = 48;
-const defaultSidebarSort: SidebarSort = { notes: 'manual', sessions: 'manual', anki: 'manual', plugins: 'manual', tools: 'manual' };
+const defaultSidebarSort: SidebarSort = { notes: 'manual', git: 'manual', sessions: 'manual', anki: 'manual', plugins: 'manual', tools: 'manual' };
 const sortLabels: Record<SortMode, string> = { manual: '手动排序', 'name-asc': '名称 A → Z', 'name-desc': '名称 Z → A', recent: '最近修改' };
 const nameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
+const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
 
 function orderedItems<T extends Sortable>(items: T[], mode: SortMode, order: string[] = []): T[] {
   const positions = new Map(order.map((id, index) => [id, index]));
@@ -52,6 +59,26 @@ function orderedItems<T extends Sortable>(items: T[], mode: SortMode, order: str
   });
 }
 
+function noteOrdersFromEntries(entries: Entry[]): Record<string, string[]> {
+  const kinds = new Map(entries.map(entry => [entry.id, entry.kind]));
+  const groups: Record<string, Entry[]> = {};
+  for (const entry of entries) {
+    if (entry.kind !== 'note' && entry.kind !== 'rich_text' && entry.kind !== 'file' && entry.kind !== 'folder') continue;
+    const parentKind = kinds.get(entry.parent_id);
+    const group = !entry.parent_id ? 'notes:root'
+      : parentKind === 'folder' ? `notes:folder:${entry.parent_id}` : `notes:entry:${entry.parent_id}`;
+    (groups[group] ??= []).push(entry);
+  }
+  return Object.fromEntries(Object.entries(groups).map(([group, children]) => [
+    group,
+    children.sort((a, b) => {
+      const left = a.sort_order || Infinity;
+      const right = b.sort_order || Infinity;
+      return left - right || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+    }).map(entry => `${entry.kind === 'folder' ? 'folder' : 'entry'}:${entry.id}`),
+  ]));
+}
+
 function defaultContentPaneWidth() {
   return Math.min(340, Math.max(245, Math.round((window.innerWidth - ACTIVITY_RAIL_WIDTH) * 0.191)));
 }
@@ -59,6 +86,8 @@ function defaultContentPaneWidth() {
 function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<ContextMenuState, null>; onClose: () => void; onAction: (action: string) => void }) {
   const icons: Record<string, ReactNode> = {
     'new-note': <FilePlus2 size={18} />,
+    'new-rich': <FilePenLine size={18} />,
+    'upload-file': <FileUp size={18} />,
     'new-folder': <FolderPlus size={18} />,
     open: <FileText size={18} />,
     outline: <ListTree size={18} />,
@@ -71,7 +100,9 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
     'move-down': <ArrowDown size={18} />,
   };
   const items = menu.kind === 'folder'
-    ? [['new-note', '新建笔记'], ['new-folder', '新建文件夹'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
+    ? [['new-note', '新建笔记'], ['new-rich', '新建富文本文档'], ['upload-file', '上传文件'], ['new-folder', '新建文件夹'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
+    : menu.kind === 'file'
+      ? [['open', '预览'], ['move', '移动到…'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
     : menu.kind === 'note'
       ? [['open', '打开'], ['outline', '大纲'], ['move', '移动到…'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
       : menu.kind === 'sidebar' ? [['move-up', '上移'], ['move-down', '下移']]
@@ -83,36 +114,73 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
   </div>;
 }
 
-function TreeItem({ entry, entries, group, selectedId, onSelect, onContextMenu, orderChildren, dragProps }: { entry: Entry; entries: Entry[]; group: string; selectedId: string | null; onSelect: (id: string) => void; onContextMenu: (event: MouseEvent, kind: 'note', id: string, group?: string) => void; orderChildren: (items: Entry[], group: string) => Entry[]; dragProps: (id: string, group: string) => React.HTMLAttributes<HTMLDivElement> & { draggable: boolean } }) {
+function TreeItem({ entry, entries, group, selectedId, onSelect, onContextMenu, orderChildren, dragProps }: { entry: Entry; entries: Entry[]; group: string; selectedId: string | null; onSelect: (id: string) => void; onContextMenu: (event: MouseEvent, kind: 'note' | 'file', id: string, group?: string) => void; orderChildren: (items: Entry[], group: string) => Entry[]; dragProps: (id: string, group: string) => React.HTMLAttributes<HTMLDivElement> & { draggable: boolean } }) {
   const [open, setOpen] = useState(true);
-  const children = orderChildren(entries.filter(item => item.parent_id === entry.id && item.kind === 'note'), `notes:entry:${entry.id}`);
+  const children = orderChildren(entries.filter(item => item.parent_id === entry.id && (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file')), `notes:entry:${entry.id}`);
   return <div className="obsidian-tree-node">
-    <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} role="treeitem" aria-label={entry.title || '未命名笔记'} aria-selected={selectedId === entry.id} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, 'note', `entry:${entry.id}`, group)}>
+    <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} role="treeitem" aria-label={entry.title || '未命名笔记'} aria-selected={selectedId === entry.id} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)}>
       {children.length ? <button className="tree-toggle" type="button" onClick={() => setOpen(value => !value)} aria-label="展开或折叠"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button> : <span className="tree-spacer" />}
-      <button className="tree-item" type="button" onClick={() => onSelect(entry.id)}><FileText size={15} /><span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
+      <button className="tree-item" type="button" onClick={() => onSelect(entry.id)}>{entry.kind === 'file' ? <Paperclip size={15} /> : entry.kind === 'rich_text' ? <FilePenLine size={15} /> : <FileText size={15} />}<span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
     </div>
     {open && children.length ? <div className="tree-children">{children.map(child => <TreeItem key={child.id} entry={child} entries={entries} group={`notes:entry:${entry.id}`} selectedId={selectedId} onSelect={onSelect} onContextMenu={onContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
   </div>;
 }
 
-type WorkspaceTab = { key: string; kind: 'note' | 'agent' | 'blank' | 'agent-blank' | 'anki' | 'tool'; title: string; entryId?: string; toolId?: CampusToolId; history: string[]; historyIndex: number };
+type WorkspaceTab = { key: string; kind: 'note' | 'rich_text' | 'file' | 'agent' | 'blank' | 'agent-blank' | 'anki' | 'tool'; title: string; entryId?: string; toolId?: CampusToolId; history: string[]; historyIndex: number };
 const sampleCards: Array<{ front: string; back: string; tags: string }> = [
   { front: '什么是主动回忆？', back: '不看答案，先尝试从记忆中提取知识，再核对并修正。', tags: '学习方法 示例' },
   { front: '间隔复习的核心做法是什么？', back: '在遗忘前后分散复习，而不是集中在一天反复阅读。', tags: '学习方法 示例' },
   { front: 'Markdown 中 [[笔记名]] 通常表示什么？', back: '指向另一篇笔记的内部链接，可以用来建立知识关联。', tags: 'Markdown 示例' },
   { front: '导数 f′(x) 的几何意义是什么？', back: '函数曲线在 x 处切线的斜率。', tags: '数学 示例' },
 ];
-const localAnkiDeck: RemoteAnkiDeck = { id: 'local-default', name: '默认牌组', created_at: '', updated_at: '' };
+const ANKI_REVIEW_ID = /^[0-9a-f]{32}$/;
+type PendingAnkiReview = { requestId: string; rating: 1 | 2 | 3 | 4; repsBefore: number };
+type PendingChatRequest = { sessionId: string; id: string; content?: string; digest?: string };
+function pendingChatKey(identity: string, sessionId: string) {
+  return `tjuclaw.chat.pending.v1.${identity}.${sessionId}`;
+}
+async function chatDigest(content: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function readPendingChat(identity: string, sessionId: string): PendingChatRequest | null {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(pendingChatKey(identity, sessionId)) ?? '');
+    if (!value || typeof value !== 'object') return null;
+    const pending = value as Record<string, unknown>;
+    return pending.sessionId === sessionId && typeof pending.id === 'string' && ANKI_REVIEW_ID.test(pending.id) &&
+      !Object.hasOwn(pending, 'content') &&
+      (pending.digest === undefined || typeof pending.digest === 'string' && /^[0-9a-f]{64}$/.test(pending.digest))
+      ? pending as PendingChatRequest : null;
+  } catch { return null; }
+}
+function clearPendingChat(identity: string, sessionId: string, id: string) {
+  if (readPendingChat(identity, sessionId)?.id === id) sessionStorage.removeItem(pendingChatKey(identity, sessionId));
+}
+function ankiReviewKey(identity: string, cardId: string) {
+  return `tjuclaw.anki.review.pending.v1.${identity}.${cardId}`;
+}
+function readPendingAnkiReview(key: string): PendingAnkiReview | null {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(key) ?? '');
+    if (!value || typeof value !== 'object') return null;
+    const pending = value as Record<string, unknown>;
+    return typeof pending.requestId === 'string' && ANKI_REVIEW_ID.test(pending.requestId) &&
+      (pending.rating === 1 || pending.rating === 2 || pending.rating === 3 || pending.rating === 4) &&
+      typeof pending.repsBefore === 'number' && Number.isSafeInteger(pending.repsBefore) && pending.repsBefore >= 0
+      ? pending as PendingAnkiReview : null;
+  } catch { return null; }
+}
 
-function NewNoteHome({ entries, onCreate, onOpen }: { entries: Entry[]; onCreate: (title?: string, body?: string) => void; onOpen: (id: string) => void }) {
-  const recent = entries.filter(entry => entry.kind === 'note').slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4);
+function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { entries: Entry[]; onCreate: (title?: string, body?: string) => void; onCreateRich: () => void; onUpload: () => void; onOpen: (id: string) => void }) {
+  const recent = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4);
   const templates = [
     { title: '空白笔记', description: '从一个标题或一句想法开始', icon: FilePlus2, body: '' },
     { title: '项目记录', description: '目标、进展、风险和下一步', icon: Table2, body: '# 项目记录\n\n## 目标\n\n## 当前进展\n\n## 风险与阻塞\n\n## 下一步\n\n- [ ] ' },
     { title: '读书卡片', description: '把摘录和思考沉淀成知识', icon: Quote, body: '# 书名\n\n> 一句重要摘录\n\n## 我的理解\n\n## 关联笔记\n\n- [[' },
     { title: '每日复盘', description: '记录今天发生了什么', icon: CheckSquare, body: `# ${new Date().toLocaleDateString('zh-CN')}\n\n## 完成了什么\n\n- [ ] \n\n## 学到了什么\n\n## 明天要做什么\n\n- [ ] ` },
   ];
-  return <section className="new-note-home"><div className="new-note-header"><h1>新建笔记</h1><Button className="new-note-primary" onClick={() => onCreate()}><Plus size={16} /> 空白笔记</Button></div><div className="new-note-grid"><div className="new-note-panel"><div className="new-note-panel-head"><span>从模板开始</span></div><div className="new-note-templates">{templates.slice(1).map(template => { const Icon = template.icon; return <button type="button" key={template.title} onClick={() => onCreate(template.title, template.body)}><span className="new-note-template-icon"><Icon size={17} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><ArrowRight size={15} /></button>; })}</div></div><div className="new-note-panel new-note-recent"><div className="new-note-panel-head"><span>最近文档</span></div>{recent.length ? recent.map(entry => <button type="button" key={entry.id} onClick={() => onOpen(entry.id)}><FileText size={16} /><span><strong>{entry.title || '未命名笔记'}</strong><small>{new Date(entry.updated_at).toLocaleDateString('zh-CN')}</small></span></button>) : <div className="new-note-empty">暂无最近文档</div>}</div></div></section>;
+  return <section className="new-note-home"><div className="new-note-header"><h1>新建笔记</h1><Button className="new-note-primary" onClick={() => onCreate()}><Plus size={16} /> 空白笔记</Button></div><div className="new-note-grid"><div className="new-note-panel"><div className="new-note-panel-head"><span>从模板开始</span></div><div className="new-note-templates"><button type="button" onClick={onCreateRich}><span className="new-note-template-icon"><FilePenLine size={17} /></span><span><strong>富文本文档</strong><small>所见即所得地整理课程内容</small></span><ArrowRight size={15} /></button><button type="button" onClick={onUpload}><span className="new-note-template-icon"><FileUp size={17} /></span><span><strong>上传课程资料</strong><small>保留原件，支持多媒体预览</small></span><ArrowRight size={15} /></button>{templates.slice(1).map(template => { const Icon = template.icon; return <button type="button" key={template.title} onClick={() => onCreate(template.title, template.body)}><span className="new-note-template-icon"><Icon size={17} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><ArrowRight size={15} /></button>; })}</div></div><div className="new-note-panel new-note-recent"><div className="new-note-panel-head"><span>最近文档</span></div>{recent.length ? recent.map(entry => <button type="button" key={entry.id} onClick={() => onOpen(entry.id)}><FileText size={16} /><span><strong>{entry.title || '未命名笔记'}</strong><small>{new Date(entry.updated_at).toLocaleDateString('zh-CN')}</small></span></button>) : <div className="new-note-empty">暂无最近文档</div>}</div></div></section>;
 }
 
 function parseHeadings(markdown: string) {
@@ -127,9 +195,12 @@ function renderMarkdown(markdown: string) {
   return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
 }
 
-function SessionThread({ title, chat, loading, error, draft, sending, onDraftChange, onSubmit, onRetry }: {
+function SessionThread({ title, chat, ownerId, entryId, preset, loading, error, draft, sending, onDraftChange, onSubmit, onRetry }: {
   title: string;
   chat: ChatSession | null;
+  ownerId: string;
+  entryId: string;
+  preset: string;
   loading: boolean;
   error: string;
   draft: string;
@@ -149,6 +220,7 @@ function SessionThread({ title, chat, loading, error, draft, sending, onDraftCha
   return <section className="session-view" aria-label={`${title} 会话`}>
     <div className="chat-messages" ref={scrollRef} role="log" aria-label="会话记录">
       <div className="session-heading"><span className="session-icon"><MousePointer2 size={18} /></span><div><h1>{title}</h1><p>Agent 任务线程</p><div className="session-context-line"><span>当前知识库</span><span>按需读取笔记</span><span>Markdown 回复</span></div></div><button type="button" className="session-heading-action" aria-label="会话选项" title="会话选项"><MoreHorizontal size={17} /></button></div>
+      {chat ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
       {loading ? <div className="session-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>
         : !chat ? <div className="session-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>
           : messages.length ? <div className="session-transcript">{messages.map((message, index) => <article key={`${message.created_at}-${index}`} className={`chat-message ${message.role}`}>
@@ -162,7 +234,7 @@ function SessionThread({ title, chat, loading, error, draft, sending, onDraftCha
       <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
       <textarea id="session-draft" value={draft} onChange={event => onDraftChange(event.target.value)} placeholder={chat ? '描述任务，或引用当前笔记中的一段内容…' : '会话尚未就绪'} rows={2} disabled={!chat || sending} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
       <div className="chat-composer-footer"><span className="composer-capabilities"><span><BookOpen size={12} /> 当前笔记</span><span><Sparkles size={12} /> Agent</span>{sending ? '正在处理任务…' : 'Enter 发送 · Shift + Enter 换行'}</span><button type="submit" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>{sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} />}</button></div>
-    </form>{error && chat ? <p className="chat-inline-error" role="alert">{error}</p> : null}</div>
+    </form>{error && chat ? <div className="chat-inline-error" role="alert"><span>{error}</span><button type="button" onClick={onRetry}>确认发送结果</button></div> : null}</div>
   </section>;
 }
 
@@ -192,10 +264,15 @@ export default function Workspace() {
   const [activePluginId, setActivePluginId] = useState<BuiltInPluginId>('editor');
   const [activeToolId, setActiveToolId] = useState<CampusToolId>('schedule');
   const [ankiCards, setAnkiCards] = useState<AnkiCard[]>([]);
+  const [ankiSchedules, setAnkiSchedules] = useState<Record<string, AnkiSchedule>>({});
+  const [ankiLastStudyAt, setAnkiLastStudyAt] = useState<number | null>(null);
   const [ankiDecks, setAnkiDecks] = useState<RemoteAnkiDeck[]>([]);
   const [ankiDeckId, setAnkiDeckId] = useState<string | null>(null);
+  const [ankiDeckBusy, setAnkiDeckBusy] = useState(false);
   const [ankiOpenCardId, setAnkiOpenCardId] = useState<string | null>(null);
   const [ankiRemoteReady, setAnkiRemoteReady] = useState(false);
+  const [ankiLoadFailed, setAnkiLoadFailed] = useState(false);
+  const [legacyAnkiBackupAvailable, setLegacyAnkiBackupAvailable] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 720);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 720);
   const reduceMotion = useReducedMotion();
@@ -211,21 +288,31 @@ export default function Workspace() {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview'>('edit');
   const [commandOpen, setCommandOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const failedSave = useRef<{ id: string; title: string; body: string; generation: number; version: number } | null>(null);
+  const conflictDraft = useRef<{ id: string; title: string; body: string } | null>(null);
+  const [saveFailedId, setSaveFailedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceGate, setWorkspaceGate] = useState<WorkspaceGateState>(null);
   const [error, setError] = useState('');
   const saveTimer = useRef<number>(0);
   const pendingSave = useRef<{ id: string; title: string; body: string; generation: number; version: number } | null>(null);
   const saveVersions = useRef<Record<string, number>>({});
+  const entryRevisions = useRef<Record<string, string>>({});
+  const conflictedEntries = useRef<Set<string>>(new Set());
+  const [saveConflictId, setSaveConflictId] = useState<string | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const draftsRef = useRef<Record<string, string>>({});
   const chatCacheRef = useRef<Record<string, ChatSession>>({});
+  const pendingChatRequestRef = useRef<PendingChatRequest | null>(null);
   const activeTabRef = useRef<string | null>('home');
   const identityRef = useRef<string | null>(null);
   const identityGeneration = useRef(0);
   const bodyRef = useRef<EditorView | null>(null);
   const ankiWorkspaceRef = useRef<AnkiWorkspaceHandle | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const [fileRenameRequest, setFileRenameRequest] = useState(0);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
+  const uploadParent = useRef<string | undefined>(undefined);
   const chatRequestRef = useRef(0);
   const sendingRef = useRef(false);
   const sidebarRef = useRef<HTMLElement | null>(null);
@@ -233,12 +320,22 @@ export default function Workspace() {
   const dragSource = useRef<{ id: string; group: string } | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const ankiRemoteIds = useRef<Set<string>>(new Set());
+  const ankiPendingIds = useRef<Map<string, string>>(new Map());
+  const ankiWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const ankiCardsRef = useRef<AnkiCard[]>([]);
+  const ankiDeckIdRef = useRef<string | null>(null);
+  const ankiDeckRequest = useRef(0);
+  const ankiDeckMutation = useRef(false);
+  const ankiSyncHealthy = useRef(false);
+  const pendingStudyDeckRef = useRef<string | null>(null);
   const library = libraries[0];
-  const noteCount = entries.filter(entry => entry.kind === 'note').length;
-  const fileCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'file').length;
+  const noteCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').length;
+  const fileCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file').length;
+  const gitAgent = entries.find(entry => entry.kind === 'agent' && entry.preset === 'guide') ??
+    entries.find(entry => entry.kind === 'agent');
   const activeTab = tabs.find(tab => tab.key === activeTabKey);
   const ankiDeckName = ankiDecks.find(deck => deck.id === ankiDeckId)?.name ?? '默认牌组';
-  const visibleTabs = tabs.filter(tab => view === 'notes' ? tab.kind === 'note' || tab.kind === 'blank'
+  const visibleTabs = tabs.filter(tab => view === 'notes' ? tab.kind === 'note' || tab.kind === 'rich_text' || tab.kind === 'file' || tab.kind === 'blank'
     : view === 'sessions' ? tab.kind === 'agent' || tab.kind === 'agent-blank'
       : view === 'anki' ? tab.kind === 'anki' : view === 'tools' && tab.kind === 'tool');
 
@@ -258,23 +355,117 @@ export default function Workspace() {
     if (!pending) return;
     pendingSave.current = null;
     saveChain.current = saveChain.current.catch(() => {}).then(async () => {
+      if (pending.generation !== identityGeneration.current || conflictedEntries.current.has(pending.id)) return;
       try {
-        const entry = await patchEntry(pending.id, { title: pending.title, body: pending.body });
+        const expected = entryRevisions.current[pending.id];
+        if (!expected) throw new Error('entry revision unavailable');
+        const entry = await patchEntry(pending.id, { title: pending.title, body: pending.body, expected_updated_at: expected });
         if (pending.generation !== identityGeneration.current) return;
+        entryRevisions.current[entry.id] = entry.updated_at;
         if (saveVersions.current[entry.id] === pending.version) {
+          if (failedSave.current?.id === entry.id) {
+            failedSave.current = null;
+            setSaveFailedId(null);
+          }
           setEntries(items => items.map(item => item.id === entry.id ? entry : item));
+          setSelected(current => current?.id === entry.id ? entry : current);
           setSaving(false);
         }
-      } catch {
+      } catch (cause) {
         if (pending.generation === identityGeneration.current) {
-          setSaving(false);
-          setError('保存失败，请稍后再试。');
+          if (saveVersions.current[pending.id] !== pending.version) return;
+          if (cause instanceof AuthError && cause.status === 409 && cause.body?.error?.id === 'entry_conflict') {
+            try {
+              const latest = await getEntry(pending.id);
+              if (pending.generation !== identityGeneration.current || saveVersions.current[pending.id] !== pending.version) return;
+              if (latest.title === pending.title && latest.body === pending.body) {
+                entryRevisions.current[latest.id] = latest.updated_at;
+                if (failedSave.current?.id === latest.id) {
+                  failedSave.current = null;
+                  setSaveFailedId(null);
+                }
+                setEntries(items => items.map(item => item.id === latest.id ? latest : item));
+                setSelected(current => current?.id === latest.id ? latest : current);
+                setSaving(false);
+                setError('');
+                return;
+              }
+            } catch { /* The server result is unknown; retain the local draft. */ }
+            if (pending.generation !== identityGeneration.current || saveVersions.current[pending.id] !== pending.version) return;
+            setSaving(false);
+            conflictDraft.current = { id: pending.id, title: pending.title, body: pending.body };
+            conflictedEntries.current.add(pending.id);
+            setSaveConflictId(pending.id);
+            setError('笔记已在其他设备更新；当前编辑内容未覆盖服务器版本。');
+          } else {
+            setSaving(false);
+            failedSave.current = pending;
+            setSaveFailedId(pending.id);
+            setError('保存失败，请稍后再试。');
+          }
         }
       }
     });
   }
 
+  function retryFailedSave() {
+    const failed = failedSave.current;
+    if (!failed || failed.generation !== identityGeneration.current || conflictedEntries.current.has(failed.id)) return;
+    failedSave.current = null;
+    setSaveFailedId(null);
+    setError('');
+    setSaving(true);
+    pendingSave.current = failed;
+    flushPendingSave();
+  }
+
+  function canLeaveDraft(destinationId?: string) {
+    if ((saveConflictId || conflictedEntries.current.size) && destinationId !== saveConflictId) {
+      setError('请先处理笔记保存冲突，再切换文档。');
+      return false;
+    }
+    if ((saveFailedId || failedSave.current) && destinationId !== saveFailedId) {
+      setError('当前笔记尚未保存，请重试保存后再切换文档。');
+      return false;
+    }
+    return true;
+  }
+
+  async function copyConflictDraft() {
+    try {
+      const draft = conflictDraft.current;
+      if (!draft || draft.id !== saveConflictId) return;
+      await navigator.clipboard.writeText(`${draft.title}\n\n${draft.body}`);
+      setError('当前版本已复制；加载服务器版本前请先保存副本。');
+    } catch {
+      setError('复制失败；请手动复制当前编辑内容后再加载服务器版本。');
+    }
+  }
+
+  async function discardConflictDraft() {
+    if (!saveConflictId || !window.confirm('确定丢弃当前未保存的编辑，并加载服务器上的版本吗？')) return;
+    const generation = identityGeneration.current;
+    try {
+      const entry = await getEntry(saveConflictId);
+      if (generation !== identityGeneration.current) return;
+      entryRevisions.current[entry.id] = entry.updated_at;
+      conflictedEntries.current.delete(entry.id);
+      conflictDraft.current = null;
+      setSaveConflictId(null);
+      setEntries(items => items.map(item => item.id === entry.id ? entry : item));
+      if (selectedId === entry.id) {
+        setSelected(entry);
+        setTitle(entry.title);
+        setBody(entry.body ?? '');
+      }
+      setError('');
+    } catch {
+      setError('读取服务器版本失败，当前草稿仍在编辑器中。');
+    }
+  }
+
   function newBlankTab() {
+    if (!canLeaveDraft()) return;
     flushPendingSave();
     ++chatRequestRef.current;
     const key = `blank-${crypto.randomUUID()}`;
@@ -291,6 +482,7 @@ export default function Workspace() {
 
   function activateTab(tab: WorkspaceTab, preserveSidebar = false) {
     if (tab.key === activeTabRef.current && (view === 'notes' || view === 'sessions' || view === 'anki' || view === 'tools')) return;
+    if (!canLeaveDraft(tab.entryId)) return;
     flushPendingSave();
     chooseTab(tab.key);
     if (tab.kind === 'blank' || tab.kind === 'agent-blank' || tab.kind === 'anki' || tab.kind === 'tool' || !tab.entryId) {
@@ -312,6 +504,7 @@ export default function Workspace() {
   }
 
   function closeTab(key: string) {
+    if (key === activeTabRef.current && !canLeaveDraft()) return;
     const index = tabs.findIndex(tab => tab.key === key);
     if (index < 0) return;
     const remaining = tabs.filter(tab => tab.key !== key);
@@ -321,7 +514,7 @@ export default function Workspace() {
     const closed = tabs[index];
     const sameSection = remaining.filter(tab => closed.kind === 'tool' ? tab.kind === 'tool' : closed.kind === 'anki' ? tab.kind === 'anki'
       : closed.kind === 'agent' || closed.kind === 'agent-blank' ? tab.kind === 'agent' || tab.kind === 'agent-blank'
-        : tab.kind === 'note' || tab.kind === 'blank');
+        : tab.kind === 'note' || tab.kind === 'rich_text' || tab.kind === 'file' || tab.kind === 'blank');
     const next = sameSection.find(tab => remaining.indexOf(tab) >= index) ?? sameSection[sameSection.length - 1];
     if (next) {
       chooseTab(null);
@@ -359,7 +552,7 @@ export default function Workspace() {
     window.addEventListener('pointerup', stop, { once: true });
   }
 
-  const visible = useMemo(() => entries.filter(entry => (view === 'notes' ? entry.kind === 'note' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
+  const visible = useMemo(() => entries.filter(entry => (view === 'notes' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
   const roots = visible.filter(entry => !entry.parent_id && !placements[entry.id]);
   const folderRoots = folders.filter(folder => !folder.parentId);
   const headings = useMemo(() => parseHeadings(body), [body]);
@@ -369,11 +562,11 @@ export default function Workspace() {
       const parentId = group === 'notes:root' ? null : group.slice('notes:folder:'.length);
       return [
         ...folders.filter(folder => folder.parentId === parentId).map(folder => ({ id: `folder:${folder.id}`, title: folder.name })),
-        ...entries.filter(entry => entry.kind === 'note' && (placements[entry.id] ?? null) === parentId && (parentId !== null || !entry.parent_id))
+        ...entries.filter(entry => (entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file') && (placements[entry.id] ?? null) === parentId && (parentId !== null || !entry.parent_id))
           .map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at })),
       ];
     }
-    if (group.startsWith('notes:entry:')) return entries.filter(entry => entry.kind === 'note' && entry.parent_id === group.slice('notes:entry:'.length))
+    if (group.startsWith('notes:entry:')) return entries.filter(entry => (entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file') && entry.parent_id === group.slice('notes:entry:'.length))
       .map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at }));
     if (group === 'sessions') return entries.filter(entry => entry.kind === 'agent')
       .map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at }));
@@ -388,7 +581,9 @@ export default function Workspace() {
 
   function persistSidebarOrder(next: Record<string, string[]>) {
     setSidebarOrder(next);
-    if (identityRef.current) localStorage.setItem(`tjuclaw.sidebar.order.v1.${identityRef.current}`, JSON.stringify(next));
+    if (identityRef.current) localStorage.setItem(`tjuclaw.sidebar.order.v1.${identityRef.current}`, JSON.stringify(
+      Object.fromEntries(Object.entries(next).filter(([group]) => !group.startsWith('notes:'))),
+    ));
   }
 
   function changeSort(mode: SortMode) {
@@ -407,7 +602,10 @@ export default function Workspace() {
     if (library && group.startsWith('notes:')) {
       const parentId = group === 'notes:root' ? '' : group.startsWith('notes:folder:') ? group.slice('notes:folder:'.length) : group.slice('notes:entry:'.length);
       const entryIds = next.filter(item => item.startsWith('entry:') || item.startsWith('folder:')).map(item => item.slice(item.indexOf(':') + 1));
-      void reorderEntries(library.id, parentId, entryIds).catch(() => setError('保存手动排序失败，请稍后再试。'));
+      void reorderEntries(library.id, parentId, entryIds).catch(() => {
+        setSidebarOrder(value => ({ ...value, [group]: current }));
+        setError('保存手动排序失败，已恢复原顺序，请稍后再试。');
+      });
     }
     changeSort('manual');
   }
@@ -463,7 +661,7 @@ export default function Workspace() {
     };
   }
 
-  function openContextMenu(event: MouseEvent, kind: 'folder' | 'note' | 'editor' | 'sidebar', id?: string, group?: string) {
+  function openContextMenu(event: MouseEvent, kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar', id?: string, group?: string) {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 250)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - (kind === 'sidebar' ? 100 : 360))), kind, id, group });
@@ -482,20 +680,25 @@ export default function Workspace() {
       if (action === 'rename') renameFolder(folder);
       if (action === 'delete') removeFolder(folder);
       if (action === 'new-note') void createNote('未命名笔记', '', folder.id);
+      if (action === 'new-rich') void createRichText(folder.id);
+      if (action === 'upload-file') uploadPicker(folder.id);
     }
-    if (contextMenu.kind === 'note' && contextMenu.id) {
+    if ((contextMenu.kind === 'note' || contextMenu.kind === 'file') && contextMenu.id) {
       const id = contextMenu.id.replace(/^entry:/, '');
       if (action === 'open') void openEntry(id);
       if (action === 'outline') { setSidebarOpen(false); setRailOpen(true); }
       if (action === 'delete') void deleteNote(id);
       if (action === 'move') moveEntry(id);
-      if (action === 'rename') {
+      if (action === 'rename' && contextMenu.kind === 'file') {
+        void openEntry(id);
+        setFileRenameRequest(value => value + 1);
+      } else if (action === 'rename') {
         void openEntry(id);
         window.setTimeout(() => titleRef.current?.focus(), 0);
       }
     }
-    if (contextMenu.kind === 'editor' && action === 'copy') void navigator.clipboard?.writeText(body);
-    if (contextMenu.kind === 'editor' && action === 'select-all') bodyRef.current?.dispatch({ selection: { anchor: 0, head: body.length } });
+    if (contextMenu.kind === 'editor' && selected?.kind === 'note' && action === 'copy') void navigator.clipboard?.writeText(body);
+    if (contextMenu.kind === 'editor' && selected?.kind === 'note' && action === 'select-all') bodyRef.current?.dispatch({ selection: { anchor: 0, head: body.length } });
   }
 
   useEffect(() => {
@@ -505,6 +708,13 @@ export default function Workspace() {
     window.addEventListener('keydown', escape);
     return () => { window.removeEventListener('click', close); window.removeEventListener('keydown', escape); };
   }, []);
+
+  useEffect(() => {
+    if (!saveConflictId && !saveFailedId && !saving) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveConflictId, saveFailedId, saving]);
 
   useEffect(() => {
     const close = (event: PointerEvent) => { if (!sortMenuRef.current?.contains(event.target as Node)) setSortMenuOpen(false); };
@@ -534,31 +744,84 @@ export default function Workspace() {
   }
 
   async function removeFolder(folder: VaultFolder) {
-    if (!window.confirm(`删除文件夹“${folder.name}”？其中的文档会移回根目录。`)) return;
+    if (!canLeaveDraft()) return;
     const ids = new Set([folder.id]);
     let changed = true;
     while (changed) {
       changed = false;
-      folders.forEach(item => { if (item.parentId && ids.has(item.parentId) && !ids.has(item.id)) { ids.add(item.id); changed = true; } });
+      entries.forEach(item => {
+        if (ids.has(item.parent_id) && !ids.has(item.id)) { ids.add(item.id); changed = true; }
+      });
     }
+    if (saveConflictId && ids.has(saveConflictId)) {
+      setError('请先处理笔记保存冲突，再删除所在文件夹。');
+      return;
+    }
+    if (!window.confirm(`删除文件夹“${folder.name}”？其中的所有笔记、文件和子文件夹都会永久删除，无法恢复；其他设备新建的内容也可能受影响。`)) return;
+    const generation = identityGeneration.current;
+    flushPendingSave();
+    await saveChain.current;
+    if (generation !== identityGeneration.current || [...ids].some(id => conflictedEntries.current.has(id))) return;
     try {
       await deleteFolderRemote(folder.id);
+      if (generation !== identityGeneration.current) return;
       setEntries(items => items.filter(item => !ids.has(item.id)));
       persistFolders(folders.filter(item => !ids.has(item.id)));
-      const next = { ...placements };
-      Object.keys(next).forEach(entryId => { if (next[entryId] && ids.has(next[entryId] as string)) delete next[entryId]; });
-      persistPlacements(next);
-    } catch { setError('删除文件夹失败，请稍后再试。'); }
+      setPlacements(current => Object.fromEntries(Object.entries(current).filter(([id, parent]) => !ids.has(id) && (!parent || !ids.has(parent)))));
+      setSidebarOrder(current => Object.fromEntries(Object.entries(current)
+        .filter(([group]) => !group.startsWith('notes:folder:') || !ids.has(group.slice('notes:folder:'.length)))
+        .map(([group, order]) => [group, order.filter(id => !ids.has(id.slice(id.indexOf(':') + 1)))])));
+      setTabs(current => current.map(tab => {
+        const history = tab.history.filter(id => !ids.has(id));
+        return tab.entryId && ids.has(tab.entryId)
+          ? { ...tab, kind: tab.kind === 'agent' ? 'agent-blank' as const : 'blank' as const,
+            title: tab.kind === 'agent' ? '新建会话' : '新建笔记', entryId: undefined, history: [], historyIndex: -1 }
+          : { ...tab, history, historyIndex: history.length ? Math.min(tab.historyIndex, history.length - 1) : -1 };
+      }));
+      for (const id of ids) {
+        delete draftsRef.current[id];
+        delete entryRevisions.current[id];
+        delete chatCacheRef.current[id];
+      }
+      if (selectedId && ids.has(selectedId)) {
+        ++chatRequestRef.current;
+        setSelected(null); setSelectedId(null); setTitle(''); setBody(''); setChat(null); setRailOpen(false);
+      }
+    } catch { if (generation === identityGeneration.current) setError('删除文件夹失败，请稍后再试。'); }
   }
 
   async function moveEntry(id: string, folderId?: string | null) {
     if (folderId === undefined) { setMoveEntryId(id); return; }
-    try {
-      const entry = await moveEntryRemote(id, folderId ?? '');
-      setEntries(items => items.map(item => item.id === id ? entry : item));
-      persistPlacements({ ...placements, [id]: folderId });
-      setMoveEntryId(null);
-    } catch { setError('移动文档失败，请稍后再试。'); }
+    const generation = identityGeneration.current;
+    flushPendingSave();
+    const move = saveChain.current.catch(() => {}).then(async () => {
+      if (generation !== identityGeneration.current) return;
+      if (conflictedEntries.current.has(id) || failedSave.current?.id === id) {
+        setError('请先处理当前笔记的保存问题，再移动文档。');
+        return;
+      }
+      const expected = entryRevisions.current[id] ?? entries.find(item => item.id === id)?.updated_at;
+      if (!expected) {
+        setError('文档版本不可用，请重新打开后再移动。');
+        return;
+      }
+      try {
+        const entry = await moveEntryRemote(id, folderId ?? '', expected);
+        if (generation !== identityGeneration.current) return;
+        entryRevisions.current[id] = entry.updated_at;
+        setEntries(items => items.map(item => item.id === id ? entry : item));
+        setSelected(current => current?.id === id ? { ...current, parent_id: entry.parent_id, updated_at: entry.updated_at } : current);
+        setPlacements(current => ({ ...current, [id]: folderId }));
+        setMoveEntryId(null);
+      } catch (error) {
+        if (generation !== identityGeneration.current) return;
+        setError(error instanceof AuthError && error.status === 409
+          ? '文档已在其他设备更新，移动未执行；请先重新打开文档核对内容。'
+          : '移动文档失败，请稍后再试。');
+      }
+    });
+    saveChain.current = move;
+    await move;
   }
 
   async function moveFolder(id: string, parentId: string | null) {
@@ -606,11 +869,12 @@ export default function Workspace() {
   }
 
   async function openEntry(id: string, loadedItem?: Entry, targetTabKey?: string, historyIndex?: number, preserveSidebar = false) {
+    if (id !== selectedId && !canLeaveDraft(id)) return;
     const listedItem = loadedItem ?? entries.find(entry => entry.id === id);
     if (!listedItem) return;
     let item: Entry = listedItem;
     const generation = identityGeneration.current;
-    if (item.kind === 'note' && item.body === undefined) {
+    if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
       try {
         item = await getEntry(item.id);
       } catch {
@@ -619,8 +883,11 @@ export default function Workspace() {
       }
       if (generation !== identityGeneration.current) return;
     }
+    if ((item.kind === 'note' || item.kind === 'rich_text') && !entryRevisions.current[id]) {
+      entryRevisions.current[id] = item.updated_at;
+    }
     flushPendingSave();
-    const compatible = (tab: WorkspaceTab) => item.kind === 'agent' ? tab.kind === 'agent' || tab.kind === 'agent-blank' : tab.kind === 'note' || tab.kind === 'blank';
+    const compatible = (tab: WorkspaceTab) => item.kind === 'agent' ? tab.kind === 'agent' || tab.kind === 'agent-blank' : tab.kind === 'note' || tab.kind === 'rich_text' || tab.kind === 'file' || tab.kind === 'blank';
     const key = targetTabKey
       ?? tabs.find(tab => tab.key === activeTabRef.current && compatible(tab))?.key
       ?? tabs.slice().reverse().find(compatible)?.key
@@ -631,7 +898,7 @@ export default function Workspace() {
         const cursor = tab?.historyIndex ?? -1;
         const nextHistory = historyIndex === undefined && history[cursor] !== id
           ? [...history.slice(0, cursor + 1), id] : history.length ? history : [id];
-        return { key, kind: item.kind === 'agent' ? 'agent' : 'note', title: item.title, entryId: id,
+        return { key, kind: item.kind === 'agent' ? 'agent' : item.kind === 'file' ? 'file' : item.kind === 'rich_text' ? 'rich_text' : 'note', title: item.title, entryId: id,
           history: nextHistory, historyIndex: historyIndex ?? (nextHistory === history ? cursor : nextHistory.length - 1) };
       };
       return current.some(tab => tab.key === key) ? current.map(tab => tab.key === key ? update(tab) : tab) : [...current, update()];
@@ -647,43 +914,119 @@ export default function Workspace() {
       try {
         const current = (await listSessions(item.id))[0] ?? await createSession(item.id);
         const next = current.messages ? current : await getSession(current.id);
-        if (generation === identityGeneration.current && request === chatRequestRef.current) { chatCacheRef.current[id] = next; setChat(next); }
+        if (generation === identityGeneration.current && request === chatRequestRef.current) {
+          const pending = (identityRef.current ? readPendingChat(identityRef.current, next.id) : null) ??
+            (pendingChatRequestRef.current?.sessionId === next.id ? pendingChatRequestRef.current : null);
+          const saved = pending && next.messages?.find(message => message.role === 'user' && message.client_request_id === pending.id);
+          const confirmed = saved && (pending.content === undefined || saved.content === pending.content) &&
+            (!pending.digest || await chatDigest(saved.content) === pending.digest);
+          if (generation !== identityGeneration.current || request !== chatRequestRef.current) return;
+          if (pending && confirmed) {
+            clearPendingChat(identityRef.current!, next.id, pending.id);
+            if (pendingChatRequestRef.current?.id === pending.id) pendingChatRequestRef.current = null;
+            const draftText = draftsRef.current[id] ?? '';
+            if (draftText && (pending.content === draftText.trim() ||
+              pending.digest && await chatDigest(draftText.trim()) === pending.digest)) {
+              if (generation !== identityGeneration.current || request !== chatRequestRef.current) return;
+              if (draftsRef.current[id] === draftText) {
+                draftsRef.current[id] = '';
+                setDraft('');
+              }
+            }
+          } else if (saved) {
+            pendingChatRequestRef.current = pending;
+            setChatError('服务器记录与原消息不一致，请不要重新发送；请检查其他设备的会话记录。');
+          } else if (pending) {
+            pendingChatRequestRef.current = pending;
+            setChatError('上次发送结果未确认；请重新输入原消息并重试，不会生成新的请求编号。');
+          }
+          chatCacheRef.current[id] = next;
+          setChat(next);
+        }
       } catch { if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('会话暂时不可用，请稍后再试。'); }
       finally { if (generation === identityGeneration.current && request === chatRequestRef.current) setChatLoading(false); }
     } else { ++chatRequestRef.current; setChat(null); setChatLoading(false); }
+  }
+
+  function adoptAnkiCards(cards: RemoteAnkiCard[]) {
+    const display = cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') }));
+    ankiRemoteIds.current = new Set(cards.map(card => card.id));
+    ankiPendingIds.current = new Map();
+    ankiCardsRef.current = display;
+    setAnkiSchedules(Object.fromEntries(cards.map(card => [card.id, card])));
+    setAnkiCards(display);
+  }
+
+  async function loadAnkiData(generation: number) {
+    setAnkiLoadFailed(false);
+    try {
+      let decks = await listDecks();
+      if (generation !== identityGeneration.current) return;
+      const deck = decks[0] ?? await createDeck('默认牌组');
+      if (generation !== identityGeneration.current) return;
+      if (!decks.length) decks = [deck];
+      const cards = await listAnkiCards(deck.id);
+      if (generation !== identityGeneration.current) return;
+      const lastStudyAt = await deckStudySummary(deck.id);
+      if (generation !== identityGeneration.current) return;
+      if (identityRef.current) {
+        for (const card of cards) {
+          const key = ankiReviewKey(identityRef.current, card.id);
+          const pending = readPendingAnkiReview(key);
+          if (!pending) continue;
+          try {
+            const committed = await getReviewRequest(pending.requestId);
+            if (generation !== identityGeneration.current) return;
+            if (committed?.cardId === card.id && committed.rating === pending.rating) sessionStorage.removeItem(key);
+          } catch {
+            // A failed read cannot prove whether the request committed; retain its ID for a safe retry.
+          }
+        }
+      }
+      setAnkiDecks(decks);
+      setAnkiLastStudyAt(lastStudyAt);
+      ankiDeckIdRef.current = deck.id;
+      setAnkiDeckId(deck.id);
+      ankiSyncHealthy.current = true;
+      setAnkiRemoteReady(true);
+      setAnkiLoadFailed(false);
+      adoptAnkiCards(cards);
+      setError(current => current.startsWith('闪卡') ? '' : current);
+    } catch {
+      if (generation !== identityGeneration.current) return;
+      ankiSyncHealthy.current = false;
+      setAnkiRemoteReady(false);
+      setAnkiLoadFailed(true);
+      setAnkiOpenCardId(null);
+      if (!ankiDeckIdRef.current) {
+        setAnkiDecks([]);
+        setAnkiLastStudyAt(null);
+        ankiCardsRef.current = [];
+        setAnkiCards([]);
+        setAnkiSchedules({});
+      }
+      setError('闪卡服务暂时不可用，已暂停编辑；旧版浏览器卡片不会自动显示或归入当前账号。');
+    }
   }
 
   async function loadWorkspaceData(libraryId: string, generation: number) {
     const items = await listEntries(libraryId);
     if (generation !== identityGeneration.current) return;
     setEntries(items);
+    setSidebarOrder(current => ({
+      ...Object.fromEntries(Object.entries(current).filter(([group]) => !group.startsWith('notes:'))),
+      ...noteOrdersFromEntries(items),
+    }));
     const remoteFolders = items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null }));
     setFolders(remoteFolders);
-    setPlacements(Object.fromEntries(items.filter(item => item.kind === 'note' && item.parent_id).map(item => [item.id, item.parent_id])));
-    try {
-      let decks = await listDecks();
-      const deck = decks[0] ?? await createDeck('默认牌组');
-      if (!decks.length) decks = [deck];
-      setAnkiDecks(decks);
-      setAnkiDeckId(deck.id);
-      setAnkiRemoteReady(true);
-      const cards = await listAnkiCards(deck.id);
-      ankiRemoteIds.current = new Set(cards.map(card => card.id));
-      setAnkiCards(cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') })));
-    } catch {
-      setAnkiDecks([localAnkiDeck]);
-      setAnkiDeckId(localAnkiDeck.id);
-      setAnkiRemoteReady(false);
-      setAnkiOpenCardId(null);
-      ankiRemoteIds.current = new Set();
-      const cachedCards = localData<AnkiCard[]>('tjuclaw.anki.cards.v1', []);
-      setAnkiCards(Array.isArray(cachedCards) ? cachedCards : []);
-    }
+    setPlacements(Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])));
+    await loadAnkiData(generation);
+    if (generation !== identityGeneration.current) return;
     // A new workspace always contains the guide agent, but opening that agent
     // automatically would switch the user away from the notes home and hide
     // the primary "new note" action. Only restore a real note here; otherwise
     // keep the notes home visible.
-    const firstNote = items.find(item => item.kind === 'note');
+    const firstNote = items.find(item => item.kind === 'note' || item.kind === 'rich_text');
     if (firstNote) void openEntry(firstNote.id, firstNote);
     else {
       ++chatRequestRef.current;
@@ -711,7 +1054,7 @@ export default function Workspace() {
       await loadWorkspaceData(target.id, generation);
     } catch (err) {
       if (generation !== identityGeneration.current) return;
-      if (err instanceof AuthError && err.status === 401) location.replace('/auth/login');
+      if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
       else setError('工作区暂时无法连接，请稍后重试。');
     } finally {
       if (generation === identityGeneration.current) setLoading(false);
@@ -723,19 +1066,23 @@ export default function Workspace() {
       const libs = await listLibraries();
       if (generation !== identityGeneration.current) return;
       setLibraries(libs);
+      const verification = await workspaceVerification();
+      if (generation !== identityGeneration.current) return;
       const activeLibrary = libs[0];
       if (!activeLibrary) {
-        setWorkspaceGate({ workspaceId: null, workspaceName: '', mode: 'setup', firstWorkspace: true });
+        setWorkspaceGate({ workspaceId: null, workspaceName: '', mode: 'setup', verification, firstWorkspace: true });
         return;
       }
       const identity = identityRef.current;
       if (!identity) return;
-      const configured = hasWorkspacePassphrase(identity, activeLibrary.id);
-      if (!configured || !isWorkspaceUnlocked(identity, activeLibrary.id)) {
+      const passphraseState = await workspacePassphraseState(identity, activeLibrary.id, verification);
+      if (generation !== identityGeneration.current) return;
+      if (!passphraseState.unlocked) {
         setWorkspaceGate({
           workspaceId: activeLibrary.id,
           workspaceName: activeLibrary.name,
-          mode: configured ? 'unlock' : 'setup',
+          mode: passphraseState.mode,
+          verification,
         });
         return;
       }
@@ -743,7 +1090,7 @@ export default function Workspace() {
       await loadWorkspaceData(activeLibrary.id, generation);
     } catch (err) {
       if (generation !== identityGeneration.current) return;
-      if (err instanceof AuthError && err.status === 401) location.replace('/auth/login');
+      if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
       else setError('工作区暂时无法连接，请稍后重试。');
     } finally {
       if (generation === identityGeneration.current) setLoading(false);
@@ -758,24 +1105,41 @@ export default function Workspace() {
         if (!active) return;
         if (!next) { location.replace('/auth/login'); return; }
         if (identityRef.current === next.id) return;
+        clearRemoteWorkspaceUnlocks();
+        clearPrivateDrafts();
         identityRef.current = next.id;
         const generation = ++identityGeneration.current;
         window.clearTimeout(saveTimer.current);
         setSession(next);
         setLibraries([]);
         setEntries([]);
+        ankiDeckIdRef.current = null;
+        ++ankiDeckRequest.current;
+        pendingStudyDeckRef.current = null;
         setAnkiDeckId(null);
         setAnkiDecks([]);
+        ankiDeckMutation.current = false;
+        setAnkiDeckBusy(false);
+        setAnkiLastStudyAt(null);
         setAnkiRemoteReady(false);
+        setAnkiLoadFailed(false);
+        try { setLegacyAnkiBackupAvailable(localStorage.getItem('tjuclaw.anki.cards.v1') !== null); }
+        catch { setLegacyAnkiBackupAvailable(false); }
+        ankiSyncHealthy.current = false;
         ankiRemoteIds.current = new Set();
+        ankiPendingIds.current = new Map();
+        ankiCardsRef.current = [];
+        ankiWriteQueue.current = Promise.resolve();
         setAnkiCards([]);
+        setAnkiSchedules({});
         setWorkspaceGate(null);
         setActiveToolId('schedule');
         const savedSort = localData<Partial<SidebarSort>>('tjuclaw.sidebar.sort.v1', {});
         setSidebarSort(Object.fromEntries((Object.keys(defaultSidebarSort) as SidebarView[]).map(section =>
           [section, Object.hasOwn(sortLabels, savedSort?.[section] ?? '') ? savedSort[section] : 'manual'])) as SidebarSort);
         const savedOrder = localData<Record<string, string[]>>('tjuclaw.sidebar.order.v1', {});
-        setSidebarOrder(savedOrder && typeof savedOrder === 'object' && !Array.isArray(savedOrder) ? savedOrder : {});
+        setSidebarOrder(savedOrder && typeof savedOrder === 'object' && !Array.isArray(savedOrder)
+          ? Object.fromEntries(Object.entries(savedOrder).filter(([group]) => !group.startsWith('notes:'))) : {});
         setSortMenuOpen(false);
         setSelected(null);
         setSelectedId(null);
@@ -788,8 +1152,15 @@ export default function Workspace() {
         setActiveTabKey('home');
         draftsRef.current = {};
         chatCacheRef.current = {};
+        pendingChatRequestRef.current = null;
         pendingSave.current = null;
+        failedSave.current = null;
+        conflictDraft.current = null;
+        setSaveFailedId(null);
         saveVersions.current = {};
+        entryRevisions.current = {};
+        conflictedEntries.current.clear();
+        setSaveConflictId(null);
         setChatLoading(false);
         setChatSending(false);
         sendingRef.current = false;
@@ -807,6 +1178,12 @@ export default function Workspace() {
     document.body.classList.add('workspace-page');
     return () => document.body.classList.remove('workspace-page');
   }, []);
+
+  useEffect(() => {
+    if (pendingStudyDeckRef.current !== ankiDeckId || !ankiCards.length || view !== 'anki') return;
+    pendingStudyDeckRef.current = null;
+    ankiWorkspaceRef.current?.startStudy();
+  }, [ankiCards, ankiDeckId, view]);
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 720px)');
@@ -876,22 +1253,28 @@ export default function Workspace() {
   }, [railOpen, settingsOpen, moveEntryId, commandOpen]);
 
   function queueSave(nextTitle: string, nextBody: string) {
-    if (!selected || selected.kind !== 'note') return;
+    if (!selected || (selected.kind !== 'note' && selected.kind !== 'rich_text')) return;
+    if (conflictedEntries.current.has(selected.id)) return;
     const generation = identityGeneration.current;
     const id = selected.id;
     const version = (saveVersions.current[id] ?? 0) + 1;
     saveVersions.current[id] = version;
     pendingSave.current = { id, title: nextTitle, body: nextBody, generation, version };
+    if (failedSave.current?.id === id) {
+      failedSave.current = null;
+      setSaveFailedId(null);
+    }
     setEntries(items => items.map(item => item.id === id ? { ...item, title: nextTitle, body: nextBody } : item));
-    setTabs(current => current.map(tab => tab.entryId === id ? { ...tab, title: nextTitle || '未命名笔记' } : tab));
+    setTabs(current => current.map(tab => tab.entryId === id ? { ...tab, title: nextTitle || (selected.kind === 'rich_text' ? '未命名文档' : '未命名笔记') } : tab));
     window.clearTimeout(saveTimer.current);
     setSaving(true);
     saveTimer.current = window.setTimeout(flushPendingSave, 650);
   }
 
   function switchView(next: SidebarView) {
+    if (next !== view && !canLeaveDraft()) return;
     flushPendingSave();
-    const matches = (tab: WorkspaceTab) => next === 'notes' ? tab.kind === 'note' || tab.kind === 'blank'
+    const matches = (tab: WorkspaceTab) => next === 'notes' ? tab.kind === 'note' || tab.kind === 'rich_text' || tab.kind === 'file' || tab.kind === 'blank'
       : next === 'sessions' ? tab.kind === 'agent' || tab.kind === 'agent-blank'
         : next === 'anki' ? tab.kind === 'anki' : next === 'tools' && tab.kind === 'tool';
     const match = tabs.find(tab => tab.key === activeTabRef.current && matches(tab))
@@ -910,6 +1293,7 @@ export default function Workspace() {
   }
 
   async function createNote(noteTitle = '未命名笔记', initialBody = '', folderId?: string) {
+    if (!canLeaveDraft()) return;
     if (!library) return;
     const generation = identityGeneration.current;
     try {
@@ -922,7 +1306,47 @@ export default function Workspace() {
     } catch { if (generation === identityGeneration.current) setError('暂时无法创建笔记。'); }
   }
 
+  async function createRichText(folderId?: string) {
+    if (!canLeaveDraft()) return;
+    if (!library) return;
+    const generation = identityGeneration.current;
+    try {
+      const entry = await createEntry(library.id, { kind: 'rich_text', title: '未命名文档', body: EMPTY_RICH_TEXT, ...(folderId ? { parent_id: folderId } : {}) });
+      if (generation !== identityGeneration.current) return;
+      setEntries(items => [...items, entry]);
+      if (folderId) persistPlacements({ ...placements, [entry.id]: folderId });
+      void openEntry(entry.id, entry);
+      window.setTimeout(() => titleRef.current?.focus(), 0);
+    } catch { if (generation === identityGeneration.current) setError('暂时无法创建富文本文档。'); }
+  }
+
+  function uploadPicker(folderId?: string) {
+    uploadParent.current = folderId;
+    uploadRef.current?.click();
+  }
+
+  async function handleFileUpload(files: FileList | null) {
+    if (!canLeaveDraft()) return;
+    if (!library || !files?.length) return;
+    const generation = identityGeneration.current;
+    const folderId = uploadParent.current;
+    for (const file of Array.from(files)) {
+      if (!file.size || file.size > 8 * 1024 * 1024) {
+        setError(`“${file.name}”超过当前 8 MB 的单文件上限，或是空文件。`);
+        continue;
+      }
+      try {
+        const entry = await uploadFile(library.id, file, folderId);
+        if (generation !== identityGeneration.current) return;
+        setEntries(items => [...items, entry]);
+        if (folderId) setPlacements(current => ({ ...current, [entry.id]: folderId }));
+        void openEntry(entry.id, entry);
+      } catch { if (generation === identityGeneration.current) setError(`“${file.name}”上传失败。`); }
+    }
+  }
+
   async function deleteNote(id: string) {
+    if (!canLeaveDraft()) return;
     const item = entries.find(entry => entry.id === id);
     if (!item || !window.confirm(`删除“${item.title || '未命名笔记'}”？`)) return;
     try {
@@ -937,7 +1361,7 @@ export default function Workspace() {
         const historyIndex = Math.min(tab.historyIndex, history.length - 1);
         const nextId = history[historyIndex];
         const nextEntry = entries.find(entry => entry.id === nextId);
-        return nextEntry ? { ...tab, history, historyIndex, entryId: nextId, title: nextEntry.title, kind: nextEntry.kind === 'agent' ? 'agent' as const : 'note' as const }
+        return nextEntry ? { ...tab, history, historyIndex, entryId: nextId, title: nextEntry.title, kind: nextEntry.kind === 'agent' ? 'agent' as const : nextEntry.kind === 'rich_text' ? 'rich_text' as const : nextEntry.kind === 'file' ? 'file' as const : 'note' as const }
           : { ...tab, history: [], historyIndex: -1, entryId: undefined, title: '新建笔记', kind: 'blank' as const };
       });
       setTabs(nextTabs);
@@ -957,84 +1381,284 @@ export default function Workspace() {
     const entryId = selectedId;
     const request = chatRequestRef.current;
     const generation = identityGeneration.current;
+    const identity = identityRef.current;
+    if (!identity) return;
+    const pending = pendingChatRequestRef.current?.sessionId === currentId
+      ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
+    if (pending?.sessionId === currentId && pending.content !== undefined && pending.content !== text) {
+      setChatError('上次消息结果未确认，请先重试原消息，不能用新内容覆盖。');
+      return;
+    }
     sendingRef.current = true;
     setChatSending(true);
+    let digest: string;
+    try {
+      digest = await chatDigest(text);
+    } catch {
+      sendingRef.current = false;
+      setChatSending(false);
+      setChatError('无法校验消息重试，请检查浏览器安全环境后再试。');
+      return;
+    }
+    if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
+      sendingRef.current = false;
+      if (generation === identityGeneration.current) setChatSending(false);
+      return;
+    }
+    if (pending?.digest && pending.digest !== digest) {
+      sendingRef.current = false;
+      setChatSending(false);
+      setChatError('上次消息结果未确认，请先重试原消息，不能用新内容覆盖。');
+      return;
+    }
+    const requestId = pending?.sessionId === currentId ? pending.id : crypto.randomUUID().replaceAll('-', '');
+    pendingChatRequestRef.current = { sessionId: currentId, content: text, id: requestId, digest };
+    try {
+      sessionStorage.setItem(pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
+    } catch { /* In-memory retries still work when browser storage is disabled. */ }
     setChatError('');
     try {
-      const next = await sendMessage(currentId, text);
+      const next = await sendMessage(currentId, text, requestId);
+      clearPendingChat(identity, currentId, requestId);
+      if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
       if (generation === identityGeneration.current && request === chatRequestRef.current) {
         if (entryId) { chatCacheRef.current[entryId] = next; draftsRef.current[entryId] = ''; }
         setChat(next);
         setDraft('');
       }
     } catch {
-      if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送失败，草稿已保留，请重试。');
+      try {
+        const latest = await getSession(currentId);
+        if (latest.messages?.some(message => message.role === 'user' && message.client_request_id === requestId && message.content === text)) {
+          clearPendingChat(identity, currentId, requestId);
+          if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
+          if (generation === identityGeneration.current && request === chatRequestRef.current) {
+            if (entryId) { chatCacheRef.current[entryId] = latest; draftsRef.current[entryId] = ''; }
+            setChat(latest);
+            setDraft('');
+          }
+          return;
+        }
+      } catch { /* Retain the request id when the outcome cannot be read back. */ }
+      if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
     } finally {
       sendingRef.current = false;
       if (generation === identityGeneration.current) setChatSending(false);
     }
   }
 
-  function saveLocalAnkiCards(cards: AnkiCard[]) {
-    setAnkiRemoteReady(false);
-    setAnkiDecks([localAnkiDeck]);
-    setAnkiDeckId(localAnkiDeck.id);
-    ankiRemoteIds.current = new Set();
-    setAnkiCards(cards);
-    if (identityRef.current) localStorage.setItem(`tjuclaw.anki.cards.v1.${identityRef.current}`, JSON.stringify(cards));
-  }
-
   function saveAnkiCards(cards: AnkiCard[]) {
+    if (!ankiSyncHealthy.current || !ankiDeckId) return;
+    const previous = ankiCardsRef.current;
+    ankiCardsRef.current = cards;
     setAnkiCards(cards);
-    if (!ankiRemoteReady || !ankiDeckId) {
-      if (identityRef.current) localStorage.setItem(`tjuclaw.anki.cards.v1.${identityRef.current}`, JSON.stringify(cards));
-      return;
-    }
+    const deckId = ankiDeckId;
+    const generation = identityGeneration.current;
+    const oldCards = new Map(previous.map(card => [card.id, card]));
     const nextIds = new Set(cards.map(card => card.id));
-    for (const oldId of ankiRemoteIds.current) {
-      if (!nextIds.has(oldId)) void deleteAnkiCard(oldId).catch(() => setError('删除闪卡失败，请稍后再试。'));
-    }
-    for (const card of cards) {
-      if (ankiRemoteIds.current.has(card.id)) {
-        void patchAnkiCard(card.id, { front: card.front, back: card.back, tags: card.tags.split(/\s+/).filter(Boolean) }).catch(() => setError('保存闪卡失败，请稍后再试。'));
+    const changed = cards.filter(card => {
+      const old = oldCards.get(card.id);
+      return !old || old.front !== card.front || old.back !== card.back || old.tags !== card.tags;
+    });
+    const removed = previous.filter(card => !nextIds.has(card.id));
+    ankiWriteQueue.current = ankiWriteQueue.current.then(async () => {
+      if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
+      for (const card of removed) {
+        const id = ankiPendingIds.current.get(card.id) ?? card.id;
+        if (!ankiRemoteIds.current.has(id)) continue;
+        await deleteAnkiCard(id);
+        ankiRemoteIds.current.delete(id);
+        ankiPendingIds.current.delete(card.id);
       }
-    }
-    ankiRemoteIds.current = nextIds;
+      for (const card of changed) {
+        const id = ankiPendingIds.current.get(card.id) ?? card.id;
+        const input = { front: card.front, back: card.back, tags: card.tags.split(/\s+/).filter(Boolean) };
+        if (ankiRemoteIds.current.has(id)) {
+          await patchAnkiCard(id, input);
+        } else if (input.front.trim()) {
+          const created = await createAnkiCard(deckId, input);
+          ankiRemoteIds.current.add(created.id);
+          ankiPendingIds.current.set(card.id, created.id);
+        }
+      }
+    }).catch(() => {
+      if (generation === identityGeneration.current) {
+        ankiSyncHealthy.current = false;
+        setAnkiRemoteReady(false);
+        setAnkiLoadFailed(true);
+        setError('闪卡同步结果未确认，已暂停编辑；请先导出当前卡片备份，再重新连接。');
+      }
+    });
   }
 
-  async function addAnkiCard() {
-    if (!ankiDeckId) return;
-    if (!ankiRemoteReady) {
-      const card = { id: crypto.randomUUID(), front: '', back: '', tags: '' };
-      setAnkiCards(cards => [...cards, card]);
-      window.setTimeout(() => ankiWorkspaceRef.current?.openCard(card.id), 0);
-      return;
-    }
+  async function addAnkiCard(): Promise<AnkiCard | null> {
+    if (!ankiDeckId || !ankiSyncHealthy.current) return null;
     try {
+      const generation = identityGeneration.current;
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current) return null;
       const card = await createAnkiCard(ankiDeckId, { front: '', back: '', tags: [] });
+      if (generation !== identityGeneration.current) return null;
       ankiRemoteIds.current.add(card.id);
-      setAnkiCards(cards => [...cards, { id: card.id, front: card.front, back: card.back, tags: '' }]);
-      window.setTimeout(() => ankiWorkspaceRef.current?.openCard(card.id), 0);
+      const display = { id: card.id, front: card.front, back: card.back, tags: '' };
+      ankiCardsRef.current = [...ankiCardsRef.current, display];
+      setAnkiCards(ankiCardsRef.current);
+      setAnkiSchedules(current => ({ ...current, [card.id]: card }));
+      return display;
     } catch {
-      const card = { id: crypto.randomUUID(), front: '', back: '', tags: '' };
-      saveLocalAnkiCards([...ankiCards, card]);
-      window.setTimeout(() => ankiWorkspaceRef.current?.openCard(card.id), 0);
+      setError('新建闪卡失败，请稍后重试。');
+      return null;
+    }
+  }
+
+  async function reviewAnki(id: string, rating: 1 | 2 | 3 | 4) {
+    const identity = identityRef.current;
+    if (!identity || !ankiSyncHealthy.current) throw new Error('review_unavailable');
+    const key = ankiReviewKey(identity, id);
+    const pending = readPendingAnkiReview(key);
+    if (pending && pending.rating !== rating) {
+      setError('上次复习结果未确认，请使用相同评分重试，或重新打开牌组确认进度。');
+      throw new Error('review_rating_mismatch');
+    }
+    const requestId = pending?.requestId ?? crypto.randomUUID().replaceAll('-', '');
+    if (!pending) sessionStorage.setItem(key, JSON.stringify({
+      requestId, rating, repsBefore: ankiSchedules[id]?.reps ?? 0,
+    } satisfies PendingAnkiReview));
+    try {
+      await ankiWriteQueue.current;
+      if (identity !== identityRef.current || !ankiSyncHealthy.current) throw new Error('review_unavailable');
+      const resolved = ankiPendingIds.current.get(id) ?? id;
+      const deckID = ankiDeckIdRef.current;
+      const { card, reviewedAt } = await reviewAnkiCard(resolved, rating, requestId);
+      if (identity !== identityRef.current) return;
+      sessionStorage.removeItem(key);
+      if (deckID === ankiDeckIdRef.current) {
+        setAnkiSchedules(current => ({ ...current, [id]: card }));
+        setAnkiLastStudyAt(current => Math.max(current ?? 0, reviewedAt));
+      }
+    } catch {
+      if (identity === identityRef.current) setError('复习结果未确认；请用相同评分重试，系统不会重复计入。');
+      throw new Error('review_not_saved');
     }
   }
 
   async function selectAnkiDeck(deck: RemoteAnkiDeck) {
+    if (ankiDeckMutation.current || !ankiSyncHealthy.current) return;
     if (deck.id === ankiDeckId) {
       ankiWorkspaceRef.current?.startStudy();
       return;
     }
+    const generation = identityGeneration.current;
+    const request = ++ankiDeckRequest.current;
     try {
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current || request !== ankiDeckRequest.current) return;
       const cards = await listAnkiCards(deck.id);
+      if (generation !== identityGeneration.current || request !== ankiDeckRequest.current) return;
+      const lastStudyAt = await deckStudySummary(deck.id);
+      if (generation !== identityGeneration.current || request !== ankiDeckRequest.current) return;
+      ankiDeckIdRef.current = deck.id;
       setAnkiDeckId(deck.id);
-      ankiRemoteIds.current = new Set(cards.map(card => card.id));
-      setAnkiCards(cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') })));
-      window.setTimeout(() => ankiWorkspaceRef.current?.startStudy(), 0);
+      setAnkiLastStudyAt(lastStudyAt);
+      pendingStudyDeckRef.current = deck.id;
+      adoptAnkiCards(cards);
     } catch {
-      setError('暂时无法打开这个牌组，请稍后重试。');
+      if (generation === identityGeneration.current && request === ankiDeckRequest.current) setError('暂时无法打开这个牌组，请稍后重试。');
+    }
+  }
+
+  async function createAnkiDeck() {
+    if (!ankiSyncHealthy.current || ankiDeckMutation.current) return;
+    const name = window.prompt('新牌组名称');
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 120) { setError('牌组名称需为 1–120 个字符。'); return; }
+    const generation = identityGeneration.current;
+    ankiDeckMutation.current = true;
+    setAnkiDeckBusy(true);
+    try {
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
+      const deck = await createDeck(trimmed);
+      if (generation !== identityGeneration.current) return;
+      ++ankiDeckRequest.current;
+      setAnkiDecks(current => [...current, deck]);
+      ankiDeckIdRef.current = deck.id;
+      setAnkiDeckId(deck.id);
+      setAnkiLastStudyAt(null);
+      pendingStudyDeckRef.current = null;
+      adoptAnkiCards([]);
+    } catch {
+      if (generation === identityGeneration.current) {
+        ankiSyncHealthy.current = false;
+        setAnkiRemoteReady(false);
+        setAnkiLoadFailed(true);
+        setError('创建牌组的结果未确认，请重新连接后核对牌组列表，勿立即重复创建。');
+      }
+    } finally {
+      if (generation === identityGeneration.current) {
+        ankiDeckMutation.current = false;
+        setAnkiDeckBusy(false);
+      }
+    }
+  }
+
+  async function renameAnkiDeckAction(deck: RemoteAnkiDeck) {
+    if (!ankiSyncHealthy.current || ankiDeckMutation.current) return;
+    const name = window.prompt('重命名牌组', deck.name);
+    if (name === null || name.trim() === deck.name) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 120) { setError('牌组名称需为 1–120 个字符。'); return; }
+    const generation = identityGeneration.current;
+    ankiDeckMutation.current = true;
+    setAnkiDeckBusy(true);
+    try {
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
+      const updated = await renameAnkiDeck(deck.id, trimmed);
+      if (generation !== identityGeneration.current) return;
+      setAnkiDecks(current => current.map(item => item.id === updated.id ? updated : item));
+    } catch {
+      if (generation === identityGeneration.current) setError('牌组改名结果未确认，请重新打开工作区核对。');
+    } finally {
+      if (generation === identityGeneration.current) {
+        ankiDeckMutation.current = false;
+        setAnkiDeckBusy(false);
+      }
+    }
+  }
+
+  async function removeAnkiDeck(deck: RemoteAnkiDeck) {
+    if (!ankiSyncHealthy.current || ankiDeckMutation.current) return;
+    if (ankiDecks.length <= 1) { setError('请至少保留一个牌组；可以删除牌组中的卡片。'); return; }
+    if (!window.confirm(`删除牌组“${deck.name}”及其中全部卡片？此操作无法撤销。`)) return;
+    const generation = identityGeneration.current;
+    ankiDeckMutation.current = true;
+    setAnkiDeckBusy(true);
+    try {
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
+      await deleteAnkiDeck(deck.id);
+      if (generation !== identityGeneration.current) return;
+      ++ankiDeckRequest.current;
+      setAnkiDecks(current => current.filter(item => item.id !== deck.id));
+      if (ankiDeckIdRef.current === deck.id) {
+        ankiSyncHealthy.current = false;
+        setAnkiRemoteReady(false);
+        await loadAnkiData(generation);
+      }
+    } catch {
+      if (generation === identityGeneration.current) {
+        ankiSyncHealthy.current = false;
+        setAnkiRemoteReady(false);
+        setAnkiLoadFailed(true);
+        setError('删除牌组的结果未确认，请重新连接后核对牌组列表。');
+      }
+    } finally {
+      if (generation === identityGeneration.current) {
+        ankiDeckMutation.current = false;
+        setAnkiDeckBusy(false);
+      }
     }
   }
 
@@ -1044,18 +1668,20 @@ export default function Workspace() {
   }
 
   async function addSampleCards() {
-    if (!ankiDeckId) return;
-    if (!ankiRemoteReady) {
-      saveAnkiCards(sampleCards.map(card => ({ ...card, id: crypto.randomUUID() })));
-      return;
-    }
+    if (!ankiDeckId || !ankiSyncHealthy.current) return;
     try {
-      const cards = await Promise.all(sampleCards.map(card => createAnkiCard(ankiDeckId, { ...card, tags: card.tags.split(/\s+/) })));
+      const deckId = ankiDeckId;
+      const generation = identityGeneration.current;
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current || deckId !== ankiDeckIdRef.current) return;
+      const cards = await Promise.all(sampleCards.map(card => createAnkiCard(deckId, { ...card, tags: card.tags.split(/\s+/) })));
+      if (generation !== identityGeneration.current || deckId !== ankiDeckIdRef.current) return;
       cards.forEach(card => ankiRemoteIds.current.add(card.id));
-      setAnkiCards(current => [...current, ...cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') }))]);
-    } catch {
-      saveLocalAnkiCards([...ankiCards, ...sampleCards.map(card => ({ ...card, id: crypto.randomUUID() }))]);
-    }
+      const display = cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') }));
+      ankiCardsRef.current = [...ankiCardsRef.current, ...display];
+      setAnkiCards(ankiCardsRef.current);
+      setAnkiSchedules(current => ({ ...current, ...Object.fromEntries(cards.map(card => [card.id, card])) }));
+    } catch { setError('示例闪卡未全部保存，请重新打开牌组检查。'); }
   }
 
   async function exportAnki() {
@@ -1068,7 +1694,55 @@ export default function Workspace() {
     } catch { setError('导出闪卡失败，请稍后再试。'); }
   }
 
+  function exportLegacyAnkiBackup() {
+    try {
+      const raw = localStorage.getItem('tjuclaw.anki.cards.v1');
+      if (raw === null) return;
+      const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'tjuclaw-legacy-browser-cards.json';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('无法读取旧版浏览器卡片，请检查浏览器存储权限。');
+    }
+  }
+
+  async function importAnki(file: File) {
+    if (!ankiRemoteReady || !ankiDeckId) return;
+    const generation = identityGeneration.current;
+    if (file.size > 200 * 1024) {
+      setError('导入文件过大，请使用小于 200 KB 的 TSV 文件。');
+      throw new Error('anki_import_too_large');
+    }
+    try {
+      const tsv = await file.text();
+      if (!tsv.split(/\r?\n/).some(line => line.split('\t').length >= 2)) {
+        setError('请选择包含正面和背面两列的 TSV 文件。');
+        throw new Error('anki_import_invalid');
+      }
+      await ankiWriteQueue.current;
+      if (generation !== identityGeneration.current) throw new Error('anki_identity_changed');
+      const name = file.name.replace(/\.(tsv|txt)$/i, '').trim().slice(0, 80) || '导入牌组';
+      const imported = await importAnkiDeck(name, tsv);
+      if (generation !== identityGeneration.current) return;
+      setAnkiDecks(current => [...current, imported.deck]);
+      ankiDeckIdRef.current = imported.deck.id;
+      setAnkiDeckId(imported.deck.id);
+      adoptAnkiCards(imported.cards);
+    } catch (cause) {
+      if (generation === identityGeneration.current && !(cause instanceof Error && cause.message.startsWith('anki_import_'))) {
+        setError('导入闪卡失败，原有牌组未更改；请检查文件格式后重试。');
+      }
+      throw cause;
+    }
+  }
+
   function logoutWorkspace() {
+    if (hasPrivateDrafts() && !window.confirm('私密笔记还有未保存的草稿。退出登录会丢失草稿，确定继续吗？')) return;
+    clearRemoteWorkspaceUnlocks();
+    clearPrivateDrafts();
     if (session && library) clearWorkspaceUnlock(session.id, library.id);
     void logout();
   }
@@ -1118,7 +1792,7 @@ export default function Workspace() {
   });
 
   if (loading || !session) return <div className="workspace-loading"><Loader2 className="animate-spin" size={18} /> 正在打开你的知识花园…</div>;
-  if (workspaceGate) return <WorkspacePassphraseGate identity={session.id} workspaceId={workspaceGate.workspaceId} workspaceName={workspaceGate.workspaceName} mode={workspaceGate.mode} firstWorkspace={workspaceGate.firstWorkspace} onUnlocked={continueAfterWorkspaceUnlock} />;
+  if (workspaceGate) return <WorkspacePassphraseGate identity={session.id} workspaceId={workspaceGate.workspaceId} workspaceName={workspaceGate.workspaceName} mode={workspaceGate.mode} verification={workspaceGate.verification} firstWorkspace={workspaceGate.firstWorkspace} accountEmail={session.email} onUnlocked={continueAfterWorkspaceUnlock} />;
 
   return <div className={`obsidian-app${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) ${railOpen ? railWidth : 0}px` }}>
     <motion.aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}
@@ -1126,33 +1800,35 @@ export default function Workspace() {
       transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}>
       <div className="sidebar-activity" aria-label="工作区导航"><div className="activity-main">{([
         { id: 'notes', label: '资料夹', Icon: LibraryBig },
+        { id: 'git', label: 'Git 笔记', Icon: GitFork },
         { id: 'sessions', label: 'Agent', Icon: MousePointer2 },
         { id: 'anki', label: '记忆闪卡', Icon: Brain },
         { id: 'plugins', label: '插件', Icon: Blocks },
         { id: 'tools', label: '小工具', Icon: Wrench },
       ] as const).map(({ id, label, Icon }) => <motion.button key={id} className={view === id ? 'is-active' : ''} type="button" title={label} aria-label={label} aria-current={view === id ? 'page' : undefined} whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => switchView(id)}>{view === id ? <motion.span className="activity-current-mark" layoutId="workspace-active-view" transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }} /> : null}<Icon size={19} /><span>{label}</span></motion.button>)}</div><motion.button className="activity-settings" type="button" title="知识图谱" aria-label="知识图谱" whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => setGraphOpen(true)}><Network size={19} /><span>图谱</span></motion.button></div>
       <div className="sidebar-pane">
-      <div className="sidebar-pane-header"><span>{view === 'notes' ? '资料夹' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆闪卡' : view === 'tools' ? '小工具' : '插件'}</span><button type="button" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button></div>
-      {view !== 'plugins' && view !== 'tools' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索笔记..." /></label> : null}
-      <div className="tree-heading"><span>{view === 'notes' ? '笔记库' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆卡片' : view === 'tools' ? '校园与专注' : '内置能力'}</span>
+      <div className="sidebar-pane-header"><span>{view === 'notes' ? '资料夹' : view === 'git' ? 'Git 笔记' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆闪卡' : view === 'tools' ? '小工具' : '插件'}</span><button type="button" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button></div>
+      {view !== 'plugins' && view !== 'tools' && view !== 'git' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索笔记..." /></label> : null}
+      <div className="tree-heading"><span>{view === 'notes' ? '笔记库' : view === 'git' ? 'Forgejo 工作区' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆卡片' : view === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
-          {view === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记"><Plus size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
-          {view === 'anki' ? <button type="button" onClick={() => void addAnkiCard()} aria-label="新建卡片"><Plus size={15} /></button> : null}
-          <div className="sidebar-sort-anchor" ref={sortMenuRef}>
+          {view === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
+          {view === 'anki' ? <><button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => void createAnkiDeck()} aria-label="新建牌组" title="新建牌组"><FolderPlus size={15} /></button><button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => void addAnkiCard().then(card => { if (card) ankiWorkspaceRef.current?.openCard(card.id); })} aria-label="新建卡片"><Plus size={15} /></button></> : null}
+          {view !== 'git' ? <div className="sidebar-sort-anchor" ref={sortMenuRef}>
             <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[view]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
             {sortMenuOpen ? <div className="sidebar-sort-menu" role="menu" aria-label="侧栏排序方式">
               {(view === 'notes' || view === 'sessions' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[view] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[view] === mode ? <Check size={14} /> : null}</button>)}
               <small>拖动或在项目操作中上移/下移，可改为手动排序</small>
             </div> : null}
-          </div>
+          </div> : null}
         </div>
       </div>
+      <input ref={uploadRef} type="file" multiple hidden aria-label="上传课程资料" onChange={event => { void handleFileUpload(event.target.files); event.target.value = ''; }} />
       <nav className="obsidian-tree">
-        {view === 'tools' ? <div className="campus-sidebar-list">{toolRows}</div> : view === 'plugins' ? <>
+        {view === 'git' ? <p className="plugin-sidebar-note">Git 笔记从 Forgejo 已提交文件读取。打开右侧工作区查看、检索和编辑；旧资料夹不在这里显示。</p> : view === 'tools' ? <div className="campus-sidebar-list">{toolRows}</div> : view === 'plugins' ? <>
           {orderedItems(siblings('plugins'), sidebarSort.plugins, sidebarOrder.plugins).map(item => { const plugin = builtInPlugins.find(candidate => `plugin:${candidate.id}` === item.id)!; const Icon = plugin.Icon; return sidebarRow(item.id, 'plugins', plugin.name, <Icon size={15} />, () => { setActivePluginId(plugin.id); if (isMobile) setSidebarOpen(false); }, activePluginId === plugin.id); })}
           <p className="plugin-sidebar-note">第三方插件尚未开放</p>
         </> : view === 'anki' ? <div className="anki-sidebar-list">
-          {ankiDecks.map(deck => <button key={deck.id} type="button" className={`anki-sidebar-deck${ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => void selectAnkiDeck(deck)}><Brain size={16} /><span><strong>{deck.name}</strong><small>{ankiDeckId === deck.id ? `${ankiCards.length} 张卡片` : '牌组'}</small></span><ArrowRight size={14} /></button>)}
+          {ankiDecks.map(deck => <div key={deck.id} className="anki-sidebar-deck-row"><button type="button" disabled={ankiDeckBusy} className={`anki-sidebar-deck${ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => void selectAnkiDeck(deck)}><Brain size={16} /><span><strong>{deck.name}</strong><small>{ankiDeckId === deck.id ? `${ankiCards.length} 张卡片` : '牌组'}</small></span><ArrowRight size={14} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy} onClick={() => void renameAnkiDeckAction(deck)} aria-label={`重命名牌组 ${deck.name}`} title="重命名牌组"><Pencil size={13} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy || ankiDecks.length <= 1} onClick={() => void removeAnkiDeck(deck)} aria-label={`删除牌组 ${deck.name}`} title={ankiDecks.length <= 1 ? '请至少保留一个牌组' : '删除牌组及全部卡片'}><Trash2 size={13} /></button></div>)}
           {ankiDeckId ? orderedItems(siblings('anki'), sidebarSort.anki, sidebarOrder.anki).map((item, index) => { const card = ankiCards.find(candidate => `card:${candidate.id}` === item.id)!; return sidebarRow(item.id, 'anki', card.front || `新卡片 ${index + 1}`, <Brain size={15} />, () => openAnkiCard(card.id), false, 'anki-card'); }) : null}
         </div> : view === 'notes' ? <>
           {orderedItems([
@@ -1175,12 +1851,28 @@ export default function Workspace() {
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
       <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={newBlankTab}><Plus size={18} /></button><div className="topbar-actions"><Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions">{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
       {error ? <div className="workspace-error">{error}<button type="button" onClick={() => setError('')}><X size={14} /></button></div> : null}
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <SessionThread title={selected.title} chat={chat} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {saveConflictId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveConflictId)?.title || '未命名笔记'}」云端已更新，本地内容未保存。请先复制备份，再决定是否加载云端版本。</span>{selectedId !== saveConflictId ? <button type="button" onClick={() => void openEntry(saveConflictId)}>返回冲突笔记</button> : null}<button type="button" onClick={() => void copyConflictDraft()}>复制我的内容</button><button type="button" onClick={() => void discardConflictDraft()}>加载云端版本</button></div> : null}
+      {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
+      {view === 'git' && library ? <GitWorkspace key={`${session.id}:${library.id}:${gitAgent?.id}`} ownerId={session.id} workspaceId={library.id}
+        agentId={gitAgent?.id} preset={gitAgent?.preset} />
+        : view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <SessionThread title={selected.title} chat={chat} ownerId={session.id} entryId={selected.id} preset={selected.preset ?? ''} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
-      }} /> : view === 'anki' ? <AnkiWorkspace ref={ankiWorkspaceRef} cards={ankiCards} identity={session.id} deckName={ankiDeckName} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} /> : view === 'sessions' ? <section className="workspace-blank"><MousePointer2 size={25} /><p>从左侧选择 Agent</p></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onOpen={id => void openEntry(id)} /> : <article className="note-editor" onContextMenu={event => openContextMenu(event, 'editor')}><div className="note-toolbar"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={16} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={16} /></button></div></div><input ref={titleRef} className="note-title" aria-label="标题" value={title} onChange={event => { setTitle(event.target.value); queueSave(event.target.value, body); }} placeholder="未命名笔记" />{editorMode === 'preview' ? <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} /> : <MarkdownEditor key={selected.id} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}</article>}
-      <nav className="mobile-command-bar" aria-label="快捷操作"><button type="button" onClick={() => { switchView('notes'); setSidebarOpen(true); }} aria-label="打开资料夹"><LibraryBig size={19} /></button><button type="button" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={19} /></button><button type="button" onClick={() => void createNote()} aria-label="新建笔记"><Plus size={22} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('sessions'); }} aria-label="打开 Agent"><MousePointer2 size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('anki'); }} aria-label="打开记忆闪卡"><Brain size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('tools'); }} aria-label="打开小工具"><Wrench size={19} /></button></nav>
-      <footer className="workspace-statusbar"><span>{library?.name ?? '我的知识库'}</span><span className="statusbar-details">{saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}</span></footer>
+      }} /> : view === 'anki' ? ankiRemoteReady
+        ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={ankiWorkspaceRef} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
+        : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><Brain size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
+        : view === 'sessions' ? <section className="workspace-blank"><MousePointer2 size={25} /><p>从左侧选择 Agent</p></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        <div className="note-toolbar">
+          <div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div>
+          <div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={16} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={16} /></button></div>
+        </div>
+        <input ref={titleRef} className="note-title" aria-label="标题" value={title} onChange={event => { setTitle(event.target.value); queueSave(event.target.value, body); }} placeholder={selected.kind === 'rich_text' ? '未命名文档' : '未命名笔记'} />
+        {selected.kind === 'rich_text'
+          ? <Suspense fallback={<div className="rich-text-loading" role="status">正在打开文档…</div>}><RichTextEditor key={selected.id} value={body} readOnly={editorMode === 'preview'} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} /></Suspense>
+          : editorMode === 'preview' ? <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} /> : <MarkdownEditor key={selected.id} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
+      </article>}
+      <nav className="mobile-command-bar" aria-label="快捷操作"><button type="button" onClick={() => { switchView('notes'); setSidebarOpen(true); }} aria-label="打开资料夹"><LibraryBig size={19} /></button><button type="button" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={19} /></button><button type="button" onClick={() => void createNote()} aria-label="新建笔记"><Plus size={22} /></button><button type="button" onClick={() => switchView('git')} aria-label="打开 Git 笔记"><GitFork size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('sessions'); }} aria-label="打开 Agent"><MousePointer2 size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('anki'); }} aria-label="打开记忆闪卡"><Brain size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('tools'); }} aria-label="打开小工具"><Wrench size={19} /></button></nav>
+      <footer className="workspace-statusbar"><span>{view === 'git' ? 'Forgejo 工作区' : library?.name ?? '我的知识库'}</span><span className="statusbar-details">{view === 'git' ? 'Git 已提交 Markdown · 与旧笔记分开' : <>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}</>}</span></footer>
     </main>
     {contextMenu ? <><button className="mobile-context-backdrop" type="button" aria-label="关闭操作菜单" onClick={() => setContextMenu(null)} /><WorkspaceContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onAction={handleContextAction} /></> : null}
     <div className="panel-resizer panel-resizer-rail" style={{ right: railOpen ? railWidth : 0 }} role="separator" aria-label="调整右侧面板宽度" onPointerDown={event => startResize('rail', event)} />
@@ -1188,8 +1880,8 @@ export default function Workspace() {
     <motion.aside ref={railRef} className="obsidian-rail" aria-hidden={!railOpen} inert={!railOpen}
       initial={false} animate={{ x: isMobile && !railOpen ? '100%' : '0%', opacity: isMobile && !railOpen ? 0 : 1 }}
       transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}><div className="rail-heading"><span>{view === 'anki' ? '记忆闪卡' : '大纲'}</span><Button variant="ghost" size="icon" onClick={() => setRailOpen(false)} aria-label="关闭信息栏"><X size={15} /></Button></div>{view === 'anki' ? <div className="rail-tip"><BookOpen size={15} /> 导出为 TSV 后可在 Anki 中导入。</div> : <div className="rail-section">{selected?.kind === 'note' && headings.length ? headings.map(item => <button key={item.id} className={`outline-item level-${item.level}`} type="button" onClick={() => { jumpToHeading(item.text); if (window.innerWidth <= 720) setRailOpen(false); }}>{item.text}</button>) : <p className="outline-muted">当前笔记没有标题</p>}</div>}</motion.aside>
-    <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} onLogout={logoutWorkspace} />
-    <KnowledgeGraph open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} />
+    <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} />
+    <KnowledgeGraph key={session.id} open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} />
     <Dialog open={moveEntryId !== null} onOpenChange={open => { if (!open) setMoveEntryId(null); }}><DialogContent className="workspace-move-dialog"><DialogTitle>移动到</DialogTitle><DialogDescription>选择文档所在的文件夹</DialogDescription><div className="workspace-folder-picker"><button type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, null)}><Folder size={17} /> 知识库根目录 <MoveRight size={15} /></button>{folders.map(folder => <button key={folder.id} type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, folder.id)} style={{ paddingLeft: 16 + folders.filter(parent => parent.id === folder.parentId).length * 16 }}><Folder size={17} /> {folder.name} <MoveRight size={15} /></button>)}</div></DialogContent></Dialog>
     <Dialog open={commandOpen} onOpenChange={setCommandOpen}><DialogContent className="command-dialog"><DialogTitle>快速切换</DialogTitle><DialogDescription>跳转到笔记、Agent 或工具。</DialogDescription><div className="command-list">{entries.filter(item => item.title.toLowerCase().includes(query.toLowerCase())).slice(0, 12).map(item => <button key={item.id} type="button" onClick={() => { setView(item.kind === 'agent' ? 'sessions' : 'notes'); void openEntry(item.id); setCommandOpen(false); }}><Link2 size={15} /><span>{item.title}</span><small>{item.kind === 'agent' ? 'Agent' : '笔记'}</small></button>)}<button type="button" onClick={() => { setView('anki'); setCommandOpen(false); }}><Brain size={15} /><span>打开记忆闪卡</span><small>工具</small></button></div></DialogContent></Dialog>
   </div>;

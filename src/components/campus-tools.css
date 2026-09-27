@@ -7,6 +7,9 @@
   color: var(--foreground);
 }
 .campus-tool > * { max-width: 860px; margin-inline: auto; }
+.campus-map-index > div,
+.campus-entry-message,
+.campus-calendar-images a { box-shadow: var(--shadow-card); }
 .campus-tool-header { display: flex; align-items: center; gap: 15px; padding-bottom: 27px; border-bottom: 1px solid var(--line); }
 .campus-tool-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 6px; background: var(--selected); }
 .campus-tool-header h1 { font-size: 23px; font-weight: 600; line-height: 1.3; }
@@ -84,12 +87,28 @@
 .campus-calendar-images img { display: block; width: 100%; height: 260px; object-fit: cover; object-position: top; }
 .campus-live-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .campus-live-actions .campus-action-button, .campus-live-actions .campus-choice-button { margin-top: 0; }
+.campus-room-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.campus-room-filters label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 11px; }
+.campus-room-filters input, .campus-room-filters select { min-height: 34px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--shell-editor); color: var(--foreground); }
+.campus-choice-button[aria-pressed="true"], .campus-room-row[aria-pressed="true"] { background: var(--selected); }
 .campus-room-list { margin-top: 18px; border-top: 1px solid var(--border); }
 .campus-room-list > div { display: flex; min-height: 40px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 12px; }
 .campus-room-row { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: space-between; padding: 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--foreground); text-align: left; font-size: 12px; }
 .campus-room-row:hover { background: var(--selected); }
 .campus-room-list span { color: var(--muted-foreground); }
-.campus-live-json { max-height: 360px; margin-top: 18px; overflow: auto; padding: 12px; border: 1px solid var(--border); background: var(--shell-editor); color: var(--muted-foreground); font: 11px/1.6 var(--font-mono); white-space: pre-wrap; }
+.campus-room-schedule { margin-top: 24px; border-top: 1px solid var(--border); }
+.campus-room-schedule h3 { padding: 16px 0 8px; font-size: 13px; font-weight: 600; }
+.campus-room-schedule-list > div { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.campus-room-schedule-list span { color: var(--muted-foreground); text-align: right; }
+.campus-forum-heading { display: flex; justify-content: space-between; gap: 12px; margin-top: 28px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.campus-forum-heading span, .campus-forum-meta { color: var(--muted-foreground); font-size: 11px; }
+.campus-forum-list { margin: 0; padding: 0; list-style: none; }
+.campus-forum-list li { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.campus-forum-list strong { display: block; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; line-height: 1.6; }
+.campus-forum-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; }
+.campus-forum-pages { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.campus-forum-pages button { display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 5px; background: var(--shell-panel); color: var(--foreground); font-size: 12px; }
+.campus-forum-pages button:hover:not(:disabled) { background: var(--selected); }
 .campus-calendar-sheet .campus-external + .campus-external { margin-left: 10px; }
 .campus-vault { margin-top: 32px; padding: 24px 0; border-top: 1px solid var(--border); }
 .campus-section-head { display: flex; align-items: center; gap: 9px; }
@@ -113,6 +132,13 @@
 .campus-dialog-body .campus-form > label, .campus-dialog-unlock label { display: grid; gap: 7px; color: var(--muted-foreground); font-size: 11px; }
 .campus-dialog-body .campus-form input, .campus-dialog-unlock input { min-height: 36px; }
 .campus-dialog-unlock { display: grid; gap: 17px; }
+.campus-office-form { display: grid; gap: 14px; }
+.campus-office-form label { display: grid; gap: 7px; color: var(--muted-foreground); font-size: 11px; }
+.campus-office-form input { width: 100%; min-height: 36px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--shell-editor); color: var(--foreground); }
+.campus-office-form .campus-form-actions { flex-wrap: wrap; }
+.campus-office-form button { min-height: 34px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 5px; background: var(--shell-panel); color: var(--foreground); font-size: 12px; }
+.campus-office-form button:disabled { opacity: .45; cursor: not-allowed; }
+.campus-office-captcha { display: block; max-width: 100%; min-height: 60px; max-height: 160px; object-fit: contain; background: white; }
 .campus-delete-credentials { display: inline-flex; align-items: center; gap: 6px; margin-top: 19px; padding: 0; border: 0; background: transparent; color: var(--destructive); font-size: 11px; cursor: pointer; }
 .campus-delete-credentials:hover { text-decoration: underline; text-underline-offset: 3px; }
 

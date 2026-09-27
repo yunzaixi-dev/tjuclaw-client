@@ -28,6 +28,8 @@ jobs:
           EDGEONE_TOKEN: ${{ secrets.EDGEONE_TOKEN }}
           EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
           EDGEONE_AREA: ${{ vars.EDGEONE_AREA || 'global' }}
+          EDGEONE_SANDBOX_ORIGIN: ${{ vars.EDGEONE_SANDBOX_ORIGIN }}
+          EDGEONE_PUBLIC_ORIGIN: ${{ vars.EDGEONE_PUBLIC_ORIGIN || 'https://app.tjuclaw.cloud' }}
         run: |
           set -euo pipefail
           latest=$(gh api repos/yunzaixi-dev/tjuclaw-client/git/ref/heads/release --jq .object.sha)
@@ -41,9 +43,13 @@ jobs:
           mkdir -p edge-deploy
           cp -R web edge-deploy/assets
           cp -R functions edge-deploy/functions
-          node -e 'require("fs").writeFileSync("edge-deploy/edgeone.json", JSON.stringify({outputDirectory:"assets"}))'
+          node scripts/edgeone-config.mjs edge-deploy/edgeone.json
           cd edge-deploy
           npx --yes edgeone@1.6.37 makers build
+          node ../scripts/edgeone-config.mjs .edgeone/edgeone.json --direct-upload
           test -f .edgeone/edge-functions/index.js
+          node -e 'const {routes} = require("./.edgeone/edge-functions/config.json"); if (!routes.some(({src}) => new RegExp(src).test("/api/auth/session"))) process.exit(1)'
           test -f .edgeone/assets/index.html
+          test -f .edgeone/edgeone.json
           npx --yes edgeone@1.6.37 makers deploy .edgeone --name "$EDGEONE_PROJECT_NAME" --env production --area "$EDGEONE_AREA" --token "$EDGEONE_TOKEN" --json
+          node ../scripts/edgeone-smoke.mjs "$EDGEONE_PUBLIC_ORIGIN"
