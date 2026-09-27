@@ -468,6 +468,21 @@
 .chat-message-label time { color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
 .chat-message-label button { display: grid; width: 24px; height: 24px; margin-left: auto; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
 .chat-message-label button:hover { background: var(--shell-hover); color: var(--foreground); }
+.chat-message-tools {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 12px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.chat-message-tools svg { flex: none; }
+.chat-message-tools span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-view .chat-message p { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
 .session-view .chat-message-content { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
 .session-view .chat-message-content > :first-child { margin-top: 0; }

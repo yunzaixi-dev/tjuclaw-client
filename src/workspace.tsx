@@ -21,7 +21,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { AnkiWorkspace, type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
@@ -195,12 +195,35 @@ function renderMarkdown(markdown: string) {
   return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
 }
 
-function SessionThread({ title, chat, ownerId, entryId, preset, loading, error, draft, sending, onDraftChange, onSubmit, onRetry }: {
+const TOOL_LABELS: Record<string, string> = {
+  campus_semester: '学期',
+  campus_timetable: '课表',
+  campus_exams: '考试安排',
+  campus_study_rooms: '自习室',
+  campus_forum_posts: '校园论坛',
+  search_course_materials: '课程资料',
+  list_tree: '笔记目录',
+  create_entry: '新建笔记',
+  update_entry: '修改笔记',
+  delete_entry: '删除笔记',
+};
+
+function agentStarters(tools: string[]) {
+  const campus = tools.some(name => name.startsWith('campus_'));
+  const materials = tools.includes('search_course_materials');
+  if (campus && materials) return ['看看我明天下午什么时候有空', '找数据结构的复习资料并整理要点', '根据我的课表安排这周复习，并保存成笔记'];
+  if (campus) return ['看看我明天下午什么时候有空', '这学期还有哪些考试？', '根据我的课表安排这周复习，并保存成笔记'];
+  if (materials) return ['找数据结构的复习资料并整理要点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
+  return ['帮我整理这篇笔记的重点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
+}
+
+function SessionThread({ title, chat, ownerId, entryId, preset, capabilities, loading, error, draft, sending, onDraftChange, onSubmit, onRetry }: {
   title: string;
   chat: ChatSession | null;
   ownerId: string;
   entryId: string;
   preset: string;
+  capabilities: AgentCapabilities | null;
   loading: boolean;
   error: string;
   draft: string;
@@ -210,6 +233,7 @@ function SessionThread({ title, chat, ownerId, entryId, preset, loading, error, 
   onRetry: () => void;
 }) {
   const messages = (chat?.messages ?? []).filter(message => message.content);
+  const tools = capabilities?.tools ?? [];
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   useEffect(() => {
@@ -219,15 +243,16 @@ function SessionThread({ title, chat, ownerId, entryId, preset, loading, error, 
 
   return <section className="session-view" aria-label={`${title} 会话`}>
     <div className="chat-messages" ref={scrollRef} role="log" aria-label="会话记录">
-      <div className="session-heading"><span className="session-icon"><MousePointer2 size={18} /></span><div><h1>{title}</h1><p>Agent 任务线程</p><div className="session-context-line"><span>当前知识库</span><span>按需读取笔记</span><span>Markdown 回复</span></div></div><button type="button" className="session-heading-action" aria-label="会话选项" title="会话选项"><MoreHorizontal size={17} /></button></div>
-      {chat ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
+      <div className="session-heading"><span className="session-icon"><MousePointer2 size={18} /></span><div><h1>{title}</h1><p>Agent 任务线程</p><div className="session-context-line"><span>当前知识库</span>{tools.some(name => name.startsWith('campus_')) ? <span>校园服务</span> : null}{tools.includes('search_course_materials') ? <span>课程资料</span> : null}<span>Markdown 回复</span></div></div><button type="button" className="session-heading-action" aria-label="会话选项" title="会话选项"><MoreHorizontal size={17} /></button></div>
+      {chat && capabilities?.sandbox ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
       {loading ? <div className="session-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>
         : !chat ? <div className="session-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>
           : messages.length ? <div className="session-transcript">{messages.map((message, index) => <article key={`${message.created_at}-${index}`} className={`chat-message ${message.role}`}>
             <div className="chat-message-label"><span>{message.role === 'user' ? '你' : 'Agent'}</span><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>{message.role === 'assistant' ? <button type="button" aria-label="复制回复" title="复制回复" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopiedIndex(index); window.setTimeout(() => setCopiedIndex(current => current === index ? null : current), 1200); }}>{copiedIndex === index ? <Check size={13} /> : <Copy size={13} />}</button> : null}</div>
+            {message.role === 'assistant' && message.tools?.length ? <p className="chat-message-tools"><Wrench size={12} aria-hidden="true" /><span>使用了 {message.tools.map(name => TOOL_LABELS[name] ?? name).join(' · ')}</span></p> : null}
             {message.role === 'assistant' ? <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} /> : <p>{message.content}</p>}
           </article>)}</div> : <div className="session-start"><h2>从一个问题开始</h2><p>向 {title} 描述你正在处理的内容。</p><div className="session-starters">
-            {['帮我整理这篇笔记的重点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'].map(prompt => <button type="button" key={prompt} onClick={() => onDraftChange(prompt)}>{prompt}<ArrowRight size={14} /></button>)}
+            {agentStarters(tools).map(prompt => <button type="button" key={prompt} onClick={() => onDraftChange(prompt)}>{prompt}<ArrowRight size={14} /></button>)}
           </div></div>}
     </div>
     <div className="session-composer-dock"><form className="chat-composer" onSubmit={onSubmit}>
@@ -240,6 +265,19 @@ function SessionThread({ title, chat, ownerId, entryId, preset, loading, error, 
 
 export default function Workspace() {
   const [session, setSession] = useState<IdentitySession | null>(null);
+  const [agentCapabilities, setAgentCapabilities] = useState<AgentCapabilities | null>(null);
+  const sessionId = session?.id;
+  useEffect(() => {
+    if (!sessionId) return;
+    const controller = new AbortController();
+    // Capabilities only shape suggestions and panels; failures leave the defaults.
+    getModel(controller.signal).then(status => {
+      if (!controller.signal.aborted) setAgentCapabilities(status.agent ?? null);
+    }).catch(() => {
+      if (!controller.signal.aborted) setAgentCapabilities(null);
+    });
+    return () => controller.abort();
+  }, [sessionId]);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
@@ -1808,7 +1846,7 @@ export default function Workspace() {
       ] as const).map(({ id, label, Icon }) => <motion.button key={id} className={view === id ? 'is-active' : ''} type="button" title={label} aria-label={label} aria-current={view === id ? 'page' : undefined} whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => switchView(id)}>{view === id ? <motion.span className="activity-current-mark" layoutId="workspace-active-view" transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }} /> : null}<Icon size={19} /><span>{label}</span></motion.button>)}</div><motion.button className="activity-settings" type="button" title="知识图谱" aria-label="知识图谱" whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => setGraphOpen(true)}><Network size={19} /><span>图谱</span></motion.button></div>
       <div className="sidebar-pane">
       <div className="sidebar-pane-header"><span>{view === 'notes' ? '资料夹' : view === 'git' ? 'Git 笔记' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆闪卡' : view === 'tools' ? '小工具' : '插件'}</span><button type="button" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button></div>
-      {view !== 'plugins' && view !== 'tools' && view !== 'git' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索笔记..." /></label> : null}
+      {view !== 'plugins' && view !== 'tools' && view !== 'git' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={view === 'sessions' ? '搜索 Agent…' : view === 'anki' ? '搜索闪卡…' : '搜索笔记…'} aria-label={view === 'sessions' ? '搜索 Agent' : view === 'anki' ? '搜索闪卡' : '搜索笔记'} /></label> : null}
       <div className="tree-heading"><span>{view === 'notes' ? '笔记库' : view === 'git' ? 'Forgejo 工作区' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆卡片' : view === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
           {view === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
@@ -1855,7 +1893,7 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       {view === 'git' && library ? <GitWorkspace key={`${session.id}:${library.id}:${gitAgent?.id}`} ownerId={session.id} workspaceId={library.id}
         agentId={gitAgent?.id} preset={gitAgent?.preset} />
-        : view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <SessionThread title={selected.title} chat={chat} ownerId={session.id} entryId={selected.id} preset={selected.preset ?? ''} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+        : view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <SessionThread title={selected.title} chat={chat} ownerId={session.id} entryId={selected.id} preset={selected.preset ?? ''} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

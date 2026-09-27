@@ -48,6 +48,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   client_request_id?: string;
+  /** Names of tools the Agent used before this reply; never their payloads. */
+  tools?: string[];
   created_at: string;
 }
 
@@ -64,7 +66,14 @@ export interface ModelStatus {
   source: 'custom' | 'product' | 'none';
   name?: string;
   choices?: string[];
+  /** What the Agent can actually do on this server right now. */
+  agent?: AgentCapabilities;
   quota: { limit: number; used: number; remaining: number };
+}
+
+export interface AgentCapabilities {
+  sandbox: boolean;
+  tools: string[];
 }
 
 // Product models are presented under their TJUClaw names, not upstream IDs.
@@ -125,8 +134,19 @@ function isSession(value: unknown): value is ChatSession {
     if (!item || typeof item !== 'object') return false;
     const m = item as Record<string, unknown>;
     return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && isTime(m.created_at)
-      && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)));
+      && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)))
+      && (m.tools === undefined || isStringList(m.tools));
   });
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+function isAgentCapabilities(value: unknown): value is AgentCapabilities {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  return typeof r.sandbox === 'boolean' && isStringList(r.tools);
 }
 
 function isModel(value: unknown): value is ModelStatus {
@@ -138,7 +158,8 @@ function isModel(value: unknown): value is ModelStatus {
   return typeof r.configured === 'boolean' && (r.source === 'custom' || r.source === 'product' || r.source === 'none')
 
     && (r.name === undefined || typeof r.name === 'string')
-    && (r.choices === undefined || (Array.isArray(r.choices) && r.choices.every(choice => typeof choice === 'string')))
+    && (r.choices === undefined || isStringList(r.choices))
+    && (r.agent === undefined || isAgentCapabilities(r.agent))
     && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number';
 }
 

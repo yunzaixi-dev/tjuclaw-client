@@ -41,7 +41,7 @@ function defaultState() {
     entryById: { [guideA.id]: { ...guideA }, [noteA.id]: { ...noteA } },
     sessionsByEntry: { [guideA.id]: [sessionA] },
     sessionById: { [sessionA.id]: sessionA },
-    model: { configured: false, source: 'product', name: 'tju-llm', quota: { limit: 20, used: 0, remaining: 20 } },
+    model: { configured: false, source: 'product', name: 'tju-llm', agent: { sandbox: true, tools: [] }, quota: { limit: 20, used: 0, remaining: 20 } },
     patchError: null,
     reorderError: false,
     sendError: false,
@@ -3680,6 +3680,33 @@ test('account settings shows broker quota and fails closed when the ledger is un
   await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
   await expect(dialog.getByRole('status')).toHaveText('暂不可用');
   await expect(dialog.getByRole('alert')).toHaveText('暂时无法读取模型额度，请稍后重试。');
+});
+
+test('Agent without a sandbox offers campus starters and shows which tools a reply used', async ({ page }) => {
+  const state = defaultState();
+  state.model = { ...state.model, agent: { sandbox: false, tools: ['campus_semester', 'campus_timetable', 'search_course_materials'] } };
+  await mockWorkspace(page, state);
+  await page.route('**/api/sessions/*/messages', async route => {
+    const body = route.request().postDataJSON();
+    const next = { ...sessionA, messages: [
+      { role: 'user', content: body.content, client_request_id: body.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '明天 14:00 以后没有课。', tools: ['campus_semester', 'campus_timetable'], created_at: '2026-01-01T00:00:11.000Z' },
+    ] };
+    return json(route, 200, { session: next });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(page.getByPlaceholder('搜索 Agent…')).toBeVisible();
+  await page.getByText('新手向导').first().click();
+  await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toHaveCount(0);
+  const log = page.getByRole('log', { name: '会话记录' });
+  await expect(log.getByText('校园服务', { exact: true })).toBeVisible();
+  await expect(log.getByText('课程资料', { exact: true })).toBeVisible();
+  await log.getByRole('button', { name: '看看我明天下午什么时候有空' }).click();
+  await expect(page.getByLabel('发送给 Agent 的消息')).toHaveValue('看看我明天下午什么时候有空');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(log.getByText('明天 14:00 以后没有课。')).toBeVisible();
+  await expect(log.getByText('使用了 学期 · 课表')).toBeVisible();
 });
 
 test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {
