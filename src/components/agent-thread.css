@@ -1,0 +1,151 @@
+/* Agent thread: a focused transcript and a floating composer, in the spirit
+   of an editor-native agent rather than a chat app with bubbles. */
+.agent-thread.session-view { width: 100%; max-width: none; margin: 0; }
+.agent-thread .chat-messages { flex: 1; min-height: 0; overflow: auto; padding: 28px 24px 12px; scroll-padding-bottom: 24px; }
+.agent-thread .session-transcript { display: grid; gap: 22px; width: min(760px, 100%); margin: 0 auto; }
+
+/* Your message: a quiet raised card. */
+.agent-thread .chat-message { max-width: none; margin: 0; }
+.agent-thread .chat-message.user {
+  justify-self: stretch;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--control-surface);
+  box-shadow: var(--control-shadow), var(--control-highlight), 0 0 0 .5px var(--control-border);
+  animation: agent-in 260ms var(--ease-out) both;
+}
+.agent-thread .chat-message.user p { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; }
+
+/* The Agent's reply: open text with a small identity line. */
+.agent-thread .chat-message.assistant { display: grid; gap: 10px; animation: agent-in 320ms var(--ease-out) both; }
+.agent-reply-head { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+.agent-reply-head .agent-reply-name { color: var(--foreground); font-size: 13px; font-weight: 650; }
+.agent-avatar { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: var(--control-surface); box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border); }
+.agent-thread .chat-message-content { font-size: 15px; line-height: 1.75; }
+.agent-thread .chat-message-content > :first-child { margin-top: 0; }
+.agent-thread .chat-message-content img { max-width: min(100%, 420px); border-radius: 10px; box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border); }
+
+.agent-reply-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 160ms; }
+.chat-message.assistant:hover .agent-reply-actions, .chat-message.assistant:focus-within .agent-reply-actions { opacity: 1; }
+@media (hover: none) { .agent-reply-actions { opacity: 1; } }
+.agent-reply-actions button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); font-size: 12px; }
+.agent-reply-actions button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); }
+
+/* Tool calls as finished steps. */
+.agent-steps { display: grid; gap: 6px; }
+.agent-thread .chat-message-tools {
+  display: inline-flex; justify-self: start; align-items: center; gap: 6px;
+  height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); font-size: 12px;
+}
+.agent-thread .chat-message-tools:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 8%, transparent); }
+.agent-thread .chat-message-tools svg:last-child { transition: transform 200ms var(--ease-out); }
+.agent-steps.is-open .chat-message-tools svg:last-child { transform: rotate(180deg); }
+.agent-steps ol { display: grid; gap: 2px; margin: 0 0 2px 14px; padding: 2px 0 2px 14px; border-left: 1.5px solid var(--border); list-style: none; animation: agent-in 220ms var(--ease-out) both; }
+.agent-steps li { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--muted-foreground); font-size: 12.5px; }
+.agent-steps li span { flex: 1; }
+.agent-step-done { color: oklch(62% .14 150); }
+
+/* Working state: a shimmer rather than a spinner. */
+.agent-thinking { display: flex; align-items: center; gap: 10px; color: var(--muted-foreground); font-size: 13px; animation: agent-in 240ms var(--ease-out) both; }
+.agent-thinking-text {
+  background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%, var(--muted-foreground) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-weight: 600;
+  animation: agent-shimmer 1.6s linear infinite;
+}
+
+/* Empty thread. */
+.agent-empty { display: grid; justify-items: center; gap: 10px; width: min(560px, 100%); margin: 8vh auto 0; text-align: center; animation: agent-in 360ms var(--ease-out) both; }
+.agent-empty-mark { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 18px; background: var(--control-surface); box-shadow: var(--control-shadow-hover), var(--control-highlight), 0 0 0 .5px var(--control-border); }
+.agent-empty h2 { margin: 8px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.agent-empty p { max-width: 420px; margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
+.agent-thread .session-starters { display: grid; gap: 8px; width: 100%; margin-top: 18px; }
+.agent-thread .session-starters button { justify-content: flex-start; gap: 10px; width: 100%; min-height: 46px; padding: 0 14px; color: var(--foreground); font-size: 14px; text-align: left; }
+.agent-thread .session-starters button svg { flex: none; color: var(--muted-foreground); }
+
+/* Floating composer. */
+.agent-thread .session-composer-dock { padding: 8px 24px calc(18px + env(safe-area-inset-bottom)); }
+.agent-thread .chat-composer {
+  display: grid; gap: 8px; width: min(760px, 100%); margin: 0 auto; padding: 12px 12px 10px 16px;
+  border: 0; border-radius: 20px; background: var(--surface);
+  box-shadow: 0 1px 2px oklch(0% 0 0 / .06), 0 10px 30px -12px oklch(0% 0 0 / .22), 0 0 0 .5px var(--control-border);
+  transition: box-shadow 200ms var(--ease-out);
+}
+.agent-thread .chat-composer:focus-within { box-shadow: 0 1px 2px oklch(0% 0 0 / .06), 0 14px 36px -14px oklch(0% 0 0 / .28), 0 0 0 1.5px color-mix(in oklch, var(--primary) 45%, transparent); }
+.agent-thread .chat-composer textarea { width: 100%; min-height: 26px; max-height: 220px; padding: 2px 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--foreground); font-size: 15px; line-height: 1.6; }
+.agent-thread .chat-composer-footer { display: flex; align-items: center; gap: 8px; }
+.agent-thread .composer-capabilities { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.agent-hint { color: var(--muted-foreground); font-size: 11.5px; white-space: nowrap; }
+.agent-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 0; border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); font-size: 12px; white-space: nowrap;
+}
+.agent-chip.is-button:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 9%, transparent); }
+.agent-model { position: relative; }
+.agent-model ul {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; display: grid; gap: 2px; min-width: 180px; margin: 0; padding: 5px;
+  border-radius: 12px; background: var(--surface-raised); box-shadow: var(--shadow-popover), 0 0 0 .5px var(--control-border); list-style: none;
+  animation: agent-pop 180ms var(--ease-out) both;
+}
+.agent-model li button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); font-size: 13px; }
+.agent-model li button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); }
+
+.agent-thread .chat-composer-footer .agent-send {
+  display: grid; flex: none; width: 34px; height: 34px; place-items: center; border: 0; border-radius: 50%;
+  background: var(--primary-sheen), var(--primary); color: var(--primary-foreground);
+  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .2);
+  transition: transform 200ms var(--spring), filter 160ms, opacity 160ms;
+}
+.agent-thread .chat-composer-footer .agent-send:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-.5px); }
+.agent-thread .chat-composer-footer .agent-send:active:not(:disabled) { transform: scale(.92); }
+.agent-thread .chat-composer-footer .agent-send:disabled { opacity: .3; box-shadow: none; }
+
+.agent-thread .chat-inline-error { width: min(760px, 100%); margin: 8px auto 0; }
+
+@keyframes agent-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes agent-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
+@keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+@media (max-width: 720px) {
+  .agent-thread .chat-messages { padding: 18px 16px 8px; }
+  .agent-thread .session-composer-dock { padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .agent-hint { display: none; }
+  .agent-empty { margin-top: 4vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread *, .agent-thread *::before { animation: none !important; transition: none !important; }
+}
+
+/* New conversation: pick an Agent. */
+.agent-picker { display: grid; align-content: start; justify-items: center; gap: 8px; width: min(520px, calc(100% - 32px)); margin: 12vh auto 0; text-align: center; animation: agent-in 320ms var(--ease-out) both; }
+.agent-picker h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.agent-picker > p { margin: 0 0 14px; color: var(--muted-foreground); font-size: 14px; }
+.agent-picker-list { display: grid; gap: 8px; width: 100%; }
+.agent-picker-list button {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 14px;
+  border: 0; border-radius: 14px; background: var(--control-surface); color: var(--foreground); text-align: left;
+  box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
+  transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out);
+}
+.agent-picker-list button:hover { transform: translateY(-1px); box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); }
+.agent-picker-list button:active { transform: scale(.98); }
+.agent-picker-list button > span:nth-child(2) { display: grid; flex: 1; gap: 2px; }
+.agent-picker-list strong { font-size: 15px; }
+.agent-picker-list small { color: var(--muted-foreground); font-size: 12.5px; }
+.agent-picker-list > button > svg { color: var(--muted-foreground); }
+.agent-picker-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); }
+.agent-capabilities { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+.agent-capabilities li { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: color-mix(in oklch, var(--primary) 8%, transparent); color: var(--primary); font-size: 12px; font-weight: 600; }
+
+/* Older composer rules size every button as the 30px send button; chips and
+   the model menu are ordinary auto-width controls. */
+.agent-thread .chat-composer-footer .agent-chip.is-button,
+.agent-thread .chat-composer .agent-model li button {
+  width: auto; min-width: 0; height: 26px; border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); box-shadow: none;
+}
+.agent-thread .chat-composer .agent-model li button { width: 100%; height: 34px; border-radius: 8px; background: transparent; color: var(--foreground); }
+.agent-thread .chat-composer .agent-model li button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); }
+.agent-thread .chat-composer-footer .agent-chip.is-button:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 9%, transparent); }

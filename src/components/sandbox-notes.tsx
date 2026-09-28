@@ -56,7 +56,7 @@ export function SandboxNotes({ sessionId, ownerId, entryId, preset }: {
         setSelected(null); setContent(null); setRevision(null); setEditing(false);
       }
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '沙箱连接失败。');
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '暂时无法打开笔记，请稍后重试。');
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -186,7 +186,7 @@ export function SandboxNotes({ sessionId, ownerId, entryId, preset }: {
     }
   };
   const cancel = () => {
-    if (dirty && !window.confirm('放弃这份尚未保存的沙箱文件草稿？')) return;
+    if (dirty && !window.confirm('放弃这份还没保存的修改？')) return;
     rememberNote(draftKey, null);
     setDraft(content ?? '');
     setEditing(false);
@@ -209,24 +209,24 @@ export function SandboxNotes({ sessionId, ownerId, entryId, preset }: {
   const incoming = graph?.edges.filter(edge => edge.target === selected).map(edge => edge.source) ?? [];
 
   return <section className="sandbox-notes" aria-label="Agent Git 工作区">
-    <div className="sandbox-notes-heading"><div><strong>Agent Git 工作区</strong><small>来自 Forgejo 已提交文件，与旧知识库笔记分开</small></div>
+    <div className="sandbox-notes-heading"><div><strong>Agent Git 工作区</strong><small>每次保存都是一次提交，Agent 也能读写这里的笔记</small></div>
       <button type="button" onClick={() => void refresh()} disabled={busy || dirty}><RefreshCw size={14} /> {paths ? '刷新' : '查看文件'}</button>
     </div>
-    {busy ? <p className="sandbox-notes-state"><Loader2 size={14} className="animate-spin" /> 正在读取沙箱…</p> : null}
+    {busy ? <p className="sandbox-notes-state"><Loader2 size={14} className="animate-spin" /> 正在打开笔记…</p> : null}
     {error ? <p className="sandbox-notes-error" role="alert">{error}</p> : null}
     {paths ? <form className="sandbox-notes-search" onSubmit={event => { event.preventDefault(); void search(); }}>
       <label htmlFor="sandbox-note-query" className="sr-only">检索 Git 笔记</label>
       <input id="sandbox-note-query" value={query} onChange={event => { setQuery(event.target.value); setHits(null); }}
-        placeholder="搜索已提交笔记…" maxLength={128} disabled={busy || dirty} />
+        placeholder="搜索笔记…" maxLength={128} disabled={busy || dirty} />
       <button type="submit" disabled={busy || dirty || !query.trim()}><Search size={13} /> 检索</button>
     </form> : null}
     {hits ? <div className="sandbox-notes-results" aria-live="polite">
       {hits.length ? hits.map(hit => <button key={hit.path} type="button" disabled={busy || dirty} onClick={() => void open(hit.path)}>
         <strong>{hit.path}</strong><span>{hit.snippet}</span>
-      </button>) : <p className="sandbox-notes-state">没有匹配的已提交笔记。</p>}
+      </button>) : <p className="sandbox-notes-state">没有找到匹配的笔记。</p>}
     </div> : null}
     {paths ? <div className="sandbox-notes-graph-heading">
-      <span>已提交笔记链接</span>
+      <span>笔记链接</span>
       <button type="button" disabled={busy || dirty} onClick={() => graph ? setGraph(null) : void loadGraph()}>
         <GitFork size={13} /> {graph ? '收起图谱' : '查看图谱'}
       </button>
@@ -245,13 +245,13 @@ export function SandboxNotes({ sessionId, ownerId, entryId, preset }: {
         placeholder="新笔记.md 或 目录/新笔记.md" disabled={busy || dirty} />
       <button type="submit" disabled={busy || dirty || paths.length >= 200 || !newPath.trim()}>新建 Markdown</button>
     </form> : null}
-    {paths?.length === 0 ? <p className="sandbox-notes-state">暂无已提交的 Markdown 文件。</p> : null}
+    {paths?.length === 0 ? <p className="sandbox-notes-state">还没有笔记，新建第一篇吧。</p> : null}
     {paths?.length ? <div className="sandbox-notes-files">{paths.map(path => <button key={path} type="button" disabled={busy || dirty} aria-pressed={selected === path} onClick={() => void open(path)}><FileText size={14} /> {path}</button>)}</div> : null}
     {selected && content !== null ? <div className="sandbox-notes-preview"><div className="sandbox-notes-preview-heading"><strong>{selected}</strong>
       {editing ? <div className="sandbox-notes-actions"><button type="button" disabled={busy || !dirty} onClick={() => void save()}>保存到 Git</button><button type="button" disabled={busy} onClick={cancel}>取消</button></div>
         : <div className="sandbox-notes-actions"><button type="button" disabled={busy} onClick={() => setEditing(true)}>编辑文件</button>
           <button type="button" disabled={busy} onClick={() => void remove()}><Trash2 size={13} /> 移除</button></div>}</div>
-      {editing ? <><label htmlFor="sandbox-note-draft" className="sr-only">沙箱文件内容</label><textarea id="sandbox-note-draft" value={draft} onChange={event => {
+      {editing ? <><label htmlFor="sandbox-note-draft" className="sr-only">笔记内容</label><textarea id="sandbox-note-draft" value={draft} onChange={event => {
         const next = event.target.value;
         setDraft(next);
         if (revision) rememberNote(draftKey, next === content ? null : { path: selected, content, revision, draft: next });

@@ -37,6 +37,21 @@
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+/* Text you type straight onto the page (note title and body) shows only the
+   caret, and fields inside a bordered container let the container show focus.
+   A ring here draws a black box around the text being edited. */
+.obsidian-app .note-title:focus-visible,
+.obsidian-app .rich-text-content:focus,
+.obsidian-app .rich-text-content:focus-visible,
+.obsidian-app .codemirror-editor .cm-content:focus,
+.obsidian-app .codemirror-editor .cm-content:focus-visible,
+.obsidian-app .codemirror-editor .cm-editor.cm-focused,
+.obsidian-app .chat-composer textarea:focus-visible,
+.obsidian-app .obsidian-search input:focus-visible,
+.obsidian-app .anki-inline-search input:focus-visible,
+.obsidian-app .markdown-context-search input:focus-visible {
+  outline: none;
+}
 
 .obsidian-sidebar {
   flex-direction: row;
@@ -1950,3 +1965,108 @@
 .codemirror-editor.is-touch .cm-content { padding-bottom: 160px; }
 /* While the formatting bar is up, the bottom navigation steps aside. */
 .obsidian-app:has(.md-touch-bar) .mobile-command-bar { display: none; }
+
+/* The workspace settles in after the opening screen instead of popping. */
+.obsidian-app { animation: workspace-enter 380ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes workspace-enter { from { opacity: 0; transform: scale(.992); } }
+@media (prefers-reduced-motion: reduce) { .obsidian-app { animation: none; } }
+
+/* Raised secondary buttons: one material for every bordered action in the
+   workspace instead of flat 1px outlines. Soft top light, thin hairline
+   ring, lift on hover and a quick spring on press. */
+.obsidian-app :is(
+  .file-preview-heading button, .campus-action-button, .campus-choice-button, .campus-schedule-nav button,
+  .campus-form button, .campus-vault button, .campus-focus button, .campus-forum-pages button, .campus-office-form button,
+  .private-notebook button, .sandbox-notes-heading button, .sandbox-notes-files button,
+  .sandbox-notes form button, .sandbox-notes-preview-heading button, .sandbox-notes-copy,
+  .sandbox-notes-graph-heading button, .sandbox-notes-connections button,
+  .anki-recovery-actions button, .plugin-open-button, .session-starters button, .session-feedback button,
+  .anki-sample-button, .anki-page-heading > button, .anki-answer-actions button, .anki-danger-button,
+  .settings-action-button, .mobile-topbar-actions button, .sidebar-opener
+) {
+  border-color: transparent;
+  border-radius: 10px;
+  background: var(--control-surface);
+  box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out), background-color 160ms, color 160ms, filter 160ms;
+}
+.obsidian-app :is(.mobile-topbar-actions button, .sidebar-opener) { border-radius: 50% !important; border-color: transparent !important; }
+.obsidian-app :is(
+  .file-preview-heading button, .campus-action-button, .campus-choice-button, .campus-schedule-nav button,
+  .campus-form button, .campus-vault button, .campus-focus button, .campus-forum-pages button, .campus-office-form button,
+  .private-notebook button, .sandbox-notes-heading button, .sandbox-notes-files button,
+  .sandbox-notes form button, .sandbox-notes-preview-heading button, .sandbox-notes-copy,
+  .sandbox-notes-graph-heading button, .sandbox-notes-connections button,
+  .anki-recovery-actions button, .plugin-open-button, .session-starters button, .session-feedback button,
+  .anki-sample-button, .anki-page-heading > button, .anki-answer-actions button, .anki-danger-button,
+  .settings-action-button, .mobile-topbar-actions button, .sidebar-opener
+):is(:hover):not(:disabled) {
+  transform: translateY(-.5px);
+  box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
+}
+.obsidian-app :is(
+  .file-preview-heading button, .campus-action-button, .campus-choice-button, .campus-schedule-nav button,
+  .campus-form button, .campus-vault button, .campus-focus button, .campus-forum-pages button, .campus-office-form button,
+  .private-notebook button, .sandbox-notes-heading button, .sandbox-notes-files button,
+  .sandbox-notes form button, .sandbox-notes-preview-heading button, .sandbox-notes-copy,
+  .sandbox-notes-graph-heading button, .sandbox-notes-connections button,
+  .anki-recovery-actions button, .plugin-open-button, .session-starters button, .session-feedback button,
+  .anki-sample-button, .anki-page-heading > button, .anki-answer-actions button, .anki-danger-button,
+  .settings-action-button, .mobile-topbar-actions button, .sidebar-opener
+):active:not(:disabled) {
+  transform: scale(.97);
+  transition-duration: 90ms;
+  box-shadow: var(--control-shadow-press), inset 0 1px 2px oklch(0% 0 0 / .08), 0 0 0 .5px var(--control-border);
+}
+.obsidian-app .settings-action-button.is-primary,
+.obsidian-app .anki-sample-button:hover {
+  background: var(--primary-sheen), var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .18), inset 0 -1px 0 oklch(0% 0 0 / .2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .obsidian-app :is(.campus-action-button, .session-starters button, .settings-action-button, .anki-answer-actions button) { transition: none; }
+}
+
+/* Switching between notes, Git, Agent, flashcards and tools glides instead
+   of cutting. Only the view changes, so the editor is never remounted by it. */
+.workspace-view { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; animation: view-enter 320ms var(--ease-out) both; }
+@keyframes view-enter { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .workspace-view { animation: none; } }
+
+/* New-note home: grouped cards and a proper primary action. */
+.new-note-home { animation: view-enter 320ms var(--ease-out) both; }
+.new-note-header { border-bottom: 0; padding-bottom: 8px; }
+.new-note-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -.025em; }
+.obsidian-app .new-note-primary {
+  height: 40px !important; padding: 0 16px !important; border: 0 !important; border-radius: 999px !important;
+  background: var(--primary-sheen), var(--primary) !important; color: var(--primary-foreground) !important; font-weight: 600;
+  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .18), inset 0 -1px 0 oklch(0% 0 0 / .2) !important;
+}
+.new-note-grid { gap: 20px; margin-top: 22px; }
+.obsidian-app .new-note-panel {
+  padding: 8px; border-radius: 18px; background: var(--surface);
+  box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border);
+}
+.new-note-panel-head { margin: 8px 10px 8px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.new-note-templates button, .new-note-recent > button {
+  min-height: 52px; padding: 8px 10px; border-radius: 12px;
+  transition: background-color 140ms, transform 200ms var(--spring);
+}
+.new-note-templates button:hover, .new-note-recent > button:hover { background: color-mix(in oklch, var(--foreground) 4.5%, transparent); }
+.new-note-templates button:active, .new-note-recent > button:active { transform: scale(.985); }
+.new-note-template-icon {
+  width: 32px; height: 32px; border-radius: 9px; color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+
+/* Sidebar: selection as a soft rounded pill, activity rail with a tinted active state. */
+/* One row tint for hover and selection, so the pointer never shows a second shade. */
+.obsidian-app { --row-selected: color-mix(in oklch, var(--primary) 9%, transparent); }
+.obsidian-app .sidebar-sort-row.is-active, .obsidian-app .obsidian-tree-row.is-active,
+.obsidian-app .sidebar-sort-row:hover, .obsidian-app .obsidian-tree-row:hover { border-radius: 9px; background: var(--row-selected); }
+.obsidian-app .sidebar-activity button { border-radius: 10px; transition: background-color 140ms, color 140ms, transform 200ms var(--spring); }
+.obsidian-app .sidebar-activity button:active { transform: scale(.92); }
+.obsidian-app .sidebar-activity button.is-active { background: color-mix(in oklch, var(--primary) 11%, transparent); color: var(--primary); }
+.obsidian-app .new-note-recent { align-content: start; justify-content: stretch; }

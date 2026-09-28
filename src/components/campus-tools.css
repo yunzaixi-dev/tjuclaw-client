@@ -169,3 +169,96 @@
   .campus-focus { margin-top: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .campus-tool *, .campus-tool *::before { scroll-behavior: auto !important; } }
+
+/* ---------------------------------------------------------------------------
+   Refined look: grouped rounded cards, tinted tool icons, softer grid.
+   --------------------------------------------------------------------------- */
+.campus-tool { padding-top: 44px; animation: campus-in 320ms var(--ease-out) both; }
+.campus-tool-header { gap: 16px; padding-bottom: 22px; border-bottom: 0; }
+.campus-tool-icon {
+  --tint: oklch(58% .15 255);
+  width: 48px; height: 48px; border-radius: 14px; color: oklch(100% 0 0);
+  background: linear-gradient(160deg, color-mix(in oklch, var(--tint) 80%, white), var(--tint));
+  box-shadow: 0 6px 14px -6px color-mix(in oklch, var(--tint) 70%, transparent), inset 0 1px 0 oklch(100% 0 0 / .3);
+}
+.campus-tool-schedule .campus-tool-icon { --tint: oklch(58% .16 255); }
+.campus-tool-entry .campus-tool-icon { --tint: oklch(60% .14 160); }
+.campus-tool-map .campus-tool-icon { --tint: oklch(62% .14 140); }
+.campus-tool-calendar .campus-tool-icon { --tint: oklch(62% .17 25); }
+.campus-tool-gpa .campus-tool-icon { --tint: oklch(58% .17 300); }
+.campus-tool-rooms .campus-tool-icon { --tint: oklch(64% .15 60); }
+.campus-tool-forum .campus-tool-icon { --tint: oklch(60% .15 220); }
+.campus-tool-focus .campus-tool-icon { --tint: oklch(62% .19 20); }
+.campus-tool-header h1 { font-size: 26px; font-weight: 700; letter-spacing: -.025em; }
+.campus-tool-header p { font-size: 13px; }
+.campus-tool h2 { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+
+/* Week grid as one rounded card with today highlighted. */
+.campus-schedule-nav { margin-top: 8px; }
+.campus-schedule-nav strong { font-size: 13px; }
+.campus-schedule-scroll {
+  border: 0; border-radius: 16px; background: var(--surface);
+  box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border);
+}
+.campus-week-corner, .campus-week-day { min-height: 48px; background: transparent; font-size: 12px; font-weight: 600; }
+.campus-week-day small { display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 999px; font-weight: 600; }
+.campus-week-day.is-today { color: var(--primary); }
+.campus-week-day.is-today small { background: var(--primary); color: var(--primary-foreground); }
+.campus-week-row { border-top-color: color-mix(in oklch, var(--border) 70%, transparent); }
+.campus-week-cell { border-left-color: color-mix(in oklch, var(--border) 70%, transparent); }
+.campus-week-cell.is-today { background: color-mix(in oklch, var(--primary) 3.5%, transparent); }
+.campus-class { inset: 2px 3px auto; padding: 7px 8px; border-radius: 9px; box-shadow: inset 3px 0 0 color-mix(in oklch, currentColor 30%, transparent); font-size: 12px; line-height: 1.4; }
+.campus-class.color-1 { background: color-mix(in oklch, oklch(69% .13 145) 20%, var(--surface)); color: oklch(38% .09 145); }
+.campus-class.color-2 { background: color-mix(in oklch, oklch(72% .13 65) 22%, var(--surface)); color: oklch(42% .1 60); }
+.campus-class.color-3 { background: color-mix(in oklch, oklch(66% .12 330) 18%, var(--surface)); color: oklch(42% .12 330); }
+:root[data-theme=dark] .campus-class { color: var(--foreground); }
+
+/* Lists and forms as grouped inset cards. */
+.campus-course-list, .campus-grade-list, .campus-exam-list, .campus-room-list, .campus-room-schedule, .campus-forum-list {
+  overflow: hidden; border-top: 0; border-radius: 14px; background: var(--surface);
+  box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border);
+}
+.campus-course-list > div, .campus-grade-list > div, .campus-exam-list > div, .campus-room-list > div, .campus-room-schedule-list > div, .campus-forum-list li {
+  padding-inline: 16px; border-bottom-color: color-mix(in oklch, var(--border) 70%, transparent);
+}
+.campus-course-list > div:last-child, .campus-grade-list > div:last-child, .campus-exam-list > div:last-child, .campus-forum-list li:last-child { border-bottom: 0; }
+.campus-exam-list h2, .campus-room-schedule h3 { padding-inline: 16px; }
+.campus-room-row { padding-inline: 16px; transition: background-color 140ms; }
+.campus-forum-list li { transition: background-color 140ms; }
+.campus-forum-list li:hover { background: color-mix(in oklch, var(--foreground) 2.5%, transparent); }
+
+.campus-form input, .campus-form select, .campus-vault-unlock input, .campus-room-filters input, .campus-room-filters select, .campus-office-form input {
+  min-height: 40px; padding: 8px 12px; border: 0; border-radius: 10px;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--foreground);
+  box-shadow: inset 0 0 0 .5px var(--control-border);
+  transition: box-shadow 160ms, background-color 160ms;
+}
+.campus-form input:focus, .campus-form select:focus, .campus-vault-unlock input:focus, .campus-room-filters input:focus, .campus-room-filters select:focus, .campus-office-form input:focus {
+  outline: none; background: var(--surface); box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 22%, transparent), inset 0 0 0 1px color-mix(in oklch, var(--primary) 60%, transparent);
+}
+.campus-inline-form { padding: 20px; border-radius: 16px; background: color-mix(in oklch, var(--foreground) 2.5%, transparent); }
+
+.campus-entry-message, .campus-map-index > div, .campus-calendar-images a, .campus-entry-code {
+  border: 0; border-radius: 16px; background: var(--surface);
+  box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border);
+}
+.campus-map-index > div { overflow: hidden; transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out); }
+.campus-map-index > div:hover { transform: translateY(-2px); box-shadow: var(--control-shadow-hover), 0 0 0 .5px var(--control-border); }
+.campus-calendar-images a { overflow: hidden; }
+.campus-external { border: 0; border-radius: 999px; background: var(--control-surface); box-shadow: var(--control-shadow), var(--control-highlight), 0 0 0 .5px var(--control-border); }
+.campus-live-error { border-radius: 12px; }
+
+.campus-gpa-result { padding: 22px 24px; border-bottom: 0; border-radius: 18px; background: linear-gradient(160deg, color-mix(in oklch, oklch(58% .17 300) 12%, var(--surface)), var(--surface)); box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border); }
+.campus-gpa-result strong { font-size: 48px; font-weight: 700; letter-spacing: -.03em; }
+
+.campus-focus-clock {
+  border: 0; border-radius: 50%; background: var(--surface);
+  box-shadow: var(--control-shadow-hover), 0 0 0 .5px var(--control-border), inset 0 0 0 10px color-mix(in oklch, oklch(62% .19 20) 10%, transparent);
+}
+.campus-focus-clock span { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.campus-credential-dialog { border: 0; border-radius: 18px; box-shadow: var(--shadow-dialog), 0 0 0 .5px var(--control-border); }
+.campus-dialog-header { border-bottom: 0; }
+
+@keyframes campus-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .campus-tool, .campus-map-index > div { animation: none; transition: none; } }

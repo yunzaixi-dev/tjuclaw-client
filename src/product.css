@@ -36,6 +36,19 @@
   --shadow-dialog: 0 8px 24px -10px oklch(0% 0 0 / .14), 0 28px 64px -28px oklch(0% 0 0 / .2);
   --floating-shadow: var(--shadow-card);
   --panel-shadow: var(--shadow-dialog);
+  /* Control material: a soft top light, a crisp lower edge and a two-level
+     shadow, so buttons read as raised surfaces rather than flat fills. */
+  --control-highlight: inset 0 1px 0 oklch(100% 0 0 / .7);
+  --control-edge: inset 0 -1px 0 oklch(0% 0 0 / .06);
+  --control-surface: linear-gradient(180deg, oklch(100% 0 0), oklch(97.6% 0 0));
+  --control-border: oklch(0% 0 0 / .1);
+  --control-shadow: 0 1px 1.5px oklch(0% 0 0 / .08), 0 2px 6px -2px oklch(0% 0 0 / .08);
+  --control-shadow-hover: 0 1px 2px oklch(0% 0 0 / .1), 0 6px 14px -6px oklch(0% 0 0 / .16);
+  --control-shadow-press: 0 0 1px oklch(0% 0 0 / .12);
+  --primary-sheen: linear-gradient(180deg, oklch(100% 0 0 / .16), oklch(100% 0 0 / 0) 55%);
+  --primary-glow: 0 1px 1px oklch(0% 0 0 / .18), 0 4px 12px -4px color-mix(in oklch, var(--primary) 55%, transparent);
+  --spring: cubic-bezier(.3, 1.3, .5, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
   --radius-control: 16px;
   --radius-panel: 40px;
   --z-overlay: 40;
@@ -63,6 +76,15 @@
   --shadow-dialog: 0 8px 24px -10px oklch(0% 0 0 / .36), 0 28px 64px -28px oklch(0% 0 0 / .55);
   --floating-shadow: var(--shadow-card);
   --panel-shadow: var(--shadow-dialog);
+  --control-highlight: inset 0 1px 0 oklch(100% 0 0 / .08);
+  --control-edge: inset 0 -1px 0 oklch(0% 0 0 / .25);
+  --control-surface: linear-gradient(180deg, oklch(27% 0 0), oklch(23.5% 0 0));
+  --control-border: oklch(100% 0 0 / .1);
+  --control-shadow: 0 1px 1.5px oklch(0% 0 0 / .35), 0 2px 6px -2px oklch(0% 0 0 / .3);
+  --control-shadow-hover: 0 1px 2px oklch(0% 0 0 / .4), 0 6px 14px -6px oklch(0% 0 0 / .5);
+  --control-shadow-press: 0 0 1px oklch(0% 0 0 / .5);
+  --primary-sheen: linear-gradient(180deg, oklch(100% 0 0 / .1), oklch(100% 0 0 / 0) 55%);
+  --primary-glow: 0 1px 1px oklch(0% 0 0 / .4), 0 4px 12px -4px oklch(0% 0 0 / .6);
 }
 :root[data-accent=blue] { --primary: var(--blue); --primary-foreground: oklch(100% 0 0); }
 :root[data-theme=dark][data-accent=blue] { --primary-foreground: oklch(14% 0 0); }
@@ -86,17 +108,32 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 h1,h2,h3,p { margin: 0; }
 svg { flex-shrink: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; border: 0; font-size: 14px; font-weight: 500; transition: background 160ms, color 160ms, transform 160ms; }
-.ui-button:active { transform: scale(.97); }
-.ui-button:disabled { opacity: .45; pointer-events: none; }
+.ui-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0;
+  border: 0; font-size: 14px; font-weight: 550; letter-spacing: -.005em;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out), background-color 160ms, color 160ms, filter 160ms;
+}
+.ui-button:active { transform: scale(.97); transition-duration: 90ms; }
+.ui-button:disabled { opacity: .45; pointer-events: none; box-shadow: none; }
 .ui-button-default { min-height: 44px; padding: 0 18px; border-radius: 999px; }
 .ui-button-icon { width: 44px; height: 44px; padding: 0; border-radius: 50%; }
-.ui-button-solid { background: var(--primary); color: var(--primary-foreground); }
+.ui-button-solid {
+  background: var(--primary-sheen), var(--primary); color: var(--primary-foreground);
+  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .18), inset 0 -1px 0 oklch(0% 0 0 / .2);
+}
+.ui-button-solid:hover { filter: brightness(1.08); transform: translateY(-.5px); }
+.ui-button-solid:active { filter: brightness(.96); box-shadow: var(--control-shadow-press), inset 0 1px 2px oklch(0% 0 0 / .25); }
 .ui-button-ghost { background: transparent; color: var(--muted-foreground); }
-.ui-button-ghost:hover { background: var(--muted); color: var(--foreground); }
-.ui-button-floating { background: var(--surface-raised); color: var(--foreground); box-shadow: var(--floating-shadow); }
-.ui-button-floating:hover { background: var(--selected); }
-.ui-button-solid:hover { opacity: .85; }
+.ui-button-ghost:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); }
+.ui-button-ghost:active { background: color-mix(in oklch, var(--foreground) 10%, transparent); }
+.ui-button-floating {
+  background: var(--control-surface); color: var(--foreground);
+  box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
+}
+.ui-button-floating:hover { box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); transform: translateY(-.5px); }
+.ui-button-floating:active { box-shadow: var(--control-shadow-press), inset 0 1px 2px oklch(0% 0 0 / .08), 0 0 0 .5px var(--control-border); }
+@media (prefers-reduced-motion: reduce) { .ui-button, .ui-button:hover, .ui-button:active { transform: none; transition: none; } }
 .product-app { min-height: calc(100dvh - var(--contest-banner-height, 0px)); padding: 0 28px; }
 .home-page { max-width: 1000px; margin: 0 auto; padding: 44px 0; }
 .home-toolbar { display: flex; align-items: center; gap: 15px; }

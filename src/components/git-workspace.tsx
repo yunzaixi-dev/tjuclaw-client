@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { GitBranch, Loader2 } from 'lucide-react';
+import { ArrowRight, GitBranch, History, Loader2, Lock, Network, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import { createSession, listSessions, type ChatSession } from '../lib/library';
 import { SandboxNotes } from './sandbox-notes';
 import { PrivateNotebook } from './private-notebook';
 import './sandbox-notes.css';
+
+const MODES: { id: 'git' | 'private'; title: string; detail: string; icon: LucideIcon }[] = [
+  { id: 'git', title: '协作笔记', detail: 'Agent 能读写、检索和整理，每次保存都留下版本', icon: GitBranch },
+  { id: 'private', title: '私密笔记', detail: '在你的设备上加密，服务器只保存密文', icon: Lock },
+];
+
+const FEATURES: { label: string; icon: LucideIcon }[] = [
+  { label: '版本历史', icon: History },
+  { label: '全文检索', icon: Search },
+  { label: '双向链接图谱', icon: Network },
+  { label: 'Agent 协作', icon: Sparkles },
+];
 
 export function GitWorkspace({ ownerId, workspaceId, agentId, preset }: {
   ownerId: string; workspaceId: string; agentId?: string; preset?: string;
@@ -28,32 +40,45 @@ export function GitWorkspace({ ownerId, workspaceId, agentId, preset }: {
       if (current.entry_id !== agentId) throw new Error('会话与当前 Agent 不匹配。');
       if (!controller.signal.aborted) setSession(current);
     } catch {
-      if (!controller.signal.aborted) setError('无法连接 Git 工作区，请稍后重试。');
+      if (!controller.signal.aborted) setError('暂时无法打开 Git 笔记，请稍后重试。');
     } finally {
       if (!controller.signal.aborted) setConnecting(false);
     }
   };
 
-  return <section className="git-workspace-page" aria-label="Git 笔记">
-    <header className="git-workspace-intro">
-      <span className="git-workspace-icon"><GitBranch size={18} /></span>
-      <div><h1>Git 笔记</h1><p>{mode === 'private'
-        ? '私密笔记在浏览器中加解密，Forgejo 保存密文；它不属于 Agent 的明文工作树，也不会自动迁移旧笔记。'
-        : '从 Forgejo 的已提交 Markdown 读取和保存。旧资料夹仍是独立的知识库，尚未迁移；当前 Git 仓库未启用端到端加密。'}</p></div>
+  const opened = mode === 'private' || Boolean(session);
+  return <section className={`git-workspace-page${opened ? ' is-open' : ''}`} aria-label="Git 笔记">
+    <header className="git-hero">
+      <span className="git-hero-mark"><GitBranch size={22} /></span>
+      <div>
+        <h1>Git 笔记</h1>
+        <p>每一次保存都是一次提交，随时回到任何一个版本。</p>
+      </div>
     </header>
-    <div className="git-workspace-mode" role="group" aria-label="Git 工作区存储方式">
-      <button type="button" aria-pressed={mode === 'git'} onClick={() => setMode('git')}>普通 Markdown · Agent 可用</button>
-      <button type="button" aria-pressed={mode === 'private'} onClick={() => setMode('private')}>私密笔记 · 浏览器解密</button>
+    <div className="git-modes" role="group" aria-label="笔记类型">
+      {MODES.map(({ id, title, detail, icon: Icon }) => (
+        <button key={id} type="button" className="git-mode" aria-pressed={mode === id} onClick={() => setMode(id)}>
+          <span className="git-mode-icon"><Icon size={18} /></span>
+          <span className="git-mode-text"><strong>{title}</strong><small>{detail}</small></span>
+        </button>
+      ))}
     </div>
     {mode === 'private' ? <PrivateNotebook key={`${ownerId}:${workspaceId}`} ownerId={ownerId} workspaceId={workspaceId} />
-      : !session ? <div className="git-workspace-connect">
-      <p>{agentId ? '连接到现有 Agent 会话的工作区；若还没有会话，将创建一个。仅在查看文件时启动沙箱。' : '当前知识库没有可用的 Agent，暂时无法打开 Git 笔记。'}</p>
-      {error ? <p className="sandbox-notes-error" role="alert">{error}</p> : null}
-      {agentId ? <button type="button" onClick={() => void connect()} disabled={connecting}>
-        {connecting ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
-        {connecting ? '正在连接…' : error ? '重试连接' : '连接 Git 工作区'}
-      </button> : null}
-    </div> : <SandboxNotes key={`${ownerId}:${session.id}`} sessionId={session.id} ownerId={ownerId}
-      entryId={agentId!} preset={preset ?? ''} />}
+      : session ? <SandboxNotes key={`${ownerId}:${session.id}`} sessionId={session.id} ownerId={ownerId}
+        entryId={agentId!} preset={preset ?? ''} />
+        : <div className="git-workspace-connect">
+          <ul className="git-features" aria-label="协作笔记能做什么">
+            {FEATURES.map(({ label, icon: Icon }) => <li key={label}><Icon size={15} aria-hidden="true" />{label}</li>)}
+          </ul>
+          {agentId ? <>
+            {error ? <p className="sandbox-notes-error" role="alert">{error}</p> : null}
+            <button type="button" className="git-open" onClick={() => void connect()} disabled={connecting}>
+              {connecting ? <Loader2 size={16} className="animate-spin" /> : null}
+              {connecting ? '正在准备你的笔记…' : error ? '重试' : '打开协作笔记'}
+              {connecting ? null : <ArrowRight size={16} />}
+            </button>
+            <p className="git-open-note">首次打开需要几秒钟准备你的笔记仓库。</p>
+          </> : <p className="git-open-note">先在知识库里添加一个 Agent，就能开始使用协作笔记。</p>}
+        </div>}
   </section>;
 }

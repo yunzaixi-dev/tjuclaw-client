@@ -260,11 +260,11 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
   }
   return <section className="private-notebook" aria-label="私密笔记">
     <h2><LockKeyhole size={18} /> 私密笔记</h2>
-    <p>标题与正文在浏览器内加密，Forgejo 仅保存密文；删除当前对象不会清除 Git 历史中的旧密文。普通 Git 笔记和旧资料夹仍是明文；云端 Agent 不会读取这里的内容。复制旧笔记不会删除原件或迁移附件和目录。</p>
+    <p>标题和正文在你的设备上加密，服务器只保存密文，Agent 也读不到这里的内容。删除笔记后，历史版本里的密文仍会保留；复制普通笔记进来不会影响原笔记。</p>
     {error ? <p role="alert" className="sandbox-notes-error">{error}</p> : null}
     {available === null ? <p role="status">正在检查加密仓库…</p>
       : available === 'unavailable' ? <p role="alert">无法检查加密仓库状态，请刷新后重试；不会回退到明文存储。</p>
-      : !available ? <p>加密仓库尚未启用，此区域不会回退到明文存储。</p>
+      : !available ? <p>私密笔记暂时不可用；为保护隐私，这里不会改用明文保存。</p>
         : !notebook ? <form onSubmit={event => void unlock(event)}>
           <label htmlFor="private-notebook-key">再次输入工作区口令以解密私密笔记</label>
           <input id="private-notebook-key" type="password" autoComplete="off" value={input}

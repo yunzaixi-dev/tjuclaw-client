@@ -1175,7 +1175,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(tablist.getByRole('tab', { name: '笔记 新建笔记' }).last()).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '笔记 First note for user A' })).toHaveCount(0);
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '新建标签页' }).click();
     await expect(tablist.getByRole('tab', { name: '会话 新会话' })).toHaveAttribute('aria-selected', 'true');
@@ -1209,7 +1209,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await expect(composer).toBeEnabled();
     await composer.fill('请解释主动回忆');
@@ -1256,10 +1256,10 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Git 笔记' })).toBeVisible();
-    await expect(page.getByText(/旧资料夹仍是独立的知识库，尚未迁移；当前 Git 仓库未启用端到端加密/)).toBeVisible();
+    await expect(page.getByText('每一次保存都是一次提交，随时回到任何一个版本。')).toBeVisible();
     expect(sessionReads).toBe(0);
     expect(grants).toBe(0);
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await expect(panel).toBeVisible();
     expect(sessionReads).toBe(1);
@@ -1274,7 +1274,7 @@ test.describe('Workspace mocked contract suite', () => {
       expect.objectContaining({ owner_id: syntheticSessionA.id, session_id: sessionA.id, entry_id: guideA.id, path: 'repo.md' }),
     ]);
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     expect(sessionCreates).toBe(0);
     await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
   });
@@ -1330,9 +1330,9 @@ test.describe('Workspace mocked contract suite', () => {
     await downloadPromise;
     await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
     const panel = page.getByRole('region', { name: '私密笔记' });
-    await expect(panel).toContainText('云端 Agent 不会读取这里的内容');
+    await expect(panel).toContainText('Agent 也读不到这里的内容');
     await panel.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
     await panel.getByRole('button', { name: '解锁私密笔记' }).click();
     await panel.getByLabel('新笔记标题').fill('仅本人可见的标题');
@@ -1345,8 +1345,8 @@ test.describe('Workspace mocked contract suite', () => {
     for (const payload of writes) expect(payload).not.toMatch(/仅本人可见|private-workspace-key/);
     await panel.getByRole('button', { name: '编辑笔记' }).click();
     await panel.getByRole('textbox', { name: '私密笔记正文' }).fill('切换视图后保留的草稿');
-    await page.getByRole('button', { name: '普通 Markdown · Agent 可用' }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
+    await page.getByRole('button', { name: /^协作笔记/ }).click();
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
     const restored = page.getByRole('region', { name: '私密笔记' });
     await restored.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
     await restored.getByRole('button', { name: '解锁私密笔记' }).click();
@@ -1360,7 +1360,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByLabel('工作区口令').fill('private-workspace-key');
     await page.getByRole('button', { name: '解锁进入工作区' }).click();
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
     const reopened = page.getByRole('region', { name: '私密笔记' });
     await reopened.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
     await reopened.getByRole('button', { name: '解锁私密笔记' }).click();
@@ -1385,8 +1385,8 @@ test.describe('Workspace mocked contract suite', () => {
     await reopened.getByRole('textbox', { name: '私密笔记正文' }).fill('远端移除后仍需保留的草稿');
     const manifestID = createHash('sha256').update(`tjuclaw:private-notebook:v1:${libA.id}`).digest('hex').slice(0, 32);
     expect(objects.delete(manifestID)).toBe(true);
-    await page.getByRole('button', { name: '普通 Markdown · Agent 可用' }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
+    await page.getByRole('button', { name: /^协作笔记/ }).click();
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
     const orphaned = page.getByRole('region', { name: '私密笔记' });
     await orphaned.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
     await orphaned.getByRole('button', { name: '解锁私密笔记' }).click();
@@ -1422,8 +1422,8 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
-    await expect(page.getByRole('region', { name: '私密笔记' })).toContainText('不会回退到明文存储');
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
+    await expect(page.getByRole('region', { name: '私密笔记' })).toContainText('不会改用明文保存');
     expect(objectReads).toBe(0);
   });
 
@@ -1463,7 +1463,7 @@ test.describe('Workspace mocked contract suite', () => {
     await download;
     await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '私密笔记 · 浏览器解密' }).click();
+    await page.getByRole('button', { name: /^私密笔记/ }).click();
     const panel = page.getByRole('region', { name: '私密笔记' });
     await panel.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
     await panel.getByRole('button', { name: '解锁私密笔记' }).click();
@@ -1501,16 +1501,16 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     let panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'draft.md' }).click();
     await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '沙箱文件内容' }).fill('local unsaved draft');
+    await panel.getByRole('textbox', { name: '笔记内容' }).fill('local unsaved draft');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toHaveValue('local unsaved draft');
+    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toHaveValue('local unsaved draft');
     expect(writes).toHaveLength(0);
   });
 
@@ -1543,12 +1543,12 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'draft.md' }).click();
     await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '沙箱文件内容' }).fill('saved despite 503');
+    await panel.getByRole('textbox', { name: '笔记内容' }).fill('saved despite 503');
     await panel.getByRole('button', { name: '保存到 Git' }).click();
     await expect(panel.locator('pre')).toContainText('saved despite 503');
     expect(patches).toBe(1);
@@ -1580,15 +1580,15 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'draft.md' }).click();
     await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '沙箱文件内容' }).fill('keep this local draft');
+    await panel.getByRole('textbox', { name: '笔记内容' }).fill('keep this local draft');
     await panel.getByRole('button', { name: '保存到 Git' }).click();
     await expect(panel.getByRole('alert')).toContainText('远端文件已更新');
-    await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toHaveValue('keep this local draft');
+    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toHaveValue('keep this local draft');
     expect(patches).toBe(1);
   });
 
@@ -1602,9 +1602,9 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
-    await expect(page.getByRole('alert')).toContainText('无法连接 Git 工作区');
-    await page.getByRole('button', { name: '重试连接' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
+    await expect(page.getByRole('alert')).toContainText('暂时无法打开 Git 笔记');
+    await page.getByRole('button', { name: '重试', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
     expect(attempts).toBe(2);
   });
@@ -1625,12 +1625,12 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
     expect(created).toBe(0);
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
     expect(created).toBe(1);
     await page.getByRole('button', { name: '资料夹', exact: true }).click();
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
     expect(created).toBe(1);
   });
@@ -1641,7 +1641,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await page.getByRole('button', { name: '打开 Git 笔记' }).click();
     await expect(page.getByRole('region', { name: 'Git 笔记' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '连接 Git 工作区' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '打开协作笔记' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
@@ -1672,7 +1672,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
     expect(issued).toBe(0);
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
@@ -1713,7 +1713,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '连接 Git 工作区' }).click();
+    await page.getByRole('button', { name: '打开协作笔记' }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'deleted.md' }).click();
@@ -1746,12 +1746,12 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'note.md' }).click();
     await panel.getByRole('button', { name: '编辑文件' }).click();
-    const draft = panel.getByRole('textbox', { name: '沙箱文件内容' });
+    const draft = panel.getByRole('textbox', { name: '笔记内容' });
     await draft.fill('saved by browser');
     await panel.getByRole('button', { name: '保存到 Git' }).click();
     await expect(panel.locator('pre')).toHaveText('saved by browser');
@@ -1795,12 +1795,12 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'large.md' }).click();
     await panel.getByRole('button', { name: '编辑文件' }).click();
-    const draft = panel.getByRole('textbox', { name: '沙箱文件内容' });
+    const draft = panel.getByRole('textbox', { name: '笔记内容' });
     const large = 'a'.repeat(80 << 10);
     await draft.fill(large);
     await panel.getByRole('button', { name: '保存到 Git' }).click();
@@ -1835,7 +1835,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     const filename = panel.getByRole('textbox', { name: '新文件名' });
@@ -1844,7 +1844,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(panel.getByRole('alert')).toContainText('远端文件已更新');
     await expect(filename).toHaveValue('new.md');
     await panel.getByRole('button', { name: '新建 Markdown' }).click();
-    await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toBeVisible();
+    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toBeVisible();
     await expect(filename).toHaveValue('');
     expect(writes).toEqual([1, 2].map(() => ({ method: 'PUT', body: {
       version: 'session.v1', owner_id: syntheticSessionA.id, session_id: sessionA.id,
@@ -1886,19 +1886,19 @@ test.describe('Workspace mocked contract suite', () => {
       });
       await page.goto('/workspace');
       await page.getByRole('button', { name: 'Agent', exact: true }).click();
-      await page.getByRole('button', { name: '新手向导' }).click();
+      await page.getByRole('button', { name: '新手向导', exact: true }).click();
       const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
       await panel.getByRole('button', { name: '查看文件' }).click();
       await panel.getByRole('textbox', { name: '新文件名' }).fill('uncertain.md');
       await panel.getByRole('button', { name: '新建 Markdown' }).click();
       if (recovered) {
-        await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toBeVisible();
+        await expect(panel.getByRole('textbox', { name: '笔记内容' })).toBeVisible();
         await expect(panel.getByRole('textbox', { name: '新文件名' })).toHaveValue('');
         await expect(panel.getByRole('alert')).toHaveCount(0);
       } else {
         await expect(panel.getByRole('alert')).toContainText('新建结果未确认');
         await expect(panel.getByRole('textbox', { name: '新文件名' })).toHaveValue('uncertain.md');
-        await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toHaveCount(0);
+        await expect(panel.getByRole('textbox', { name: '笔记内容' })).toHaveCount(0);
       }
       expect(writes).toBe(1);
       expect(reads).toBe(1);
@@ -1929,7 +1929,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'note.md' }).click();
@@ -1971,12 +1971,12 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('textbox', { name: '新文件名' }).fill('topics/new.md');
     await panel.getByRole('button', { name: '新建 Markdown' }).click();
-    await expect(panel.getByRole('textbox', { name: '沙箱文件内容' })).toBeVisible();
+    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toBeVisible();
     await panel.getByRole('button', { name: '取消' }).click();
     await panel.getByRole('textbox', { name: '重命名或移动到路径' }).fill('archive/renamed.md');
     await panel.getByRole('button', { name: '重命名/移动' }).click();
@@ -2027,7 +2027,7 @@ test.describe('Workspace mocked contract suite', () => {
       });
       await page.goto('/workspace');
       await page.getByRole('button', { name: 'Agent', exact: true }).click();
-      await page.getByRole('button', { name: '新手向导' }).click();
+      await page.getByRole('button', { name: '新手向导', exact: true }).click();
       const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
       await panel.getByRole('button', { name: '查看文件' }).click();
       await panel.getByRole('button', { name: 'source.md' }).click();
@@ -2074,7 +2074,7 @@ test.describe('Workspace mocked contract suite', () => {
       });
       await page.goto('/workspace');
       await page.getByRole('button', { name: 'Agent', exact: true }).click();
-      await page.getByRole('button', { name: '新手向导' }).click();
+      await page.getByRole('button', { name: '新手向导', exact: true }).click();
       const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
       await panel.getByRole('button', { name: '查看文件' }).click();
       await panel.getByRole('button', { name: 'source.md' }).click();
@@ -2098,7 +2098,7 @@ test.describe('Workspace mocked contract suite', () => {
       json(route, 200, { token: 'short-lived-session-token', expires_at: '2099-01-01T00:00:00Z' }));
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await expect(panel.getByRole('alert')).toContainText('沙箱直连入口尚未配置');
@@ -2110,7 +2110,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await composer.fill('请解释主动回忆');
     await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -2125,7 +2125,7 @@ test.describe('Workspace mocked contract suite', () => {
 
     await page.reload();
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(composer).toHaveValue('');
     await expect(page.getByRole('alert')).toContainText('重新输入原消息');
 
@@ -2141,7 +2141,7 @@ test.describe('Workspace mocked contract suite', () => {
     expect(state.sentRequests.map(item => item.client_request_id)).toEqual([requestId, requestId]);
     await page.reload();
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(composer).toHaveValue('');
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.locator('.chat-message.assistant')).toContainText('已收到');
@@ -2153,7 +2153,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await composer.fill('回顾今天');
     await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -2178,7 +2178,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await expect(composer).toBeEnabled();
     failReadback = true;
@@ -2203,7 +2203,7 @@ test.describe('Workspace mocked contract suite', () => {
 
     await page.reload();
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.locator('.chat-message.user').first()).toContainText('总结课程');
     await expect(page.locator('.chat-message.assistant').first()).toContainText('已收到');
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -2217,7 +2217,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await composer.fill('原始消息');
     await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -2888,7 +2888,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
     await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
     await expect(page.getByText('执行记录与运行')).toHaveCount(0);
@@ -2900,7 +2900,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导' }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
     await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
   });
