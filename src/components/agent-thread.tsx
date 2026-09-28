@@ -1,26 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import {
-  ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, Copy, DoorOpen, FileSearch, FileText, GraduationCap,
-  Image as ImageIcon, Loader2, MessagesSquare, Settings2, Sparkles, Wrench, type LucideIcon,
-} from 'lucide-react';
+import { ArrowUp, BookOpen, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
+import { AgentSteps } from './agent-steps';
 import { BrandIcon } from './brand-icon';
 import { chooseProductModel, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
-const TOOLS: Record<string, { label: string; step: string; icon: LucideIcon }> = {
-  campus_semester: { label: '学期', step: '查询当前学期与教学周', icon: CalendarDays },
-  campus_timetable: { label: '课表', step: '读取你的课表', icon: CalendarDays },
-  campus_exams: { label: '考试安排', step: '查询考试安排', icon: GraduationCap },
-  campus_study_rooms: { label: '自习室', step: '查找空闲自习室', icon: DoorOpen },
-  campus_forum_posts: { label: '校园论坛', step: '浏览校园论坛', icon: MessagesSquare },
-  search_course_materials: { label: '课程资料', step: '检索校园知识库', icon: FileSearch },
-  read_image: { label: '看图', step: '查看原图内容', icon: ImageIcon },
-  list_tree: { label: '笔记目录', step: '读取笔记目录', icon: FileText },
-  create_entry: { label: '新建笔记', step: '新建笔记', icon: FileText },
-  update_entry: { label: '修改笔记', step: '修改笔记', icon: FileText },
-  delete_entry: { label: '删除笔记', step: '删除笔记', icon: FileText },
-};
-const toolInfo = (name: string) => TOOLS[name] ?? { label: name, step: name, icon: Wrench };
 
 /** What the Agent can reach on this server, grouped for display. */
 function capabilityLabels(tools: string[]) {
@@ -41,26 +25,6 @@ function agentStarters(tools: string[]) {
   return ['帮我整理这篇笔记的重点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
 }
 
-/** Tool calls of one reply, as a collapsible list of finished steps. */
-function ToolSteps({ tools }: { tools: string[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className={`agent-steps${open ? ' is-open' : ''}`}>
-      <button type="button" className="chat-message-tools" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-        <Wrench size={12} aria-hidden="true" />
-        <span>使用了 {tools.map(name => toolInfo(name).label).join(' · ')}</span>
-        <ChevronDown size={13} aria-hidden="true" />
-      </button>
-      {open ? <ol>
-        {tools.map((name, index) => {
-          const { step, icon: Icon } = toolInfo(name);
-          return <li key={`${name}-${index}`}><Icon size={13} aria-hidden="true" /><span>{step}</span><Check size={13} className="agent-step-done" aria-label="已完成" /></li>;
-        })}
-      </ol> : null}
-    </div>
-  );
-}
-
 /** Elapsed seconds while the Agent works, so a long answer never looks stuck. */
 function Thinking() {
   // Mounted when sending starts, so the first render marks the start.
@@ -71,7 +35,7 @@ function Thinking() {
     return () => window.clearInterval(timer);
   }, []);
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
-  return <div className="agent-thinking" role="status"><span className="agent-thinking-text">正在思考</span><span>{seconds} 秒</span></div>;
+  return <div className="agent-thinking is-step" role="status"><Brain size={14} aria-hidden="true" /><span className="agent-thinking-text">正在思考</span><span>{seconds} 秒</span></div>;
 }
 
 function ModelPill({ onManage }: { onManage: () => void }) {
@@ -93,7 +57,8 @@ function ModelPill({ onManage }: { onManage: () => void }) {
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
   }, [open]);
-  if (!status) return null;
+  // Hold the chip's place while the status loads, so the bar does not shift.
+  if (!status) return <span className="agent-chip is-loading" aria-hidden="true"><Sparkles size={12} /><span>模型</span></span>;
   const missing = status.source === 'none';
   const choices = status.source === 'product' ? status.choices ?? [] : [];
   // Rolling limits apply to product models only; a custom upstream is not counted.
@@ -133,7 +98,7 @@ function ModelPill({ onManage }: { onManage: () => void }) {
   );
 }
 
-export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
+export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   capabilities: AgentCapabilities | null;
@@ -141,6 +106,8 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   error: string;
   draft: string;
   sending: boolean;
+  /** The message being sent, shown at once before the server confirms it. */
+  pending?: string;
   /** Changes when model settings may have changed, to re-read the model. */
   modelVersion: number;
   onDraftChange: (value: string) => void;
@@ -168,7 +135,8 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
   }, [draft]);
 
-  const empty = Boolean(chat) && !loading && !messages.length && !sending;
+  // Cached history shows at once; the server copy replaces it quietly.
+  const empty = Boolean(chat) && !messages.length && !sending && !pending && !(loading && !chat?.messages);
   const composer = (
       <form className="agent-composer" onSubmit={onSubmit}>
         <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
@@ -190,9 +158,10 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   );
   const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span>{error.includes('未确认') ? <button type="button" onClick={onRetry}>确认发送结果</button> : null}</div> : null;
   let body: ReactNode;
-  if (loading) body = <div className="agent-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>;
-  else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
-  else if (!messages.length && !sending) {
+  if (loading && !chat) {
+    body = <div className="agent-skeleton" role="status" aria-label="正在加载会话"><span className="is-user" /><span className="is-line" /><span className="is-short" /></div>;
+  } else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
+  else if (!messages.length && !sending && !pending) {
     body = <div className="agent-empty">
       <span className="agent-empty-mark"><BrandIcon size={40} /></span>
       <h2>今天想让{title}做什么？</h2>
@@ -216,7 +185,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
             <span className="agent-avatar"><BrandIcon size={16} /></span><span className="agent-reply-name">{title}</span>
             <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
           </header>
-          {message.tools?.length ? <ToolSteps tools={message.tools} /> : null}
+          <AgentSteps steps={message.steps} tools={message.tools} />
           <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
           <div className="agent-reply-actions">
             <button type="button" aria-label="复制回复" title="复制回复" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopiedIndex(index); window.setTimeout(() => setCopiedIndex(current => current === index ? null : current), 1200); }}>
@@ -226,6 +195,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
         </article>)}
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
+      {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
       {sending ? <Thinking /> : null}
     </div>;
   }

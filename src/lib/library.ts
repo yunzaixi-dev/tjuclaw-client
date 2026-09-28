@@ -48,9 +48,28 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   client_request_id?: string;
-  /** Names of tools the Agent used before this reply; never their payloads. */
+  /** Names of tools the Agent used before this reply. */
   tools?: string[];
+  /** The reply's thinking and tool calls, in order. */
+  steps?: TurnStep[];
   created_at: string;
+}
+
+export interface TurnStep {
+  kind: 'thinking' | 'tool';
+  text?: string;
+  name?: string;
+  input?: string;
+  output?: string;
+  failed?: boolean;
+}
+
+function isStep(value: unknown): value is TurnStep {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  const optional = (key: string) => r[key] === undefined || typeof r[key] === 'string';
+  return (r.kind === 'thinking' || r.kind === 'tool') && optional('text') && optional('name') && optional('input')
+    && optional('output') && (r.failed === undefined || typeof r.failed === 'boolean');
 }
 
 export interface ChatSession {
@@ -172,7 +191,8 @@ function isSession(value: unknown): value is ChatSession {
     const m = item as Record<string, unknown>;
     return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && isTime(m.created_at)
       && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)))
-      && (m.tools === undefined || isStringList(m.tools));
+      && (m.tools === undefined || isStringList(m.tools))
+      && (m.steps === undefined || (Array.isArray(m.steps) && m.steps.length <= 60 && m.steps.every(isStep)));
   });
 }
 

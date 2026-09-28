@@ -2892,6 +2892,50 @@ test('a CDN timeout keeps waiting for the reply the server saved under the reque
   await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toHaveValue('');
 });
 
+test('a reply shows its thinking and each tool call with its own view, and sending is optimistic', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let release;
+  const released = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => {
+    const sent = JSON.parse(route.request().postData());
+    await released;
+    const session = state.sessionById[sessionA.id];
+    const next = { ...session, messages: [...session.messages,
+      { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '电路笔记讲的是 **KCL**。', created_at: '2026-01-01T00:00:12.000Z', tools: ['read_entry', 'bash'], steps: [
+        { kind: 'thinking', text: '先读一下用户的电路笔记' },
+        { kind: 'tool', name: 'read_entry', input: '{"id":"n1"}', output: '{"ok":true,"data":{"name":"read_entry","result":{"id":"n1","title":"电路","body":"KCL"}}}' },
+        { kind: 'tool', name: 'bash', input: 'ls -la notes', output: 'total 0', failed: false },
+        { kind: 'tool', name: 'campus_exams', output: '{"error":"unavailable"}', failed: true },
+      ] }] };
+    state.sessionById[sessionA.id] = next;
+    await json(route, 200, { session: next });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+  await composer.fill('电路笔记讲什么');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  // Optimistic: the message is in the transcript and the composer is clear at once.
+  await expect(page.getByRole('article', { name: '正在发送' })).toContainText('电路笔记讲什么');
+  await expect(composer).toHaveValue('');
+  await expect(page.getByRole('status').filter({ hasText: '正在思考' })).toBeVisible();
+  release();
+  const reply = page.locator('.chat-message.assistant').last();
+  await expect(reply).toContainText('电路笔记讲的是');
+  const summary = reply.getByRole('button', { name: /已思考 · 使用了 读笔记 · 命令 · 考试安排 · 有步骤失败/ });
+  await summary.click();
+  const steps = reply.getByRole('list', { name: '思考与工具调用' });
+  await expect(steps.getByRole('button', { name: /阅读《电路》/ })).toBeVisible();
+  await expect(steps.getByRole('button', { name: /运行命令.*ls -la notes/ })).toBeVisible();
+  await expect(steps.getByRole('button', { name: /查询考试安排.*失败/ })).toBeVisible();
+  await steps.getByRole('button', { name: /思考/ }).first().click();
+  await expect(steps).toContainText('先读一下用户的电路笔记');
+  await steps.getByRole('button', { name: /阅读《电路》/ }).click();
+  await expect(steps.locator('pre').first()).toContainText('"id": "n1"');
+});
+
 test('Agent without a sandbox offers campus starters and shows which tools a reply used', async ({ page }) => {
   const state = defaultState();
   state.model = { ...state.model, agent: { sandbox: false, tools: ['campus_semester', 'campus_timetable', 'search_course_materials'] } };

@@ -295,6 +295,8 @@ export default function Workspace() {
   const [chat, setChat] = useState<ChatSession | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  // The message being sent, shown optimistically until the server confirms it.
+  const [pendingText, setPendingText] = useState('');
   const [chatError, setChatError] = useState('');
   const [draft, setDraft] = useState('');
   const [tabs, setTabs] = useState<WorkspaceTab[]>([{ key: 'home', kind: 'blank', title: '新建笔记', history: [], historyIndex: -1 }]);
@@ -1507,8 +1509,14 @@ export default function Workspace() {
       sessionStorage.setItem(pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
     } catch { /* In-memory retries still work when browser storage is disabled. */ }
     setChatError('');
+    // Optimistic: the message leaves the composer at once and returns to it
+    // only if the send fails.
+    let delivered = false;
+    setPendingText(text);
+    setDraft('');
     try {
       const next = await sendMessage(currentId, text, requestId);
+      delivered = true;
       clearPendingChat(identity, currentId, requestId);
       if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
       if (generation === identityGeneration.current && request === chatRequestRef.current) {
@@ -1545,6 +1553,7 @@ export default function Workspace() {
         if (latest.messages?.some(message => message.role === 'user' && message.client_request_id === requestId && message.content === text)) {
           clearPendingChat(identity, currentId, requestId);
           if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
+          delivered = true;
           if (generation === identityGeneration.current && request === chatRequestRef.current) {
             if (entryId) { chatCacheRef.current[entryId] = latest; draftsRef.current[entryId] = ''; }
             setChat(latest);
@@ -1556,7 +1565,11 @@ export default function Workspace() {
       if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
     } finally {
       sendingRef.current = false;
-      if (generation === identityGeneration.current) setChatSending(false);
+      if (generation === identityGeneration.current) {
+        setChatSending(false);
+        setPendingText('');
+        if (!delivered && request === chatRequestRef.current) setDraft(text);
+      }
     }
   }
 
@@ -1998,7 +2011,7 @@ export default function Workspace() {
       {saveConflictId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveConflictId)?.title || '未命名笔记'}」云端已更新，本地内容未保存。请先复制备份，再决定是否加载云端版本。</span>{selectedId !== saveConflictId ? <button type="button" onClick={() => void openEntry(saveConflictId)}>返回冲突笔记</button> : null}<button type="button" onClick={() => void copyConflictDraft()}>复制我的内容</button><button type="button" onClick={() => void discardConflictDraft()}>加载云端版本</button></div> : null}
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title={selected.title} chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title={selected.title} chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

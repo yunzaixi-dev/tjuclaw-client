@@ -1,0 +1,61 @@
+/* A reply's thinking and tool calls: one quiet summary line that opens into
+   a timeline, each row readable at a glance and expandable for details. */
+.agent-steps-block { display: grid; gap: 4px; margin-bottom: 2px; }
+.agent-steps-summary {
+  display: inline-flex; justify-self: start; align-items: center; gap: 4px; height: 26px; margin-left: -6px; padding: 0 6px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; cursor: pointer;
+}
+.agent-steps-summary:hover { background: var(--hover-wash); color: var(--foreground); }
+.agent-steps-summary svg { transition: transform 160ms var(--ease-out); }
+.agent-steps-block.is-open > .agent-steps-summary svg { transform: rotate(90deg); }
+
+.agent-steps-list { position: relative; display: grid; gap: 1px; margin: 0 0 6px; padding: 2px 0 2px 2px; list-style: none; animation: agent-steps-in 180ms var(--ease-out) both; }
+.agent-steps-list::before { position: absolute; top: 14px; bottom: 14px; left: 12px; width: 1px; background: var(--border); content: ""; }
+
+.agent-step > button {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 4px 8px 4px 4px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.agent-step > button:disabled { cursor: default; }
+.agent-step > button:not(:disabled):hover { background: var(--hover-wash); }
+.agent-step > button > svg:first-child {
+  z-index: 1; flex: none; box-sizing: content-box; padding: 3px; border-radius: 6px;
+  background: var(--surface); color: var(--muted-foreground); box-shadow: 0 0 0 1px var(--border);
+}
+.agent-step.is-tool > button > svg:first-child { color: var(--foreground); }
+.agent-step.is-failed > button > svg:first-child { color: oklch(58% .18 25); box-shadow: 0 0 0 1px color-mix(in oklch, oklch(58% .18 25) 40%, var(--border)); }
+.agent-step-label { flex: none; font-weight: 500; }
+.agent-step.is-thinking .agent-step-label { color: var(--muted-foreground); font-weight: 400; }
+.agent-step-detail { min-width: 0; overflow: hidden; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
+.agent-step-detail.is-code { padding: 1px 6px; border-radius: 4px; background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); font: 12px/1.6 var(--font-mono, ui-monospace, monospace); }
+.agent-step-flag { flex: none; padding: 0 6px; border-radius: 4px; background: color-mix(in oklch, oklch(58% .18 25) 12%, transparent); color: oklch(52% .18 25); font-size: 11.5px; }
+.agent-step-chevron { flex: none; margin-left: auto; color: var(--muted-foreground); transition: transform 160ms var(--ease-out); }
+.agent-step.is-open .agent-step-chevron { transform: rotate(90deg); }
+
+.agent-step-body { display: grid; gap: 4px; margin: 2px 0 8px 32px; }
+.agent-step-body h4 { margin: 4px 0 0; color: var(--muted-foreground); font-size: 11.5px; font-weight: 500; }
+.agent-step-body pre {
+  max-height: 220px; margin: 0; padding: 8px 10px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+  background: color-mix(in oklch, var(--foreground) 3%, var(--surface)); color: var(--foreground);
+  font: 12px/1.55 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.agent-step-thought { margin: 0 0 8px 32px; color: var(--muted-foreground); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+
+/* Pending user message and the live working row. */
+.agent-view .chat-message.user.is-pending { opacity: .72; }
+.agent-thinking.is-step { gap: 8px; margin-left: -2px; }
+.agent-thinking.is-step > svg { box-sizing: content-box; padding: 3px; border-radius: 6px; box-shadow: 0 0 0 1px var(--border); color: var(--muted-foreground); animation: agent-steps-pulse 1.4s ease-in-out infinite; }
+
+/* Skeleton while a thread without cached history loads. */
+.agent-skeleton { display: grid; gap: 18px; width: min(720px, 100%); margin: 8px auto 0; }
+.agent-skeleton span { display: block; height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--muted) 25%, color-mix(in oklch, var(--muted) 60%, var(--surface)) 50%, var(--muted) 75%); background-size: 200% 100%; animation: agent-skeleton 1.3s linear infinite; }
+.agent-skeleton .is-user { justify-self: end; width: 42%; height: 38px; border-radius: 18px; }
+.agent-skeleton .is-line { width: 88%; }
+.agent-skeleton .is-short { width: 56%; }
+
+@keyframes agent-steps-in { from { opacity: 0; transform: translateY(-2px); } }
+@keyframes agent-steps-pulse { 50% { opacity: .45; } }
+@keyframes agent-skeleton { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .agent-steps-list, .agent-thinking.is-step > svg, .agent-skeleton span { animation: none; }
+}
