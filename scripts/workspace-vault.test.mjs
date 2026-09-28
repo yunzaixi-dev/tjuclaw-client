@@ -13,16 +13,22 @@ const compile = async path => {
 };
 const sealed = await import(`data:text/javascript;base64,${Buffer.from(await compile('../src/lib/sealed-vault.ts')).toString('base64')}`);
 globalThis.__sealedVault = sealed;
+globalThis.__AuthError = class AuthError extends Error {
+  constructor(status) {
+    super(`status ${status}`);
+    this.status = status;
+  }
+};
 globalThis.__authRequest = async path => {
   const response = await fetch(path, { credentials: 'same-origin' });
-  if (!response.ok) throw new Error(`status ${response.status}`);
+  if (!response.ok) throw new globalThis.__AuthError(response.status);
   return response.json();
 };
 const vaultSource = (await compile('../src/lib/workspace-vault.ts'))
   .replace(/import \{ readVaultObject, VaultError, writeVaultObject \} from '\.\/sealed-vault';/,
     'const { readVaultObject, VaultError, writeVaultObject } = globalThis.__sealedVault;')
-  .replace(/import \{ authRequest \} from '\.\/auth';/,
-    'const authRequest = globalThis.__authRequest;');
+  .replace(/import \{ authRequest(, AuthError)? \} from '\.\/auth';/,
+    'const authRequest = globalThis.__authRequest; const AuthError = globalThis.__AuthError;');
 const vault = await import(`data:text/javascript;base64,${Buffer.from(vaultSource).toString('base64')}`);
 const library = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const secondLibrary = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
