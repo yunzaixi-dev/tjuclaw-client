@@ -1514,7 +1514,21 @@ export default function Workspace() {
         return;
       }
       try {
-        const latest = await getSession(currentId);
+        // A CDN may time out a long turn (504) while the server finishes and
+        // saves it; wait for the reply under this request id before giving up.
+        const status = cause instanceof AuthError ? cause.status : 0;
+        const pending = status === 0 || status === 502 || status === 504;
+        const deadline = Date.now() + (pending ? 200_000 : 0);
+        let latest = await getSession(currentId);
+        const answered = (session: ChatSession) => {
+          const index = session.messages?.findIndex(message => message.role === 'user' && message.client_request_id === requestId && message.content === text) ?? -1;
+          return index >= 0 && Boolean(session.messages?.slice(index + 1).some(message => message.role === 'assistant' && message.content));
+        };
+        while (pending && !answered(latest) && Date.now() < deadline
+          && generation === identityGeneration.current && request === chatRequestRef.current) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          latest = await getSession(currentId);
+        }
         if (latest.messages?.some(message => message.role === 'user' && message.client_request_id === requestId && message.content === text)) {
           clearPendingChat(identity, currentId, requestId);
           if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
