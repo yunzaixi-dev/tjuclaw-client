@@ -2995,6 +2995,35 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
   expect(deletes).toBe(1);
 });
 
+test('note history lists Git commits of the mirrored note and restores an older version', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  const newer = 'b'.repeat(40), older = 'a'.repeat(40);
+  await page.route('**/api/library/git', route => json(route, 200, { git: { enabled: true, state: 'synced', revision: newer, notes: 1 } }));
+  await page.route(`**/api/entries/${noteA.id}/history*`, route => {
+    const revision = new URL(route.request().url()).searchParams.get('revision');
+    if (revision === older) return json(route, 200, { revision, path: 'notes/我的知识库/First note for user A.md', content: '# 旧版本\n\n最初的草稿' });
+    if (revision === newer) return json(route, 200, { revision, path: 'notes/我的知识库/First note for user A.md', content: noteA.body });
+    return json(route, 200, { path: 'notes/我的知识库/First note for user A.md', commits: [
+      { sha: newer, message: 'Sync notes from TJUClaw', author: 'TJUClaw', date: '2026-09-28T10:00:00Z' },
+      { sha: older, message: 'Sync notes from TJUClaw', author: 'TJUClaw', date: '2026-09-27T09:00:00Z' },
+    ] });
+  });
+  await page.goto('/workspace');
+  await expect(page.locator('.workspace-statusbar')).toContainText(`Git 已同步 · ${newer.slice(0, 7)}`);
+  await page.getByRole('button', { name: '版本历史' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('notes/我的知识库/First note for user A.md');
+  await expect(dialog.getByText('与当前内容相同')).toBeVisible();
+  await dialog.getByRole('button', { name: /Sync notes from TJUClaw · aaaaaaa/ }).click();
+  await expect(dialog.locator('.markdown-preview')).toContainText('最初的草稿');
+  const saved = page.waitForRequest(request => request.method() === 'PATCH' && request.url().includes(`/api/entries/${noteA.id}`));
+  await dialog.getByRole('button', { name: '恢复为此版本' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.cm-content')).toContainText('最初的草稿');
+  expect(JSON.parse((await saved).postData()).body).toBe('# 旧版本\n\n最初的草稿');
+});
+
 test('graph links notes by wikilink title and opens its node', async ({ page }) => {
   const state = defaultState();
   const second = { ...noteA, id: '33333333333333333333333333333333', title: 'Second note', body: 'Backlink' };
