@@ -4,7 +4,6 @@ import {
   Image as ImageIcon, Loader2, MessagesSquare, Settings2, Sparkles, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { BrandIcon } from './brand-icon';
-import { SandboxNotes } from './sandbox-notes';
 import { chooseProductModel, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
@@ -134,12 +133,9 @@ function ModelPill({ onManage }: { onManage: () => void }) {
   );
 }
 
-export function AgentThread({ title, chat, ownerId, entryId, preset, capabilities, loading, error, draft, sending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
+export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
-  ownerId: string;
-  entryId: string;
-  preset: string;
   capabilities: AgentCapabilities | null;
   loading: boolean;
   error: string;
@@ -236,7 +232,6 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
 
   return <section className={`agent-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
     <div className="agent-scroll" ref={scrollRef} role="log" aria-label="会话记录">
-      {chat && capabilities?.sandbox ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
       {body}
     </div>
     <div className="agent-dock">
