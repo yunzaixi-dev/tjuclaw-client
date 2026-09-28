@@ -70,6 +70,9 @@ jobs:
         run: node scripts/ci-preflight.mjs windows
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile --fetch-timeout 600000 --network-concurrency 4
+      - name: Drop installer bundles restored from the Rust cache
+        # The cache key only follows Cargo.lock; stale installers from an older version must not ship.
+        run: Remove-Item -Recurse -Force src-tauri/target/release/bundle -ErrorAction SilentlyContinue
       - name: Build unsigned installer
         run: task windows:build
       - name: Verify Windows executable and NSIS installer

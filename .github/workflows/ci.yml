@@ -167,6 +167,11 @@ jobs:
           profile: linux
           rust: 'true'
 
+      - name: Drop installer bundles restored from the Rust cache
+        # The cache key only follows Cargo.lock, so a version bump would otherwise leave
+        # the previous version's .deb next to the new one.
+        run: rm -rf src-tauri/target/release/bundle
+
       - name: Build Debian package
         run: task linux:build
 
