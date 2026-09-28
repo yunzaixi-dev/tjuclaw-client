@@ -19,8 +19,14 @@ export const EXPECTED_WORKFLOWS = ['CI', 'Windows Installer'];
 export const TARGET_ASSET_NAMES = {
   deb: 'TJUClaw-linux-amd64.deb',
   apk: 'TJUClaw-android-arm64-debug.apk',
+  apkRelease: 'TJUClaw-android-arm64.apk',
   exe: 'TJUClaw-windows-x64-setup.exe',
 };
+
+// Every release APK must be signed by this one key, or Android refuses to install
+// an update over an existing copy. Losing the keystore strands installed apps.
+export const ANDROID_KEY_ALIAS = 'tjuclaw';
+export const ANDROID_CERT_SHA256 = 'e47690cb91be690bdb054d741c1d5da7ce8da58da0f2edf6db082d76519cbdf0';
 
 export const R2_PREFIX = 'client';
 export const UPDATER_MANIFEST_KEY = `${R2_PREFIX}/latest.json`;
@@ -438,6 +444,65 @@ export function signUpdaterAsset(filePath, signing, exec = execFileSync) {
   return signature;
 }
 
+function androidBuildTool(name) {
+  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  if (sdk) {
+    const dir = resolve(sdk, 'build-tools');
+    let versions = [];
+    try {
+      versions = execFileSync('ls', [dir], { encoding: 'utf8' }).trim().split('\n')
+        .filter(v => /^[0-9]+\.[0-9]+\.[0-9]+$/.test(v))
+        .sort((a, b) => compareVersions(b, a));
+    } catch {
+      // fall back to PATH below
+    }
+    for (const v of versions) {
+      const tool = resolve(dir, v, name);
+      try {
+        execFileSync(tool, ['--version'], { stdio: 'ignore' });
+        return tool;
+      } catch {
+        // try an older build-tools version
+      }
+    }
+  }
+  return name;
+}
+
+/**
+ * Aligns and signs an unsigned release APK in place with the permanent release key,
+ * then refuses the result unless its signer certificate is the pinned one.
+ */
+export async function signAndroidApk(apkPath, signing, exec = execFileSync) {
+  if (!signing?.keystoreBase64 || !signing?.password) {
+    throw new Error('Missing ANDROID_KEYSTORE_BASE64 or ANDROID_KEYSTORE_PASSWORD');
+  }
+  const dir = await mkdtemp(resolve(tmpdir(), 'tjuclaw-apk-'));
+  try {
+    const keystore = resolve(dir, 'release.p12');
+    await writeFile(keystore, Buffer.from(signing.keystoreBase64, 'base64'), { mode: 0o600 });
+    const zipalign = androidBuildTool('zipalign');
+    const apksigner = androidBuildTool('apksigner');
+    const aligned = resolve(dir, 'aligned.apk');
+    const signed = resolve(dir, 'signed.apk');
+    // 16 KB page alignment for uncompressed native libraries (Android 15+ devices).
+    exec(zipalign, ['-f', '-P', '16', '4', apkPath, aligned], { stdio: 'ignore', timeout: 120000 });
+    const env = { PATH: process.env.PATH, HOME: process.env.HOME, TJUCLAW_KS_PASS: signing.password };
+    exec(apksigner, ['sign', '--ks', keystore, '--ks-type', 'PKCS12', '--ks-key-alias', ANDROID_KEY_ALIAS,
+      '--ks-pass', 'env:TJUCLAW_KS_PASS', '--key-pass', 'env:TJUCLAW_KS_PASS', '--out', signed, aligned],
+    { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120000, env });
+    const report = String(exec(apksigner, ['verify', '--print-certs', signed], { encoding: 'utf8', timeout: 120000 }));
+    const certs = [...report.matchAll(/certificate SHA-256 digest: ([0-9a-f]{64})/g)].map(m => m[1]);
+    if (certs.length !== 1 || certs[0] !== ANDROID_CERT_SHA256) {
+      throw new Error('Signed APK certificate does not match the pinned TJUClaw release certificate');
+    }
+    await writeFile(apkPath, await readFile(signed), { mode: 0o644 });
+    return certs[0];
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 export function buildUpdaterManifest(version, sourceSha, pubDate, urls, signatures) {
   const platforms = {};
   for (const [platform, kind] of Object.entries(UPDATER_PLATFORMS)) {
@@ -496,6 +561,7 @@ export async function resolveArtifactsForSha(sourceSha, githubRepo, selectedRuns
   const expectedArtifactNames = {
     deb: `linux-${sourceSha}`,
     apk: `android-debug-${sourceSha}`,
+    apkRelease: `android-release-unsigned-${sourceSha}`,
     exe: `windows-unsigned-${sourceSha}`,
   };
 
@@ -684,7 +750,7 @@ export function buildReleaseNotes(version, sourceSha, githubRepo, ciRunId, windo
 
 下载 Windows x64 安装包、Linux amd64 Debian 包和 Android arm64 APK。
 
-Windows 为未签名安装包；Android 为 debug 签名调试包，非应用商店生产签名版本。
+Windows 为未签名安装包。Android 请安装 \`TJUClaw-android-arm64.apk\`：由固定的 TJUClaw 发布密钥签名，后续版本可直接覆盖升级并保留数据（证书 SHA-256 \`e47690cb…9cbdf0\`）；\`-debug.apk\` 为 debug 签名调试包，每次构建密钥不同，无法覆盖升级。
 
 全部文件来自同一源码提交 \`${sourceSha}\` 的成功构建。便携检查、浏览器回归、Linux/Android 构建：[CI](https://github.com/${githubRepo}/actions/runs/${ciRunId})；[Windows 构建](https://github.com/${githubRepo}/actions/runs/${windowsRunId})。使用 SHA256SUMS 校验文件，manifest.json 记录来源。`;
 }
@@ -699,7 +765,8 @@ export async function publishDownloads(options, injected = {}) {
   if (!ghToken) {
     throw new Error('Missing GITHUB_TOKEN (or GH_TOKEN)');
   }
-  secrets.push(ghToken, options.signing?.privateKey, options.signing?.password);
+  secrets.push(ghToken, options.signing?.privateKey, options.signing?.password,
+    options.androidSigning?.keystoreBase64, options.androidSigning?.password);
 
   const prepareOnly = Boolean(options.prepareOnly);
   const targetDir = options.outDir ? resolve(options.outDir) : await mkdtemp(resolve(tmpdir(), 'tjuclaw-release-'));
@@ -749,8 +816,10 @@ export async function publishDownloads(options, injected = {}) {
     const types = [
       { key: 'deb', ext: '.deb', targetName: TARGET_ASSET_NAMES.deb },
       { key: 'apk', ext: '.apk', targetName: TARGET_ASSET_NAMES.apk },
+      { key: 'apkRelease', ext: '.apk', targetName: TARGET_ASSET_NAMES.apkRelease },
       { key: 'exe', ext: '.exe', targetName: TARGET_ASSET_NAMES.exe },
     ];
+    const signApk = injected.signApkFn || (file => signAndroidApk(file, options.androidSigning));
 
     const preparedAssets = [];
 
@@ -766,6 +835,7 @@ export async function publishDownloads(options, injected = {}) {
         await writeFile(targetPath, content, { mode: 0o644 });
         await rm(extracted.filePath).catch(() => {});
       }
+      if (key === 'apkRelease') await signApk(targetPath);
 
       // Compute sha256 and size
       const fHandle = await open(targetPath, 'r');
@@ -796,7 +866,7 @@ export async function publishDownloads(options, injected = {}) {
     // 7. Generate SHA256SUMS
     // Order: deb, apk, exe
     preparedAssets.sort((a, b) => {
-      const order = [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.exe];
+      const order = [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.apkRelease, TARGET_ASSET_NAMES.exe];
       return order.indexOf(a.name) - order.indexOf(b.name);
     });
 
@@ -990,6 +1060,10 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     prepareOnly: cliPrepareOnly,
     outDir: cliOutDir,
     ciRunId: process.env.CI_RUN_ID || undefined,
+    androidSigning: {
+      keystoreBase64: process.env.ANDROID_KEYSTORE_BASE64,
+      password: process.env.ANDROID_KEYSTORE_PASSWORD,
+    },
     signing: {
       privateKey: process.env.TAURI_SIGNING_PRIVATE_KEY,
       password: process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD,

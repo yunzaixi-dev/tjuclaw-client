@@ -19,6 +19,8 @@ import {
   buildUpdaterManifest,
   waitForWindowsRun,
   findCurrentCiRun,
+  signAndroidApk,
+  ANDROID_CERT_SHA256,
 } from './publish-downloads.mjs';
 import { signR2Request, publicObjectUrl, validateObjectKey } from './r2.mjs';
 
@@ -227,6 +229,8 @@ test('buildReleaseNotes generates expected release notes with provenance and dis
 
 test('publishDownloads with prepareOnly extracts and produces all 5 assets locally without publishing', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'test-publish-'));
+  const { appendFile } = await import('node:fs/promises');
+  const signApkFn = file => appendFile(file, '+SIGNED');
   try {
     const sourceSha = 'f254037f18dbd06f946043fe5a5ecf88da41806e';
     const outDir = join(dir, 'out');
@@ -236,6 +240,7 @@ test('publishDownloads with prepareOnly extracts and produces all 5 assets local
     const zipDeb = join(dir, 'linux.zip');
     const zipApk = join(dir, 'android.zip');
     const zipExe = join(dir, 'windows.zip');
+    const zipRelease = join(dir, 'android-release.zip');
 
     const py = `
 import zipfile
@@ -245,10 +250,12 @@ with zipfile.ZipFile("${zipApk}", "w") as z:
     z.writestr("test.apk", b"APK_CONTENT")
 with zipfile.ZipFile("${zipExe}", "w") as z:
     z.writestr("test.exe", b"EXE_CONTENT")
+with zipfile.ZipFile("${zipRelease}", "w") as z:
+    z.writestr("app-universal-release-unsigned.apk", b"RELEASE_APK")
 `;
     execFileSync('python3', ['-c', py]);
 
-    const zipData = await Promise.all([zipDeb, zipApk, zipExe].map(p => readFile(p)));
+    const zipData = await Promise.all([zipDeb, zipApk, zipExe, zipRelease].map(p => readFile(p)));
     const digests = zipData.map(b => 'sha256:' + createHash('sha256').update(b).digest('hex'));
     const mockFetch = async (url) => {
       if (url.includes('/compare/release...')) {
@@ -340,6 +347,13 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
                 digest: digests[1],
                 expired: false,
               },
+              {
+                id: 4,
+                name: `android-release-unsigned-${sourceSha}`,
+                archive_download_url: 'https://api.github.com/repos/yunzaixi-dev/tjuclaw-client/actions/artifacts/4/zip',
+                digest: digests[3],
+                expired: false,
+              },
             ],
           }),
         };
@@ -370,6 +384,9 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
       if (url.includes('/artifacts/3/zip')) {
         return new Response(zipData[2]);
       }
+      if (url.includes('/artifacts/4/zip')) {
+        return new Response(zipData[3]);
+      }
       throw new Error(`Unhandled mock URL: ${url}`);
     };
 
@@ -381,16 +398,18 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
         prepareOnly: true,
         outDir,
       },
-      { fetchFn: mockFetch }
+      { fetchFn: mockFetch, signApkFn }
     );
 
     assert.equal(res.success, true);
     assert.equal(res.preparedOnly, true);
     assert.equal(res.version, '0.0.25');
-    assert.equal(res.assets.length, 3);
-    assert.equal(res.assets[0].name, TARGET_ASSET_NAMES.deb);
-    assert.equal(res.assets[1].name, TARGET_ASSET_NAMES.apk);
-    assert.equal(res.assets[2].name, TARGET_ASSET_NAMES.exe);
+    assert.equal(res.assets.length, 4);
+    assert.deepEqual(res.assets.map(a => a.name), [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk,
+      TARGET_ASSET_NAMES.apkRelease, TARGET_ASSET_NAMES.exe]);
+    assert.equal(await readFile(join(outDir, TARGET_ASSET_NAMES.apkRelease), 'utf8'), 'RELEASE_APK+SIGNED');
+    assert.equal(res.assets[2].sha256, createHash('sha256').update('RELEASE_APK+SIGNED').digest('hex'),
+      'checksums describe the signed APK');
 
     const writes = [];
     const bucket = fakeR2();
@@ -406,7 +425,7 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
         return Response.json({ state: 'uploaded' });
       }
       if (options.method === 'PATCH') {
-        assert.equal(writes.length, 6, 'publish only after all five uploads');
+        assert.equal(writes.length, 7, 'publish only after all six uploads');
         writes.push('published');
         return Response.json({ html_url: 'https://github.com/yunzaixi-dev/tjuclaw-client/releases/tag/v0.0.25' });
       }
@@ -414,16 +433,16 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
     };
     const signFn = file => `SIG-${file.split('.').pop()}`;
     const published = await publishDownloads({ sourceSha, githubRepo: EXPECTED_GITHUB_REPO,
-      ghToken: 'ghp_fake_token', outDir, r2: R2 }, { fetchFn: publishFetch, signFn });
+      ghToken: 'ghp_fake_token', outDir, r2: R2 }, { fetchFn: publishFetch, signFn, signApkFn });
     assert.equal(published.success, true);
     assert.equal(published.r2.uploaded, true);
     assert.equal(published.r2.promoted, true);
 
     const versioned = bucket.calls.filter(c => c[0] === 'PUT' && c[1].startsWith('client/v0.0.25/')).map(c => c[1].split('/').pop());
-    assert.deepEqual(versioned, [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.exe,
+    assert.deepEqual(versioned, [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.apkRelease, TARGET_ASSET_NAMES.exe,
       `${TARGET_ASSET_NAMES.exe}.sig`, `${TARGET_ASSET_NAMES.deb}.sig`, 'SHA256SUMS', 'manifest.json']);
     assert.ok(bucket.calls.filter(c => c[0] === 'PUT' && c[1].startsWith('client/v0.0.25/')).every(c => c[2].includes('immutable')));
-    assert.equal(bucket.calls.filter(c => c[0] === 'COPY').length, 7);
+    assert.equal(bucket.calls.filter(c => c[0] === 'COPY').length, 8);
     assert.deepEqual(bucket.calls.at(-1), ['PUT', 'client/latest.json', 'no-cache'], 'latest.json flips last');
     const latest = JSON.parse(bucket.objects.get('client/latest.json'));
     assert.equal(latest.version, '0.0.25');
@@ -438,6 +457,7 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
     const again = await publishDownloads({ sourceSha, githubRepo: EXPECTED_GITHUB_REPO,
       ghToken: 'ghp_fake_token', outDir, r2: R2 }, {
       signFn,
+      signApkFn,
       fetchFn: async (url, options = {}) => {
         if (url.startsWith(R2.endpoint)) return bucket.handle(url, options);
         if (url.includes('/releases/tags/')) return new Response('{}', { status: 200 });
@@ -445,7 +465,7 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
       },
     });
     assert.equal(again.skipped, true);
-    assert.deepEqual(writes, ['draft', TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk,
+    assert.deepEqual(writes, ['draft', TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.apkRelease,
       TARGET_ASSET_NAMES.exe, 'SHA256SUMS', 'manifest.json', 'published']);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -546,4 +566,35 @@ test('CI mode checks its own run and waits for the Windows Installer of the same
   const run = await waitForWindowsRun(sha, EXPECTED_GITHUB_REPO, 't', { fetchFn, sleep: async () => {}, intervalMs: 0 });
   assert.equal(run.id, 8);
   assert.equal(polls, 3);
+});
+
+test('signAndroidApk aligns, signs and pins the release certificate', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'test-apk-'));
+  const { writeFile, copyFile } = await import('node:fs/promises');
+  try {
+    const apk = join(dir, 'app.apk');
+    await writeFile(apk, 'UNSIGNED');
+    const seen = [];
+    const fakeExec = cert => (tool, args, opts) => {
+      seen.push([tool.split('/').pop(), args[0], opts?.env?.TJUCLAW_KS_PASS]);
+      if (tool.endsWith('zipalign')) return execFileSync('cp', [args.at(-2), args.at(-1)]);
+      if (args[0] === 'sign') {
+        assert.ok(!args.includes('pw'), 'password never appears on the command line');
+        return execFileSync('sh', ['-c', `cat "$0" > "$1" && printf +SIGNED >> "$1"`, args.at(-1), args[args.indexOf('--out') + 1]]);
+      }
+      return `Signer #1 certificate SHA-256 digest: ${cert}\n`;
+    };
+    const signing = { keystoreBase64: Buffer.from('keystore').toString('base64'), password: 'pw' };
+    assert.equal(await signAndroidApk(apk, signing, fakeExec(ANDROID_CERT_SHA256)), ANDROID_CERT_SHA256);
+    assert.equal(await readFile(apk, 'utf8'), 'UNSIGNED+SIGNED');
+    assert.deepEqual(seen.map(s => s[0]), ['zipalign', 'apksigner', 'apksigner']);
+    assert.equal(seen[1][2], 'pw');
+
+    await copyFile(apk, join(dir, 'before.apk'));
+    await assert.rejects(() => signAndroidApk(apk, signing, fakeExec('0'.repeat(64))), /does not match the pinned/);
+    assert.equal(await readFile(apk, 'utf8'), 'UNSIGNED+SIGNED', 'a wrong key never replaces the APK');
+    await assert.rejects(() => signAndroidApk(apk, {}, fakeExec(ANDROID_CERT_SHA256)), /Missing ANDROID_KEYSTORE/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

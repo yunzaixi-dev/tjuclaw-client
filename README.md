@@ -87,8 +87,15 @@ macOS 应用和 iOS 无签名归档都是短期 CI 产物。
 ## 下载安装包与发布
 
 公开下载同时发布到 Cloudflare R2 与 [GitHub Releases](https://github.com/yunzaixi-dev/tjuclaw-client/releases/latest)。
-提供 Windows x64 EXE（未签名）、Linux amd64 DEB、Android arm64 APK（debug 签名），
+提供 Windows x64 EXE（未签名）、Linux amd64 DEB、Android arm64 APK，
 以及 `SHA256SUMS` 和记录来源提交/构建运行的 `manifest.json`。
+
+Android 正式包 `TJUClaw-android-arm64.apk`（包名 `cn.edu.tju.tjuclaw`）由固定发布密钥签名，
+证书 SHA-256 为 `e47690cb91be690bdb054d741c1d5da7ce8da58da0f2edf6db082d76519cbdf0`，
+后续版本可直接覆盖安装并保留数据。发布任务对 CI 产出的未签名 release APK 做 16 KB
+对齐、签名并核对证书指纹，指纹不符即停止发布。密钥库与口令只存于仓库 Secrets
+`ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD`，**丢失后已安装的用户无法再覆盖升级**。
+`TJUClaw-android-arm64-debug.apk`（包名带 `.debug`）仍为每次构建密钥不同的调试包，只用于测试。
 
 | 地址 | 内容 |
 | --- | --- |

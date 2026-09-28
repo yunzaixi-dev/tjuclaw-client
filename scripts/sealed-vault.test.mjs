@@ -25,7 +25,9 @@ test('sealed objects round trip without exposing plaintext, and reject replay or
   assert.equal(await openObject(id, 'secret passphrase', first), '秘密笔记\nsecond line');
   await assert.rejects(openObject(id, 'wrong passphrase', first), /vault_decryption_failed/);
   await assert.rejects(openObject(otherID, 'secret passphrase', first), /vault_decryption_failed/);
-  const altered = { ...first, ciphertext: first.ciphertext.slice(0, -2) + 'AA' };
+  // Always change the tail: overwriting with the same characters would leave the object intact.
+  const tail = first.ciphertext.slice(-2) === 'AA' ? 'BB' : 'AA';
+  const altered = { ...first, ciphertext: first.ciphertext.slice(0, -2) + tail };
   await assert.rejects(openObject(id, 'secret passphrase', altered), /vault_decryption_failed|vault_invalid_object/);
   await assert.rejects(openObject(id, 'secret passphrase', { ...first, extra: 'x' }), /vault_invalid_object/);
   await assert.rejects(sealObject('../bad-path', 'secret passphrase', 'x'), /vault_invalid_id/);

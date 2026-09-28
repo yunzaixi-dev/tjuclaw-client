@@ -33,5 +33,8 @@ immutable; R2 `latest` only moves forward and `latest.json` flips last.
 Wiki buttons use the stable `https://tjuclaw-release.zaixi.dev/client/latest/` names.
 Desktop builds check `latest.json` with `tauri-plugin-updater`; the minisign public key
 lives in `tauri.conf.json`, the private key only in repository secrets.
+The publish job signs CI's unsigned arm64 release APK as `TJUClaw-android-arm64.apk` with
+the permanent keystore secret and refuses any certificate other than the pinned
+`ANDROID_CERT_SHA256`; never rotate or regenerate that key. Debug APKs change keys per build.
 Windows packages are unsigned; Android packages use debug signing. GitLab competition
 packaging remains a separate manual flow.
