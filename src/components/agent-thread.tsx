@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, Copy, DoorOpen, FileSearch, FileText, GraduationCap,
-  Image as ImageIcon, Loader2, MessagesSquare, Sparkles, Wrench, type LucideIcon,
+  Image as ImageIcon, Loader2, MessagesSquare, Settings2, Sparkles, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { BrandIcon } from './brand-icon';
 import { SandboxNotes } from './sandbox-notes';
@@ -75,49 +75,54 @@ function Thinking() {
   return <div className="agent-thinking" role="status"><span className="agent-thinking-text">正在思考</span><span>{seconds} 秒</span></div>;
 }
 
-function ModelPill() {
+function ModelPill({ onManage }: { onManage: () => void }) {
   const [status, setStatus] = useState<ModelStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    getModel(controller.signal).then(setStatus).catch(() => undefined);
+    // An unreadable status still offers the settings entry rather than hiding the picker.
+    getModel(controller.signal).then(setStatus).catch(() => { if (!controller.signal.aborted) setStatus({ configured: false, source: 'none', name: '', quota: { limit: 0, used: 0, remaining: 0 } }); });
     return () => controller.abort();
   }, []);
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
     document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
   }, [open]);
-  if (!status || status.source === 'none') return null;
+  if (!status) return null;
+  const missing = status.source === 'none';
   const choices = status.source === 'product' ? status.choices ?? [] : [];
-  const label = modelDisplayName(status);
-  if (choices.length < 2) return <span className="agent-chip"><Sparkles size={12} aria-hidden="true" />{label}</span>;
+  const label = missing ? '未配置模型' : modelDisplayName(status);
   return (
     <div className="agent-model" ref={ref}>
-      <button type="button" className="agent-chip is-button" aria-haspopup="listbox" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>
-        <Sparkles size={12} aria-hidden="true" />{label}<ChevronDown size={12} aria-hidden="true" />
+      <button type="button" className={`agent-chip is-button${missing ? ' is-warning' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>
+        {busy ? <Loader2 className="animate-spin" size={12} aria-hidden="true" /> : <Sparkles size={12} aria-hidden="true" />}<span>{label}</span><ChevronDown size={12} aria-hidden="true" />
       </button>
-      {open ? <ul role="listbox" aria-label="选择模型">
+      {open ? <div className="agent-model-menu" role="menu" aria-label="选择模型">
+        {missing ? <p>服务器还没有接入产品模型。你可以先填写自己的 OpenAI 兼容上游。</p> : null}
         {choices.map(name => {
           const selected = name === status.name;
-          return <li key={name} role="option" aria-selected={selected}>
-            <button type="button" onClick={() => {
-              setOpen(false);
-              if (selected) return;
-              setBusy(true);
-              chooseProductModel(name).then(setStatus).catch(() => undefined).finally(() => setBusy(false));
-            }}>{modelDisplayName({ source: 'product', name })}{selected ? <Check size={13} aria-hidden="true" /> : null}</button>
-          </li>;
+          return <button key={name} type="button" role="menuitemradio" aria-checked={selected} onClick={() => {
+            setOpen(false);
+            if (selected) return;
+            setBusy(true);
+            chooseProductModel(name).then(setStatus).catch(() => undefined).finally(() => setBusy(false));
+          }}><span>{modelDisplayName({ source: 'product', name })}</span>{selected ? <Check size={14} aria-hidden="true" /> : null}</button>;
         })}
-      </ul> : null}
+        {status.source === 'custom' ? <button type="button" role="menuitemradio" aria-checked="true" onClick={() => setOpen(false)}><span>{label}</span><Check size={14} aria-hidden="true" /></button> : null}
+        {choices.length || status.source === 'custom' ? <hr /> : null}
+        <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><Settings2 size={14} aria-hidden="true" /><span>{missing ? '配置模型…' : '管理模型…'}</span></button>
+      </div> : null}
     </div>
   );
 }
 
-export function AgentThread({ title, chat, ownerId, entryId, preset, capabilities, loading, error, draft, sending, onDraftChange, onSubmit, onRetry, renderMarkdown }: {
+export function AgentThread({ title, chat, ownerId, entryId, preset, capabilities, loading, error, draft, sending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   ownerId: string;
@@ -128,9 +133,12 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
   error: string;
   draft: string;
   sending: boolean;
+  /** Changes when model settings may have changed, to re-read the model. */
+  modelVersion: number;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onRetry: () => void;
+  onManageModels: () => void;
   renderMarkdown: (markdown: string) => string;
 }) {
   const messages = (chat?.messages ?? []).filter(message => message.content);
@@ -154,37 +162,38 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
 
   const empty = Boolean(chat) && !loading && !messages.length && !sending;
   const composer = (
-      <form className="chat-composer" onSubmit={onSubmit}>
+      <form className="agent-composer" onSubmit={onSubmit}>
         <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
         <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
           onChange={event => onDraftChange(event.target.value)}
           placeholder={chat ? '提问、搜索或创建任何内容…' : '会话尚未就绪'}
           disabled={!chat || sending}
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-        <div className="chat-composer-footer">
-          <span className="composer-capabilities">
-            <span className="agent-chip"><BookOpen size={12} aria-hidden="true" />当前知识库</span>
-            <ModelPill />
+        <div className="agent-composer-bar">
+          <span className="agent-composer-tools">
+            <ModelPill key={modelVersion} onManage={onManageModels} />
+            <span className="agent-chip" title="Agent 可以读取和修改当前知识库"><BookOpen size={12} aria-hidden="true" /><span>当前知识库</span></span>
           </span>
-          <span className="agent-hint">{sending ? '正在处理…' : 'Enter 发送 · Shift+Enter 换行'}</span>
           <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
             {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}
           </button>
         </div>
       </form>
   );
+  const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span><button type="button" onClick={onRetry}>确认发送结果</button></div> : null;
   let body: ReactNode;
-  if (loading) body = <div className="session-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>;
-  else if (!chat) body = <div className="session-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
+  if (loading) body = <div className="agent-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>;
+  else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
   else if (!messages.length && !sending) {
     body = <div className="agent-empty">
       <span className="agent-empty-mark"><BrandIcon size={40} /></span>
       <h2>今天想让{title}做什么？</h2>
       {composer}
+      {notice}
       {capabilityLabels(tools).length ? <ul className="agent-capabilities" aria-label="可以使用">{capabilityLabels(tools).map(label => <li key={label}>{label}</li>)}</ul> : null}
       <div className="agent-suggested">
         <h3>建议</h3>
-        <div className="session-starters">
+        <div className="agent-starters">
           {agentStarters(tools).map(prompt => <button type="button" key={prompt} onClick={() => { onDraftChange(prompt); inputRef.current?.focus(); }}><Sparkles size={14} aria-hidden="true" /><span>{prompt}</span></button>)}
         </div>
       </div>
@@ -213,14 +222,14 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
     </div>;
   }
 
-  return <section className={`session-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
-    <div className="chat-messages" ref={scrollRef} role="log" aria-label="会话记录">
+  return <section className={`agent-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
+    <div className="agent-scroll" ref={scrollRef} role="log" aria-label="会话记录">
       {chat && capabilities?.sandbox ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
       {body}
     </div>
-    <div className="session-composer-dock">
+    <div className="agent-dock">
       {empty ? null : composer}
-      {error && chat ? <div className="chat-inline-error" role="alert"><span>{error}</span><button type="button" onClick={onRetry}>确认发送结果</button></div> : null}
+      {empty ? null : notice}
     </div>
   </section>;
 }

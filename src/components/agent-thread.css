@@ -1,118 +1,146 @@
-/* Agent thread: a focused transcript and a floating composer, in the spirit
-   of an editor-native agent rather than a chat app with bubbles. */
-.agent-thread.session-view { width: 100%; max-width: none; margin: 0; }
-.agent-thread .chat-messages { flex: 1; min-height: 0; overflow: auto; padding: 28px 24px 12px; scroll-padding-bottom: 24px; }
-.agent-thread .session-transcript { display: grid; gap: 22px; width: min(760px, 100%); margin: 0 auto; }
+/* Agent thread in the spirit of Notion AI: one quiet column, a single-framed
+   composer and plain-text replies. Classes are agent-* so the older chat
+   rules in the shell stylesheets never apply here. */
+.agent-view { display: flex; flex: 1; flex-direction: column; width: 100%; min-height: 0; margin: 0; background: var(--surface); }
+.agent-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 28px 24px 12px; scroll-padding-bottom: 24px; }
+.agent-view .session-transcript { display: grid; gap: 24px; width: min(720px, 100%); margin: 0 auto; }
 
-/* Your message: a quiet raised card. */
-.agent-thread .chat-message { max-width: none; margin: 0; }
-.agent-thread .chat-message.user {
-  justify-self: stretch;
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: var(--control-surface);
-  box-shadow: var(--control-shadow), var(--control-highlight), 0 0 0 .5px var(--control-border);
-  animation: agent-in 260ms var(--ease-out) both;
+/* Header of a running thread. */
+.agent-thread-head { position: sticky; top: -28px; z-index: 2; display: grid; justify-items: center; gap: 6px; padding: 4px 0 12px; background: linear-gradient(var(--surface) 72%, transparent); color: var(--foreground); font-size: 14px; font-weight: 600; }
+.agent-thread-avatar { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 2px 6px rgba(15, 15, 15, .05); }
+
+/* Messages. */
+.agent-view .chat-message { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.agent-view .chat-message.user {
+  justify-self: end; max-width: min(80%, 560px); padding: 9px 14px; border-radius: 18px;
+  background: var(--selected); animation: agent-in 240ms var(--ease-out) both;
 }
-.agent-thread .chat-message.user p { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; }
+.agent-view .chat-message.user p { margin: 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-view .chat-message.assistant { display: grid; gap: 8px; animation: agent-in 300ms var(--ease-out) both; }
+.agent-view .agent-reply-head { display: none; }
+.agent-view .chat-message-content { font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
+.agent-view .chat-message-content > :first-child { margin-top: 0; }
+.agent-view .chat-message-content > :last-child { margin-bottom: 0; }
+.agent-view .chat-message-content pre { overflow-x: auto; }
+.agent-view .chat-message-content img { max-width: min(100%, 420px); border-radius: 10px; box-shadow: 0 0 0 1px var(--border); }
 
-/* The Agent's reply: open text with a small identity line. */
-.agent-thread .chat-message.assistant { display: grid; gap: 10px; animation: agent-in 320ms var(--ease-out) both; }
-.agent-reply-head { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
-.agent-reply-head .agent-reply-name { color: var(--foreground); font-size: 13px; font-weight: 650; }
-.agent-avatar { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: var(--control-surface); box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border); }
-.agent-thread .chat-message-content { font-size: 15px; line-height: 1.75; }
-.agent-thread .chat-message-content > :first-child { margin-top: 0; }
-.agent-thread .chat-message-content img { max-width: min(100%, 420px); border-radius: 10px; box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border); }
-
-.agent-reply-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 160ms; }
+.agent-reply-actions { display: flex; gap: 2px; margin-left: -8px; opacity: 0; transition: opacity 160ms; }
 .chat-message.assistant:hover .agent-reply-actions, .chat-message.assistant:focus-within .agent-reply-actions { opacity: 1; }
 @media (hover: none) { .agent-reply-actions { opacity: 1; } }
-.agent-reply-actions button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); font-size: 12px; }
-.agent-reply-actions button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); }
+.agent-reply-actions button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 12.5px; }
+.agent-reply-actions button:hover { background: var(--hover-wash); color: var(--foreground); }
 
 /* Tool calls as finished steps. */
-.agent-steps { display: grid; gap: 6px; }
-.agent-thread .chat-message-tools {
-  display: inline-flex; justify-self: start; align-items: center; gap: 6px;
-  height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: 999px;
-  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); font-size: 12px;
-}
-.agent-thread .chat-message-tools:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 8%, transparent); }
-.agent-thread .chat-message-tools svg:last-child { transition: transform 200ms var(--ease-out); }
+.agent-steps { display: grid; gap: 4px; }
+.agent-view .chat-message-tools { display: inline-flex; justify-self: start; align-items: center; gap: 6px; height: 26px; margin: 0 0 0 -4px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 13px; }
+.agent-view .chat-message-tools:hover { color: var(--foreground); }
+.agent-view .chat-message-tools > svg:first-child { display: none; }
+.agent-view .chat-message-tools svg:last-child { transition: transform 200ms var(--ease-out); }
 .agent-steps.is-open .chat-message-tools svg:last-child { transform: rotate(180deg); }
-.agent-steps ol { display: grid; gap: 2px; margin: 0 0 2px 14px; padding: 2px 0 2px 14px; border-left: 1.5px solid var(--border); list-style: none; animation: agent-in 220ms var(--ease-out) both; }
-.agent-steps li { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--muted-foreground); font-size: 12.5px; }
-.agent-steps li span { flex: 1; }
-.agent-step-done { color: oklch(62% .14 150); }
+.agent-steps ol { display: grid; gap: 2px; margin: 0 0 2px 6px; padding: 2px 0 2px 14px; border-left: 1px solid var(--border); list-style: none; animation: agent-in 200ms var(--ease-out) both; }
+.agent-steps li { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--muted-foreground); font-size: 13px; }
+.agent-step-done { color: var(--muted-foreground); }
 
 /* Working state: a shimmer rather than a spinner. */
 .agent-thinking { display: flex; align-items: center; gap: 10px; color: var(--muted-foreground); font-size: 13px; animation: agent-in 240ms var(--ease-out) both; }
 .agent-thinking-text {
   background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%, var(--muted-foreground) 70%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  font-weight: 600;
-  animation: agent-shimmer 1.6s linear infinite;
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-weight: 600; animation: agent-shimmer 1.6s linear infinite;
 }
 
-/* Empty thread. */
-.agent-empty { display: grid; justify-items: center; gap: 10px; width: min(560px, 100%); margin: 8vh auto 0; text-align: center; animation: agent-in 360ms var(--ease-out) both; }
-.agent-empty-mark { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 18px; background: var(--control-surface); box-shadow: var(--control-shadow-hover), var(--control-highlight), 0 0 0 .5px var(--control-border); }
-.agent-empty h2 { margin: 8px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
-.agent-empty p { max-width: 420px; margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
-.agent-thread .session-starters { display: grid; gap: 8px; width: 100%; margin-top: 18px; }
-.agent-thread .session-starters button { justify-content: flex-start; gap: 10px; width: 100%; min-height: 46px; padding: 0 14px; color: var(--foreground); font-size: 14px; text-align: left; }
-.agent-thread .session-starters button svg { flex: none; color: var(--muted-foreground); }
-
-/* Floating composer. */
-.agent-thread .session-composer-dock { padding: 8px 24px calc(18px + env(safe-area-inset-bottom)); }
-.agent-thread .chat-composer {
-  display: grid; gap: 8px; width: min(760px, 100%); margin: 0 auto; padding: 12px 12px 10px 16px;
-  border: 0; border-radius: 20px; background: var(--surface);
-  box-shadow: 0 1px 2px oklch(0% 0 0 / .06), 0 10px 30px -12px oklch(0% 0 0 / .22), 0 0 0 .5px var(--control-border);
-  transition: box-shadow 200ms var(--ease-out);
+/* Composer: one hairline frame, one soft shadow. */
+.agent-dock { flex: none; padding: 8px 24px calc(18px + env(safe-area-inset-bottom)); background: var(--surface); }
+.agent-composer {
+  display: grid; gap: 6px; width: min(720px, 100%); margin: 0 auto; padding: 12px 12px 10px 16px;
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, .04), 0 8px 24px -12px rgba(15, 15, 15, .14);
+  transition: border-color 160ms, box-shadow 200ms var(--ease-out);
 }
-.agent-thread .chat-composer:focus-within { box-shadow: 0 1px 2px oklch(0% 0 0 / .06), 0 14px 36px -14px oklch(0% 0 0 / .28), 0 0 0 1.5px color-mix(in oklch, var(--primary) 45%, transparent); }
-.agent-thread .chat-composer textarea { width: 100%; min-height: 26px; max-height: 220px; padding: 2px 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--foreground); font-size: 15px; line-height: 1.6; }
-.agent-thread .chat-composer-footer { display: flex; align-items: center; gap: 8px; }
-.agent-thread .composer-capabilities { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.agent-hint { color: var(--muted-foreground); font-size: 11.5px; white-space: nowrap; }
+.agent-composer:focus-within { border-color: color-mix(in oklch, var(--foreground) 22%, var(--border)); box-shadow: 0 1px 2px rgba(15, 15, 15, .05), 0 10px 28px -12px rgba(15, 15, 15, .2); }
+.agent-composer textarea { display: block; width: 100%; min-height: 24px; max-height: 220px; margin: 0; padding: 2px 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--foreground); font: inherit; font-size: 15px; line-height: 1.6; }
+.agent-composer textarea:focus-visible { outline: none; }
+.agent-composer textarea::placeholder { color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); }
+.agent-composer-bar { display: flex; align-items: center; gap: 8px; margin: 0 -2px 0 -6px; }
+.agent-composer-tools { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+
 .agent-chip {
-  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 0; border-radius: 999px;
-  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); font-size: 12px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; white-space: nowrap;
 }
-.agent-chip.is-button:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 9%, transparent); }
+.agent-chip svg { flex: none; }
+.agent-chip.is-button { cursor: pointer; transition: background-color 120ms, color 120ms; }
+.agent-chip.is-button:hover, .agent-chip.is-button[aria-expanded="true"] { background: var(--hover-wash); color: var(--foreground); }
+.agent-composer .agent-chip.is-warning { color: oklch(58% .15 60); }
+.agent-chip.is-button:disabled { cursor: progress; }
+
 .agent-model { position: relative; }
-.agent-model ul {
-  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; display: grid; gap: 2px; min-width: 180px; margin: 0; padding: 5px;
-  border-radius: 12px; background: var(--surface-raised); box-shadow: var(--shadow-popover), 0 0 0 .5px var(--control-border); list-style: none;
-  animation: agent-pop 180ms var(--ease-out) both;
+.agent-model-menu {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; display: grid; width: max-content; min-width: 220px; max-width: 300px; padding: 6px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised, var(--surface));
+  box-shadow: var(--shadow-popover, 0 12px 32px rgba(15, 15, 15, .16)); animation: agent-pop 160ms var(--ease-out) both;
 }
-.agent-model li button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); font-size: 13px; }
-.agent-model li button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); }
-
-.agent-thread .chat-composer-footer .agent-send {
-  display: grid; flex: none; width: 34px; height: 34px; place-items: center; border: 0; border-radius: 50%;
-  background: var(--primary-sheen), var(--primary); color: var(--primary-foreground);
-  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .2);
-  transition: transform 200ms var(--spring), filter 160ms, opacity 160ms;
+.agent-model-menu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; height: 32px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left;
 }
-.agent-thread .chat-composer-footer .agent-send:hover:not(:disabled) { filter: brightness(1.1); }
-.agent-thread .chat-composer-footer .agent-send:active:not(:disabled) { transform: scale(.92); }
-.agent-thread .chat-composer-footer .agent-send:disabled { opacity: .3; box-shadow: none; }
+.agent-model-menu button:hover { background: var(--hover-wash); }
+.agent-model-menu button.agent-model-manage { justify-content: flex-start; color: var(--muted-foreground); }
+.agent-model-menu button.agent-model-manage:hover { color: var(--foreground); }
+.agent-model-menu p { margin: 2px 8px 6px; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.55; }
+.agent-model-menu hr { height: 1px; margin: 4px -6px; border: 0; background: var(--border); }
 
-.agent-thread .chat-inline-error { width: min(760px, 100%); margin: 8px auto 0; }
+.agent-send {
+  display: grid; flex: none; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: var(--foreground); color: var(--surface); cursor: pointer; transition: transform 160ms var(--ease-out), background-color 160ms, color 160ms;
+}
+.agent-send:hover:not(:disabled) { background: color-mix(in oklch, var(--foreground) 86%, var(--surface)); }
+.agent-send:active:not(:disabled) { transform: scale(.94); }
+.agent-send:disabled { background: color-mix(in oklch, var(--foreground) 10%, transparent); color: var(--muted-foreground); cursor: default; }
+
+.agent-notice {
+  display: flex; align-items: center; gap: 10px; width: min(720px, 100%); margin: 10px auto 0; padding: 9px 12px;
+  border-radius: 10px; background: color-mix(in oklch, oklch(60% .18 25) 9%, transparent); color: var(--foreground); font-size: 13px; line-height: 1.5; text-align: left;
+}
+.agent-notice span { flex: 1; }
+.agent-notice button { flex: none; height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+.agent-notice button:hover { background: var(--hover-wash); }
+
+.agent-feedback { display: grid; justify-items: center; gap: 12px; margin: auto; color: var(--muted-foreground); font-size: 14px; text-align: center; }
+.agent-feedback p { margin: 0; }
+.agent-feedback button { height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--foreground); font: inherit; font-size: 14px; }
+.agent-feedback button:hover { background: var(--hover-wash); }
+
+/* Empty thread as Notion AI home. margin:auto centres when there is room and,
+   unlike justify-content:center, never pushes content above the scroll origin. */
+.agent-empty { display: grid; justify-items: center; width: min(680px, 100%); margin: auto; padding-bottom: 6vh; text-align: center; animation: agent-in 320ms var(--ease-out) both; }
+.agent-empty-mark { display: grid; width: 56px; height: 56px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(15, 15, 15, .06); }
+.agent-empty h2 { margin: 16px 0 24px; color: var(--foreground); font-size: 26px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+.agent-empty .agent-composer { width: 100%; text-align: left; }
+.agent-empty .agent-composer textarea { min-height: 52px; }
+.agent-empty .agent-notice { width: 100%; }
+.agent-capabilities { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; }
+.agent-capabilities li { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 6px; background: var(--selected); color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.agent-suggested { width: 100%; margin-top: 28px; text-align: left; }
+.agent-suggested h3 { margin: 0 0 4px 8px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.agent-starters { display: grid; gap: 1px; }
+.agent-starters button {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left;
+  transition: background-color 120ms;
+}
+.agent-starters button:hover { background: var(--hover-wash); }
+.agent-starters button svg { flex: none; color: var(--muted-foreground); }
 
 @keyframes agent-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes agent-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
 @keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 @media (max-width: 720px) {
-  .agent-thread .chat-messages { padding: 18px 16px 8px; }
-  .agent-thread .session-composer-dock { padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); }
-  .agent-hint { display: none; }
-  .agent-empty { margin-top: 4vh; }
+  .agent-scroll { padding: 18px 16px 8px; }
+  .agent-dock { padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .agent-empty h2 { margin: 14px 0 18px; font-size: 22px; }
+  .agent-model-menu { max-width: calc(100vw - 48px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .agent-thread *, .agent-thread *::before { animation: none !important; transition: none !important; }
@@ -136,57 +164,3 @@
 .agent-picker-list small { color: var(--muted-foreground); font-size: 12.5px; }
 .agent-picker-list > button > svg { color: var(--muted-foreground); }
 .agent-picker-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); }
-.agent-capabilities { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
-.agent-capabilities li { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: color-mix(in oklch, var(--primary) 8%, transparent); color: var(--primary); font-size: 12px; font-weight: 600; }
-
-/* Older composer rules size every button as the 30px send button; chips and
-   the model menu are ordinary auto-width controls. */
-.agent-thread .chat-composer-footer .agent-chip.is-button,
-.agent-thread .chat-composer .agent-model li button {
-  width: auto; min-width: 0; height: 26px; border-radius: 999px;
-  background: color-mix(in oklch, var(--foreground) 5%, transparent); color: var(--muted-foreground); box-shadow: none;
-}
-.agent-thread .chat-composer .agent-model li button { width: 100%; height: 34px; border-radius: 8px; background: transparent; color: var(--foreground); }
-.agent-thread .chat-composer .agent-model li button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); }
-.agent-thread .chat-composer-footer .agent-chip.is-button:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 9%, transparent); }
-
-/* Notion AI look: centered identity, right-aligned prompt pills, quiet steps. */
-.agent-thread-head { position: sticky; top: -28px; z-index: 2; display: grid; justify-items: center; gap: 6px; padding: 4px 0 10px; color: var(--foreground); font-size: 14px; font-weight: 600; background: linear-gradient(var(--surface) 70%, transparent); }
-.agent-thread-avatar { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border), 0 2px 6px rgba(15, 15, 15, .06); }
-.agent-thread .agent-reply-head { display: none; }
-.agent-thread .chat-message.user {
-  justify-self: end; max-width: min(80%, 560px); padding: 10px 16px; border-radius: 20px;
-  background: var(--selected); box-shadow: none;
-}
-.agent-thread .chat-message-tools { height: 26px; padding: 0 4px; background: transparent; color: var(--muted-foreground); font-size: 13px; }
-.agent-thread .chat-message-tools:hover { background: transparent; color: var(--foreground); }
-.agent-thread .chat-message-tools > svg:first-child { display: none; }
-.agent-steps ol { margin-left: 8px; border-left-color: color-mix(in oklch, var(--foreground) 12%, transparent); }
-.agent-step-done { color: var(--muted-foreground); }
-.agent-thread .chat-composer { border-radius: 24px; padding: 12px 12px 10px 18px; box-shadow: 0 0 0 1px var(--control-border), 0 4px 18px rgba(15, 15, 15, .08); }
-.agent-thread .chat-composer:focus-within { box-shadow: 0 0 0 1px var(--control-border), 0 6px 22px rgba(15, 15, 15, .12); }
-.agent-thread .chat-composer-footer .agent-send { background: var(--primary); box-shadow: none; }
-.agent-thread .session-starters button { border-radius: 12px; box-shadow: 0 0 0 1px var(--control-border); background: var(--surface); }
-.agent-empty-mark { border-radius: 50%; box-shadow: 0 0 0 1px var(--control-border), 0 4px 12px rgba(15, 15, 15, .06); }
-.agent-capabilities li { background: var(--selected); color: var(--foreground); font-weight: 500; }
-.agent-thread.session-view .chat-composer { background: var(--surface); }
-.agent-thread.session-view .chat-composer-footer .agent-chip.is-button { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; padding: 0 9px; place-items: initial; }
-.agent-thread .agent-steps li { justify-content: flex-start; }
-.agent-thread .agent-steps li span { flex: none; }
-
-/* Empty thread as Notion AI home: centered question, composer right below, suggestions. */
-/* margin:auto centres when there is room; unlike justify-content:center it
-   never pushes overflowing content above the scroll origin. */
-.agent-thread.is-empty .chat-messages { display: flex; flex-direction: column; }
-.agent-thread.is-empty .agent-empty { width: min(640px, 100%); margin: auto; padding-bottom: 8vh; }
-.agent-thread.is-empty .agent-empty h2 { margin: 6px 0 14px; font-size: 30px; font-weight: 700; letter-spacing: -.015em; }
-.agent-thread.is-empty .agent-empty .chat-composer { width: 100%; text-align: left; }
-.agent-thread.is-empty .agent-empty .chat-composer textarea { min-height: 52px; }
-.agent-suggested { width: 100%; margin-top: 22px; text-align: left; }
-.agent-suggested h3 { margin: 0 0 6px 10px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
-.agent-thread .agent-suggested .session-starters { gap: 0; margin: 0; }
-.agent-thread .agent-suggested .session-starters button {
-  min-height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; font-size: 14px;
-}
-.agent-thread .agent-suggested .session-starters button:hover { background: var(--hover-wash); transform: none; box-shadow: none; }
-.agent-thread.is-empty .agent-capabilities { margin-top: 12px; }
