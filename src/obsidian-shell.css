@@ -266,6 +266,7 @@
 .topbar-actions { gap: 2px; margin: 0 7px 0 auto; }
 .topbar-actions .ui-button { width: 32px; height: 32px; }
 .mobile-topbar-actions, .mobile-command-bar, .mobile-context-backdrop, .mobile-rail-backdrop { display: none; }
+.mobile-tab-title, .mobile-tab-sheet-backdrop { display: none; }
 
 .workspace-statusbar {
   display: flex;
@@ -926,6 +927,29 @@
   .workspace-tabs .workspace-tab { display: flex; flex: 0 1 176px; align-items: center; min-width: 0; height: 38px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-bottom: 0; border-radius: 5px 5px 0 0; font-size: 11px; text-align: left; }
   .workspace-tab-close { width: 24px; height: 28px; margin-left: 2px; }
   .workspace-new-tab { width: 30px; height: 36px; margin: 0 2px; align-self: center; }
+  /* Phones: no tab strip. The current page title opens a bottom sheet of tabs. */
+  .obsidian-topbar .workspace-tabs, .obsidian-topbar .workspace-new-tab { display: none; }
+  .mobile-tab-title { display: flex; flex: 1; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 42px; margin: 0 8px; padding: 0 10px; border: 0; border-radius: 21px; background: transparent; color: var(--foreground); font-size: 15px; font-weight: 600; }
+  .mobile-tab-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-tab-title svg { flex: none; color: var(--muted-foreground); }
+  .mobile-tab-title:active { background: var(--shell-hover); }
+  .mobile-topbar-actions .mobile-tab-count span { display: grid; min-width: 20px; height: 20px; place-items: center; padding: 0 4px; border: 1.5px solid currentColor; border-radius: 5px; font-size: 11px; font-weight: 700; line-height: 1; }
+  .mobile-tab-sheet-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: flex-end; background: color-mix(in oklch, var(--foreground) 28%, transparent); }
+  .mobile-tab-sheet { display: flex; flex-direction: column; width: 100%; max-height: min(72vh, 560px); padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; background: var(--shell-editor); box-shadow: 0 -12px 32px color-mix(in oklch, var(--foreground) 16%, transparent); }
+  .mobile-tab-sheet-grip { width: 36px; height: 4px; margin: 0 auto 8px; border-radius: 2px; background: var(--line); }
+  .mobile-tab-sheet-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; }
+  .mobile-tab-sheet-head strong { font-size: 16px; }
+  .mobile-tab-sheet-head span { flex: 1; color: var(--muted-foreground); font-size: 13px; }
+  .mobile-tab-sheet-head button, .mobile-tab-sheet-close { display: grid; width: 40px; height: 40px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); }
+  .mobile-tab-sheet ul { display: grid; gap: 4px; margin: 0; padding: 0; overflow-y: auto; list-style: none; overscroll-behavior: contain; }
+  .mobile-tab-sheet li { display: flex; align-items: center; gap: 4px; border-radius: 10px; }
+  .mobile-tab-sheet li.is-active { background: var(--shell-hover); }
+  .mobile-tab-sheet-open { display: grid; flex: 1; gap: 2px; min-width: 0; min-height: 52px; padding: 6px 10px; border: 0; background: transparent; color: var(--foreground); text-align: left; }
+  .mobile-tab-sheet-open small { color: var(--muted-foreground); font-size: 11px; }
+  .mobile-tab-sheet-open span { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-tab-sheet-empty { margin: 12px 4px; color: var(--muted-foreground); font-size: 14px; }
+  .mobile-tab-sheet-new { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--foreground); font-size: 15px; }
+  .mobile-tab-title:focus-visible, .mobile-tab-sheet button:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
   .session-view { width: calc(100% - 32px); padding: 0; }
   .session-view .session-heading { padding: 28px 0 22px; }
   .session-composer-dock { padding: 10px 0 calc(12px + env(safe-area-inset-bottom)); }
@@ -1902,3 +1926,27 @@
     animation: none !important;
   }
 }
+
+/* Touch formatting bar: pinned above the on-screen keyboard while editing. */
+.md-touch-bar {
+  position: fixed; right: 0; left: 0; z-index: 70;
+  display: flex; gap: 2px; align-items: center;
+  height: 48px; padding: 2px 8px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right));
+  border-top: 1px solid var(--line); background: var(--shell-editor);
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  box-shadow: 0 -6px 18px color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+.md-touch-bar::-webkit-scrollbar { display: none; }
+.md-touch-bar button {
+  display: grid; flex: none; width: 44px; height: 44px; place-items: center;
+  border: 0; border-radius: 10px; background: transparent; color: var(--foreground);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.md-touch-bar button:active { background: var(--shell-hover); }
+.md-touch-bar button:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: -2px; }
+.md-touch-bar-text { font-size: 14px; font-weight: 700; }
+/* iOS zooms into inputs below 16px on focus. */
+.codemirror-editor.is-touch { font-size: 16px; -webkit-tap-highlight-color: transparent; }
+.codemirror-editor.is-touch .cm-content { padding-bottom: 160px; }
+/* While the formatting bar is up, the bottom navigation steps aside. */
+.obsidian-app:has(.md-touch-bar) .mobile-command-bar { display: none; }

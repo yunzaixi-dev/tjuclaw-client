@@ -1,13 +1,56 @@
-import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
+import { bracketMatching, defaultHighlightStyle, HighlightStyle, indentOnInput, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { EditorState, RangeSet } from '@codemirror/state';
-import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import { Decoration, dropCursor, EditorView, highlightSpecialChars, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from '@codemirror/commands';
 import { keymap } from '@codemirror/view';
+import { MoreHorizontal } from 'lucide-react';
 import { MarkdownContextMenu } from './markdown-context-menu';
+import { applyAction, toolbarActions } from './markdown-actions';
+
+// Phones and tablets: CodeMirror's drawn cursor and selection hide the native
+// caret, selection handles and magnifier, so touch devices use the browser's
+// own selection and keep long-press for the system text menu.
+const coarsePointer = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+const touchSetup = [highlightSpecialChars(), dropCursor(), indentOnInput(), bracketMatching()];
+const TOOLBAR_HEIGHT = 48;
+
+function subscribeViewport(onChange: () => void) {
+  const viewport = window.visualViewport;
+  viewport?.addEventListener('resize', onChange);
+  viewport?.addEventListener('scroll', onChange);
+  return () => {
+    viewport?.removeEventListener('resize', onChange);
+    viewport?.removeEventListener('scroll', onChange);
+  };
+}
+
+/** Height covered by the on-screen keyboard, so the bar sits right above it. */
+function keyboardInset() {
+  const viewport = window.visualViewport;
+  return viewport ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop)) : 0;
+}
+
+function TouchFormatBar({ view, onMore }: { view: EditorView; onMore: () => void }) {
+  const inset = useSyncExternalStore(subscribeViewport, keyboardInset, () => 0);
+  // Rendered inline (not portaled) so it inherits the workspace colour tokens.
+  return (
+    <div className="md-touch-bar" role="toolbar" aria-label="Markdown 格式" style={{ bottom: inset }}
+      // Keep the editor focused (and the keyboard open) while tapping a button.
+      onPointerDown={event => event.preventDefault()}>
+      {toolbarActions.map(action => {
+        const Icon = action.icon;
+        return <button key={action.label} type="button" aria-label={action.label} title={action.label} onClick={() => { void applyAction(view, action); }}>
+          {action.kind === 'heading' ? <span className="md-touch-bar-text">H{action.text}</span> : <Icon size={18} />}
+        </button>;
+      })}
+      <button type="button" aria-label="更多格式" title="更多格式" onClick={onMore}><MoreHorizontal size={18} /></button>
+    </div>
+  );
+}
 
 const hide = Decoration.replace({});
 const mark = (className: string) => Decoration.mark({ class: className });
@@ -180,6 +223,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   const host = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; view: EditorView } | null>(null);
+  const [focused, setFocused] = useState(false);
   const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
   const consumedContextMenu = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -196,7 +240,8 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
       state: EditorState.create({
         doc: initialValueRef.current,
         extensions: [
-          basicSetup,
+          coarsePointer ? touchSetup : basicSetup,
+          ...(coarsePointer ? [EditorView.scrollMargins.of(() => ({ bottom: TOOLBAR_HEIGHT + 16 }))] : []),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           markdown({ base: markdownLanguage }),
@@ -207,6 +252,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           EditorView.contentAttributes.of({ 'aria-label': '正文', role: 'textbox', spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
             if (update.docChanged && !applyingValueRef.current) onChangeRef.current(update.state.doc.toString());
+            if (update.focusChanged) setFocused(update.view.hasFocus);
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
@@ -297,9 +343,13 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
     if (longPress.current && Math.hypot(event.clientX - longPress.current.x, event.clientY - longPress.current.y) > 10) cancelLongPress();
   }
 
-  return <><div ref={host} className="codemirror-editor" aria-label="Markdown 编辑器"
-    onContextMenu={onContextMenu} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-    onPointerUp={cancelLongPress} onPointerCancel={cancelLongPress} onTouchMove={cancelLongPress} onKeyDown={onKeyDown} />
+  // Touch devices keep the native long-press menu; formatting lives on the bar.
+  const pointerHandlers = coarsePointer ? {} : {
+    onContextMenu, onPointerDown, onPointerMove, onPointerUp: cancelLongPress, onPointerCancel: cancelLongPress, onTouchMove: cancelLongPress,
+  };
+  return <><div ref={host} className={`codemirror-editor${coarsePointer ? ' is-touch' : ''}`} aria-label="Markdown 编辑器"
+    {...pointerHandlers} onKeyDown={onKeyDown} />
+    {coarsePointer && focused && viewRef.current && !menu ? <TouchFormatBar view={viewRef.current} onMore={openMenuAtCursor} /> : null}
     {menu ? <MarkdownContextMenu view={menu.view} position={menu} onClose={() => setMenu(null)} /> : null}
   </>;
 }

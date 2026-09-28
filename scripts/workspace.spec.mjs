@@ -3570,7 +3570,7 @@ test('mobile Markdown commands appear as a scrollable sheet instead of a permane
   await expect(menu).toHaveCount(0);
 });
 
-test('long-press opens Markdown commands on touch and moving cancels the gesture', async ({ browser }) => {
+test('touch editing keeps native selection and formats from the bar above the keyboard', async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   try {
@@ -3578,21 +3578,52 @@ test('long-press opens Markdown commands on touch and moving cancels the gesture
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     const editor = page.locator('.codemirror-editor .cm-content');
+    await expect(page.locator('.codemirror-editor.is-touch')).toHaveCount(1);
+    // The browser draws the caret and selection handles, not CodeMirror.
+    await expect(page.locator('.cm-cursorLayer')).toHaveCount(0);
+    const bar = page.getByRole('toolbar', { name: 'Markdown 格式' });
+    await expect(bar).toHaveCount(0);
     await editor.tap();
-    const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
-    await expect(menu).toHaveCount(0);
+    await expect(bar).toBeVisible();
+    await expect(page.locator('.mobile-command-bar')).toBeHidden();
+    // Long-press belongs to the system text menu now.
     const box = await editor.boundingBox();
     const point = { pointerType: 'touch', clientX: box.x + 35, clientY: box.y + 20 };
     await editor.dispatchEvent('pointerdown', point);
-    await editor.dispatchEvent('pointermove', { ...point, clientX: point.clientX + 30 });
-    await page.waitForTimeout(550);
-    await expect(menu).toHaveCount(0);
-    await editor.dispatchEvent('pointerdown', point);
-    await expect(menu).toBeVisible();
+    await page.waitForTimeout(650);
     await editor.dispatchEvent('pointerup', point);
-    await menu.getByRole('button', { name: '无序列表' }).tap();
+    await expect(page.getByRole('dialog', { name: 'Markdown 编辑菜单' })).toHaveCount(0);
+    await bar.getByRole('button', { name: '无序列表' }).tap();
     await expect.poll(() => state.entryById[noteA.id].body).toBe('- Private note body');
-    await expect(menu).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('cm-content'))).toBe(true);
+    await bar.getByRole('button', { name: '更多格式' }).tap();
+    await expect(page.getByRole('dialog', { name: 'Markdown 编辑菜单' })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test('phones replace the tab strip with the page title and a tab sheet', async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  try {
+    await mockWorkspace(page, defaultState());
+    await page.goto('/workspace');
+    await expect(page.locator('.obsidian-topbar .workspace-tabs')).toBeHidden();
+    const title = page.locator('.mobile-tab-title');
+    await expect(title).toContainText(noteA.title);
+    await page.getByRole('button', { name: /打开的标签页（1）/ }).tap();
+    const sheet = page.getByRole('dialog', { name: '标签页' });
+    await expect(sheet).toBeVisible();
+    await sheet.getByRole('button', { name: '新建标签页' }).tap();
+    await expect(sheet).toHaveCount(0);
+    await title.tap();
+    await expect(sheet.getByRole('listitem')).toHaveCount(2);
+    await sheet.getByRole('button', { name: `关闭标签 ${noteA.title}` }).tap();
+    await expect(sheet.getByRole('listitem')).toHaveCount(1);
+    await sheet.getByRole('button', { name: '关闭标签页列表' }).tap();
+    await expect(sheet).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   } finally {
     await context.close();
   }
