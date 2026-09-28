@@ -22,7 +22,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { AnkiWorkspace, type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
@@ -262,6 +262,9 @@ function renderMarkdown(markdown: string) {
     DOMPurify.removeHook('afterSanitizeAttributes');
   }
 }
+
+/** Message errors the API returns before storing the turn. */
+const definiteChatRefusals = new Set(['model_unconfigured', 'quota_exceeded', 'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked']);
 
 export default function Workspace() {
   const [session, setSession] = useState<IdentitySession | null>(null);
@@ -1486,7 +1489,16 @@ export default function Workspace() {
         setChat(next);
         setDraft('');
       }
-    } catch {
+    } catch (cause) {
+      // These are refused before the turn is stored, so the outcome is known:
+      // say why and let the user send again instead of asking to confirm.
+      const refused = cause instanceof AuthError ? cause.body?.error?.id ?? '' : '';
+      if (definiteChatRefusals.has(refused)) {
+        clearPendingChat(identity, currentId, requestId);
+        if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
+        if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
+        return;
+      }
       try {
         const latest = await getSession(currentId);
         if (latest.messages?.some(message => message.role === 'user' && message.client_request_id === requestId && message.content === text)) {

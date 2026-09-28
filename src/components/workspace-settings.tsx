@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
-import { chooseProductModel, clearModel, describeLibraryError, getModel, modelDisplayName, putModel, type ModelStatus } from '../lib/library';
+import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'account' | 'about';
 
@@ -214,7 +214,7 @@ export function WorkspaceSettings({
                   <span>模型名<em>可选</em></span>
                   <input type="text" autoComplete="off" spellCheck={false} maxLength={80} placeholder="例如 deepseek-chat" value={modelForm.name} disabled={modelBusy} onChange={event => { setModelForm(form => ({ ...form, name: event.target.value })); setModelFormError(''); }} />
                 </label>
-                <p className="settings-model-hint">需要公网 HTTPS、兼容 OpenAI Chat Completions 的地址。密钥保存在服务器上，只用于转发你的对话，不会写入笔记；使用自己的模型不占用每日额度。</p>
+                <p className="settings-model-hint">需要公网 HTTPS、兼容 OpenAI Chat Completions 的地址。密钥保存在服务器上，只用于转发你的对话，不会写入笔记；使用自己的模型不占用 AI 额度。</p>
                 {modelFormError ? <p className="settings-notice" role="alert">{modelFormError}</p> : modelNotice ? <p className="settings-model-saved">{modelNotice}</p> : null}
                 <div className="settings-model-actions">
                   <button type="submit" className="settings-action-button is-primary" disabled={modelBusy || !modelForm.baseUrl.trim() || !modelForm.apiKey.trim()}>{modelBusy ? '正在保存…' : '保存并使用'}</button>
@@ -224,7 +224,8 @@ export function WorkspaceSettings({
             {active === 'account' ? <>
               <h3>当前会话</h3>
               <SettingRow title="登录邮箱"><span className="settings-value settings-email">{email}</span></SettingRow>
-              <SettingRow title="今日模型调用" description="按 UTC 日期统计；一次会话可能调用模型多次。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>
+              {!modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。'}><span className="settings-value" role="status">{`${window.used} / ${window.limit}`}</span></SettingRow>)
+                : <SettingRow title="AI 额度" description="每轮对话计一次；使用自己的模型不占用额度。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>}
               {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
               <SettingRow title="退出登录" description="退出此设备上的当前会话。"><button type="button" className="settings-action-button is-danger" onClick={onLogout}><LogOut size={15} /> 退出登录</button></SettingRow>
             </> : null}

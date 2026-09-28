@@ -164,3 +164,13 @@
 .agent-picker-list small { color: var(--muted-foreground); font-size: 12.5px; }
 .agent-picker-list > button > svg { color: var(--muted-foreground); }
 .agent-picker-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); }
+
+/* Rolling AI quota inside the model menu. */
+.agent-model-usage { display: grid; gap: 8px; padding: 6px 8px 4px; }
+.agent-model-usage > div { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; font-size: 12.5px; }
+.agent-model-usage span { color: var(--foreground); }
+.agent-model-usage meter { width: 100%; height: 6px; }
+.agent-model-usage meter::-webkit-meter-bar { height: 6px; border: 0; border-radius: 999px; background: color-mix(in oklch, var(--foreground) 9%, transparent); }
+.agent-model-usage meter::-webkit-meter-optimum-value { border-radius: 999px; background: var(--foreground); }
+.agent-model-usage .is-empty meter::-webkit-meter-optimum-value { background: oklch(58% .15 60); }
+.agent-model-usage small { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }

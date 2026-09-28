@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { BrandIcon } from './brand-icon';
 import { SandboxNotes } from './sandbox-notes';
-import { chooseProductModel, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { chooseProductModel, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
 const TOOLS: Record<string, { label: string; step: string; icon: LucideIcon }> = {
@@ -97,10 +97,14 @@ function ModelPill({ onManage }: { onManage: () => void }) {
   if (!status) return null;
   const missing = status.source === 'none';
   const choices = status.source === 'product' ? status.choices ?? [] : [];
-  const label = missing ? '未配置模型' : modelDisplayName(status);
+  // Rolling limits apply to product models only; a custom upstream is not counted.
+  const windows = status.source === 'product' ? status.windows ?? [] : [];
+  const exhausted = exhaustedQuotaWindow({ windows });
+  const reset = exhausted ? formatQuotaReset(exhausted.resets_at) : '';
+  const label = missing ? '未配置模型' : exhausted ? `额度已用完${reset ? ` · ${reset} 恢复` : ''}` : modelDisplayName(status);
   return (
     <div className="agent-model" ref={ref}>
-      <button type="button" className={`agent-chip is-button${missing ? ' is-warning' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>
+      <button type="button" className={`agent-chip is-button${missing || exhausted ? ' is-warning' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>
         {busy ? <Loader2 className="animate-spin" size={12} aria-hidden="true" /> : <Sparkles size={12} aria-hidden="true" />}<span>{label}</span><ChevronDown size={12} aria-hidden="true" />
       </button>
       {open ? <div className="agent-model-menu" role="menu" aria-label="选择模型">
@@ -115,7 +119,15 @@ function ModelPill({ onManage }: { onManage: () => void }) {
           }}><span>{modelDisplayName({ source: 'product', name })}</span>{selected ? <Check size={14} aria-hidden="true" /> : null}</button>;
         })}
         {status.source === 'custom' ? <button type="button" role="menuitemradio" aria-checked="true" onClick={() => setOpen(false)}><span>{label}</span><Check size={14} aria-hidden="true" /></button> : null}
-        {choices.length || status.source === 'custom' ? <hr /> : null}
+        {windows.length && choices.length ? <hr /> : null}
+        {windows.length ? <div className="agent-model-usage" aria-label="AI 额度">
+          {windows.map(window => <div key={window.id} className={window.remaining <= 0 ? 'is-empty' : ''}>
+            <span>{quotaWindowName(window.id)}内</span>
+            <meter min={0} max={window.limit} value={Math.min(window.used, window.limit)} aria-label={`${quotaWindowName(window.id)}内已用 ${window.used} / ${window.limit}`} />
+            <small>{window.used} / {window.limit}{window.used && window.resets_at ? ` · ${formatQuotaReset(window.resets_at)} 起恢复` : ''}</small>
+          </div>)}
+        </div> : null}
+        {choices.length || windows.length || status.source === 'custom' ? <hr /> : null}
         <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><Settings2 size={14} aria-hidden="true" /><span>{missing ? '配置模型…' : '管理模型…'}</span></button>
       </div> : null}
     </div>
@@ -171,7 +183,7 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <div className="agent-composer-bar">
           <span className="agent-composer-tools">
-            <ModelPill key={modelVersion} onManage={onManageModels} />
+            <ModelPill key={`${modelVersion}:${messages.length}:${error ? 1 : 0}`} onManage={onManageModels} />
             <span className="agent-chip" title="Agent 可以读取和修改当前知识库"><BookOpen size={12} aria-hidden="true" /><span>当前知识库</span></span>
           </span>
           <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
@@ -180,7 +192,7 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
         </div>
       </form>
   );
-  const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span><button type="button" onClick={onRetry}>确认发送结果</button></div> : null;
+  const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span>{error.includes('未确认') ? <button type="button" onClick={onRetry}>确认发送结果</button> : null}</div> : null;
   let body: ReactNode;
   if (loading) body = <div className="agent-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>;
   else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;

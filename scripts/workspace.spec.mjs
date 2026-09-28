@@ -3294,6 +3294,38 @@ test('account settings shows broker quota and fails closed when the ledger is un
   await expect(dialog.getByRole('alert')).toHaveText('暂时无法读取模型额度，请稍后重试。');
 });
 
+test('an exhausted 5h window explains the block and shows both rolling quotas', async ({ page }) => {
+  const state = defaultState();
+  const resetsAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
+  state.model = {
+    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gpt-6-sol-lite'],
+    agent: { sandbox: false, tools: [] }, quota: { limit: 30, used: 30, remaining: 0 },
+    windows: [
+      { id: '5h', limit: 30, used: 30, remaining: 0, resets_at: resetsAt },
+      { id: '7d', limit: 200, used: 41, remaining: 159, resets_at: new Date(Date.now() + 3 * 86400000).toISOString() },
+    ],
+  };
+  await mockWorkspace(page, state);
+  await page.route('**/api/sessions/*/messages', route => json(route, 429, { error: { id: 'quota_5h_exceeded' } }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const chip = page.getByRole('button', { name: /^模型：额度已用完 · .+ 恢复$/ });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  const menu = page.getByRole('menu', { name: '选择模型' });
+  await expect(menu.getByLabel('5 小时内已用 30 / 30')).toBeVisible();
+  await expect(menu.getByLabel('7 天内已用 41 / 200')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('还能继续吗');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('5 小时内的 AI 额度已用完');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('status')).toHaveText(['30 / 30', '41 / 200']);
+  await expect(dialog).toContainText('5 小时内 AI 额度');
+});
+
 test('Agent without a sandbox offers campus starters and shows which tools a reply used', async ({ page }) => {
   const state = defaultState();
   state.model = { ...state.model, agent: { sandbox: false, tools: ['campus_semester', 'campus_timetable', 'search_course_materials'] } };

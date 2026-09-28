@@ -69,6 +69,43 @@ export interface ModelStatus {
   /** What the Agent can actually do on this server right now. */
   agent?: AgentCapabilities;
   quota: { limit: number; used: number; remaining: number };
+  /** Rolling product-model limits; empty when unlimited or broker-managed. */
+  windows?: QuotaWindow[];
+}
+
+export interface QuotaWindow {
+  id: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  /** When the next counted turn leaves the window. */
+  resets_at?: string;
+}
+
+const quotaWindowNames: Record<string, string> = { '5h': '5 小时', '7d': '7 天' };
+export const quotaWindowName = (id: string) => quotaWindowNames[id] ?? id;
+
+/** A reset time as 今天/明天 HH:mm or M月D日 HH:mm, in the viewer's zone. */
+export function formatQuotaReset(iso: string | undefined, now = new Date()): string {
+  const at = iso ? new Date(iso) : null;
+  if (!at || Number.isNaN(at.getTime())) return '';
+  const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const day = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diff = Math.round((day(at) - day(now)) / 86400000);
+  if (diff === 0) return `今天 ${time}`;
+  if (diff === 1) return `明天 ${time}`;
+  return `${at.getMonth() + 1}月${at.getDate()}日 ${time}`;
+}
+
+/** The first exhausted window, which is what blocks the next turn. */
+export const exhaustedQuotaWindow = (status: Pick<ModelStatus, 'windows'> | null) =>
+  status?.windows?.find(window => window.remaining <= 0) ?? null;
+
+function isQuotaWindow(value: unknown): value is QuotaWindow {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  return typeof r.id === 'string' && typeof r.limit === 'number' && typeof r.used === 'number' && typeof r.remaining === 'number'
+    && (r.resets_at === undefined || typeof r.resets_at === 'string');
 }
 
 export interface AgentCapabilities {
@@ -160,6 +197,7 @@ function isModel(value: unknown): value is ModelStatus {
     && (r.name === undefined || typeof r.name === 'string')
     && (r.choices === undefined || isStringList(r.choices))
     && (r.agent === undefined || isAgentCapabilities(r.agent))
+    && (r.windows === undefined || (Array.isArray(r.windows) && r.windows.every(isQuotaWindow)))
     && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number';
 }
 
@@ -382,7 +420,9 @@ export function describeLibraryError(error: unknown): string {
     if (error.status === 401) return '登录状态已失效，请重新登录。';
     if (id === 'upstream_blocked') return '只接受公网 HTTPS 上游，内网和云元数据地址已被拒绝。';
     if (id === 'model_unconfigured') return '还没有可用的模型。请配置自己的上游，或确认产品 NewAPI 已就绪。';
-    if (id === 'quota_exceeded') return '今日产品模型调用额度已用完。';
+    if (id === 'quota_5h_exceeded') return '5 小时内的 AI 额度已用完，恢复时间见输入框下方的模型按钮。';
+    if (id === 'quota_7d_exceeded') return '7 天内的 AI 额度已用完，恢复时间见输入框下方的模型按钮。';
+    if (id === 'quota_exceeded') return 'AI 额度已用完，请稍后再试。';
     if (id === 'quota_unavailable') return '暂时无法读取模型额度，请稍后重试。';
     if (id === 'sandbox_unavailable') return 'Agent 沙箱暂时不可用，请稍后重试。';
     if (id === 'session_conflict') return '会话已在其他请求中更新，请刷新后重试。';
