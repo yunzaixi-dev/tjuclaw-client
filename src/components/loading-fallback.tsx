@@ -1,19 +1,11 @@
-import { BrandIcon } from './brand-icon';
-import './loading-fallback.css';
+import { WorkspaceLoading } from './workspace-loading';
 
+/**
+ * Shown while a page's code downloads. The workspace shows the same screen
+ * for its data steps afterwards, so the two stages read as one continuous
+ * opening screen rather than two different pages.
+ */
 export function LoadingFallback() {
-  return (
-    <div className="app-loading-shell" role="status" aria-live="polite">
-      <div className="app-loading-card">
-        <div className="app-loading-badge-wrap">
-          <BrandIcon size={52} className="app-loading-brand" alt="" />
-          <div className="app-loading-spinner" aria-hidden="true" />
-        </div>
-        <div className="app-loading-text-group">
-          <strong className="app-loading-title">正在打开 TJUClaw</strong>
-          <span className="app-loading-subtitle">准备界面中…</span>
-        </div>
-      </div>
-    </div>
-  );
+  const workspace = location.pathname.startsWith('/workspace');
+  return <WorkspaceLoading step="app" title={workspace ? '正在打开你的知识花园' : '正在打开 TJUClaw'} />;
 }

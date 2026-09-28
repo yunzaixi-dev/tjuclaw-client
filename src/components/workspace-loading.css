@@ -5,7 +5,19 @@
   padding: 24px;
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  /* Hidden for the first moments: a cached load finishes before anything shows. */
+  opacity: 0;
+  transition: opacity 200ms ease-out;
 }
+.workspace-opening.is-visible { opacity: 1; }
+.workspace-opening:not(.is-visible) .workspace-opening-card { animation-play-state: paused; }
+.workspace-opening.is-continued { transition: none; }
+.workspace-opening.is-continued .workspace-opening-card { animation: none; }
+.workspace-opening.is-continued .bp-draw,
+.workspace-opening.is-continued .bp-layer { animation: none !important; }
+.workspace-opening-now { display: flex; justify-content: space-between; width: 100%; margin: -4px 0 0; color: var(--muted-foreground); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.workspace-opening-now span { color: var(--foreground); font-weight: 600; }
+.workspace-opening-bar span.is-done { width: 100%; animation: opening-bar-step 260ms var(--auth-ease) both; }
 
 .workspace-opening-card {
   display: grid;

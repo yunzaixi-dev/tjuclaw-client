@@ -7,7 +7,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
-import { WorkspaceLoading, type LoadStep } from './components/workspace-loading';
+import { openingHoldMs, openingWasVisible, WorkspaceLoading, type LoadStep } from './components/workspace-loading';
 import { AgentThread } from './components/agent-thread';
 import { BrandIcon } from './components/brand-icon';
 import { FilePreview } from './components/file-preview';
@@ -336,6 +336,20 @@ export default function Workspace() {
   const [saveFailedId, setSaveFailedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadStep, setLoadStep] = useState<LoadStep>('session');
+  // Keep a visible opening screen up briefly after loading so it never
+  // flickers; a load that finished before it appeared skips straight in.
+  const [openingDone, setOpeningDone] = useState(false);
+  const [entering] = useState(() => ({ fade: false }));
+  const opened = !loading && Boolean(session);
+  useEffect(() => {
+    if (!opened || openingDone) return;
+    const timer = window.setTimeout(() => {
+      // Fade the page in only when it replaces a screen the user saw.
+      entering.fade = openingWasVisible();
+      setOpeningDone(true);
+    }, openingHoldMs());
+    return () => window.clearTimeout(timer);
+  }, [opened, openingDone, entering]);
   const [workspaceGate, setWorkspaceGate] = useState<WorkspaceGateState>(null);
   const [error, setError] = useState('');
   const saveTimer = useRef<number>(0);
@@ -1864,9 +1878,10 @@ export default function Workspace() {
   });
 
   if (loading || !session) return <WorkspaceLoading step={session ? loadStep : 'session'} />;
+  if (!openingDone) return <WorkspaceLoading step="done" />;
   if (workspaceGate) return <WorkspacePassphraseGate identity={session.id} workspaceId={workspaceGate.workspaceId} workspaceName={workspaceGate.workspaceName} mode={workspaceGate.mode} verification={workspaceGate.verification} firstWorkspace={workspaceGate.firstWorkspace} accountEmail={session.email} onUnlocked={continueAfterWorkspaceUnlock} />;
 
-  return <div className={`obsidian-app${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) ${railOpen ? railWidth : 0}px` }}>
+  return <div className={`obsidian-app${entering.fade ? ' is-entering' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) ${railOpen ? railWidth : 0}px` }}>
     <motion.aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}
       initial={false} animate={{ x: isMobile && !sidebarOpen ? '-100%' : '0%', opacity: isMobile && !sidebarOpen ? 0 : 1 }}
       transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}>

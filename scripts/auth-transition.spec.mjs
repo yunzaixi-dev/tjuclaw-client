@@ -54,7 +54,7 @@ for (const route of ['/auth/login', '/auth/registration']) {
     await page.goto(route);
     const email = page.getByLabel('邮箱地址', { exact: true });
     await expect(email).toBeVisible();
-    await expect(page.locator('.auth-skeleton, .app-loading-shell')).toHaveCount(0);
+    await expect(page.locator('.auth-skeleton, .workspace-opening')).toHaveCount(0);
     await email.fill('draft@tju.edu.cn');
     await email.press('Enter');
     expect(posts).toBe(0);
