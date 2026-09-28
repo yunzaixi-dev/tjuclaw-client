@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { publicObjectUrl, r2Copy, r2Exists, r2GetText, r2Put, readR2Config } from './r2.mjs';
 
@@ -446,27 +446,14 @@ export function signUpdaterAsset(filePath, signing, exec = execFileSync) {
 
 function androidBuildTool(name) {
   const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  if (sdk) {
-    const dir = resolve(sdk, 'build-tools');
-    let versions = [];
-    try {
-      versions = execFileSync('ls', [dir], { encoding: 'utf8' }).trim().split('\n')
-        .filter(v => /^[0-9]+\.[0-9]+\.[0-9]+$/.test(v))
-        .sort((a, b) => compareVersions(b, a));
-    } catch {
-      // fall back to PATH below
-    }
-    for (const v of versions) {
-      const tool = resolve(dir, v, name);
-      try {
-        execFileSync(tool, ['--version'], { stdio: 'ignore' });
-        return tool;
-      } catch {
-        // try an older build-tools version
-      }
-    }
-  }
-  return name;
+  if (!sdk) return name;
+  const dir = resolve(sdk, 'build-tools');
+  const versions = existsSync(dir)
+    ? readdirSync(dir).filter(v => /^[0-9]+\.[0-9]+\.[0-9]+$/.test(v)).sort((a, b) => compareVersions(b, a))
+    : [];
+  // zipalign has no --version flag, so probe by file presence, newest build-tools first.
+  const found = versions.map(v => resolve(dir, v, name)).find(tool => existsSync(tool));
+  return found || name;
 }
 
 /**
