@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Only read the app version; no filesystem, shell or network plugins.",
-  "windows": ["main"],
-  "permissions": ["core:app:allow-version"]
+  "description": "Bundled pages: read the app version and use the device-local SQLite store.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:app:allow-version",
+    "allow-store-get",
+    "allow-store-set",
+    "allow-store-delete",
+    "allow-store-list"
+  ]
 }

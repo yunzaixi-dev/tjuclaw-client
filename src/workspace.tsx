@@ -10,6 +10,7 @@ import { MarkdownEditor } from './components/markdown-editor';
 import { openingHoldMs, openingWasVisible, WorkspaceLoading, type LoadStep } from './components/workspace-loading';
 import { AgentThread } from './components/agent-thread';
 import { NoteHistory } from './components/note-history';
+import { agentRuntime, sendLocalTurn } from './lib/local-sandbox';
 import { getGitStatus, gitStatusLabel, type GitStatus } from './lib/git-history';
 import { BrandIcon } from './components/brand-icon';
 import { FilePreview } from './components/file-preview';
@@ -266,7 +267,7 @@ function renderMarkdown(markdown: string) {
 }
 
 /** Message errors the API returns before storing the turn. */
-const definiteChatRefusals = new Set(['model_unconfigured', 'quota_exceeded', 'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked']);
+const definiteChatRefusals = new Set(['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded', 'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked']);
 
 export default function Workspace() {
   const [session, setSession] = useState<IdentitySession | null>(null);
@@ -1515,7 +1516,8 @@ export default function Workspace() {
     setPendingText(text);
     setDraft('');
     try {
-      const next = await sendMessage(currentId, text, requestId);
+      // The desktop app may run the turn in the user's own Docker sandbox.
+      const next = agentRuntime() === 'local' ? await sendLocalTurn(currentId, text, requestId) : await sendMessage(currentId, text, requestId);
       delivered = true;
       clearPendingChat(identity, currentId, requestId);
       if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;

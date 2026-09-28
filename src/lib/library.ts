@@ -316,6 +316,9 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Chat
   return data.session;
 }
 
+/** Validates a session returned by another route (the desktop local turn). */
+export const isChatSession = (value: unknown): value is ChatSession => isSession(value);
+
 export async function sendMessage(sessionId: string, content: string, clientRequestId: string, signal?: AbortSignal): Promise<ChatSession> {
   const data = await authRequest<{ session: unknown }>(`/api/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content, client_request_id: clientRequestId }), signal }, 195000);
   if (!isSession(data.session)) throw new AuthError(503);
@@ -443,6 +446,8 @@ export function describeLibraryError(error: unknown): string {
     if (id === 'quota_5h_exceeded') return '5 小时内的 AI 额度已用完，恢复时间见输入框下方的模型按钮。';
     if (id === 'quota_7d_exceeded') return '7 天内的 AI 额度已用完，恢复时间见输入框下方的模型按钮。';
     if (id === 'quota_exceeded') return 'AI 额度已用完，请稍后再试。';
+    if (id === 'local_docker_unavailable') return '没有检测到 Docker。请启动 Docker Desktop，或在「设置 → 模型」改回云端沙箱。';
+    if (id === 'local_sandbox_unavailable') return '本机沙箱暂时无法运行这轮对话，请检查 Docker 后重试。';
     if (id === 'quota_unavailable') return '暂时无法读取模型额度，请稍后重试。';
     if (id === 'sandbox_unavailable') return 'Agent 沙箱暂时不可用，请稍后重试。';
     if (id === 'session_conflict') return '会话已在其他请求中更新，请刷新后重试。';

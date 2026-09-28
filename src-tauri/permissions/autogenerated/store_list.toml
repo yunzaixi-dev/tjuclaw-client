@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-store-list"
+description = "Enables the store_list command without any pre-configured scope."
+commands.allow = ["store_list"]
+
+[[permission]]
+identifier = "deny-store-list"
+description = "Denies the store_list command without any pre-configured scope."
+commands.deny = ["store_list"]

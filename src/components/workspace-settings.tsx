@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
+import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
@@ -180,10 +181,11 @@ export function WorkspaceSettings({
               {legacyAnkiBackupAvailable ? <SettingRow title="旧版浏览器数据" description="旧版卡片没有账号归属，不会自动合并到当前账号。请确认数据属于你后自行备份。"><button type="button" className="settings-action-button" onClick={onExportLegacyAnkiBackup}>下载原始备份</button></SettingRow> : null}
             </> : null}
             {active === 'model' ? <>
+              <AgentRuntimeSetting />
               <h3>当前模型</h3>
               <SettingRow
                 title={modelStatus ? modelDisplayName(modelStatus) : modelError ? '暂不可用' : '读取中…'}
-                description={modelStatus?.source === 'custom' ? '你自己的模型服务，使用你自己的额度。' : modelStatus?.source === 'product' ? '由 TJUClaw 提供，每天有调用次数上限。' : modelStatus ? '还没有可用的模型，请在下方配置。' : undefined}
+                description={modelStatus?.source === 'custom' ? '你自己的模型服务，使用你自己的额度。' : modelStatus?.source === 'product' ? '由 TJUClaw 提供，按 5 小时和 7 天滚动计算额度。' : modelStatus ? '还没有可用的模型，请在下方配置。' : undefined}
               >
                 {modelStatus?.source === 'custom'
                   ? <button type="button" className="settings-action-button" disabled={modelBusy} onClick={() => void switchToProductModel()}>改回 TJUClaw 模型</button>

@@ -174,3 +174,4 @@
 .agent-model-usage meter::-webkit-meter-optimum-value { border-radius: 999px; background: var(--foreground); }
 .agent-model-usage .is-empty meter::-webkit-meter-optimum-value { background: oklch(58% .15 60); }
 .agent-model-usage small { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
+.agent-composer .agent-chip.is-loading { opacity: .55; }

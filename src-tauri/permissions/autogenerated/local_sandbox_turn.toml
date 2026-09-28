@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-sandbox-turn"
+description = "Enables the local_sandbox_turn command without any pre-configured scope."
+commands.allow = ["local_sandbox_turn"]
+
+[[permission]]
+identifier = "deny-local-sandbox-turn"
+description = "Denies the local_sandbox_turn command without any pre-configured scope."
+commands.deny = ["local_sandbox_turn"]

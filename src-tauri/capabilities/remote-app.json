@@ -1,0 +1,32 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-app",
+  "description": "The TJUClaw web app loaded in the desktop window: device store, in-app updates and the local Agent sandbox, for the product origin only.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "linux",
+    "windows",
+    "macOS"
+  ],
+  "remote": {
+    "urls": [
+      "https://app.tjuclaw.cloud/*"
+    ]
+  },
+  "permissions": [
+    "core:app:allow-version",
+    "updater:default",
+    "process:allow-restart",
+    "allow-store-get",
+    "allow-store-set",
+    "allow-store-delete",
+    "allow-store-list",
+    "allow-local-sandbox-status",
+    "allow-local-sandbox-prepare",
+    "allow-local-sandbox-start",
+    "allow-local-sandbox-stop",
+    "allow-local-sandbox-turn"
+  ]
+}

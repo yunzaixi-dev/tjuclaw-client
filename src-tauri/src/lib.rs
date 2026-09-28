@@ -1,3 +1,5 @@
+#[cfg(desktop)]
+mod local_sandbox;
 mod store;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,14 +17,41 @@ pub fn run() {
             // commands then report store_unavailable and the client falls back.
             let dir = app.path().app_data_dir().ok();
             app.manage(store::Store::open_or_unavailable(dir.as_deref()));
+            // The desktop app is the TJUClaw web app with native extras: it
+            // opens the product origin (sign-in, API and updates work as on
+            // the web) and adds the local Agent sandbox.
+            #[cfg(desktop)]
+            {
+                app.manage(local_sandbox::LocalSandbox::default());
+                if !cfg!(debug_assertions) {
+                    if let (Some(window), Ok(url)) = (app.get_webview_window("main"), "https://app.tjuclaw.cloud/workspace".parse()) {
+                        let _ = window.navigate(url);
+                    }
+                }
+            }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            store::store_get,
-            store::store_set,
-            store::store_delete,
-            store::store_list
-        ])
+        .invoke_handler(handlers())
         .run(tauri::generate_context!())
         .expect("failed to run TJUClaw");
+}
+
+#[cfg(desktop)]
+fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        store::store_get,
+        store::store_set,
+        store::store_delete,
+        store::store_list,
+        local_sandbox::local_sandbox_status,
+        local_sandbox::local_sandbox_prepare,
+        local_sandbox::local_sandbox_start,
+        local_sandbox::local_sandbox_stop,
+        local_sandbox::local_sandbox_turn
+    ]
+}
+
+#[cfg(mobile)]
+fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![store::store_get, store::store_set, store::store_delete, store::store_list]
 }
