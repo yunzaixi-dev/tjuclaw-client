@@ -2003,8 +2003,8 @@
   .anki-sample-button, .anki-page-heading > button, .anki-answer-actions button, .anki-danger-button,
   .settings-action-button, .mobile-topbar-actions button, .sidebar-opener
 ):is(:hover):not(:disabled) {
-  transform: translateY(-.5px);
-  box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
+  /* No lift on hover: a moving target can oscillate under a still pointer. */
+  background: color-mix(in oklch, var(--control-surface) 94%, var(--foreground));
 }
 .obsidian-app :is(
   .file-preview-heading button, .campus-action-button, .campus-choice-button, .campus-schedule-nav button,
@@ -2155,7 +2155,7 @@
   .mobile-bar-ask-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border); }
   /* The Agent has its own composer, and editing shows the format bar. */
   .obsidian-app:has(.agent-thread, .agent-picker) .mobile-command-bar { display: none; }
-  .obsidian-app .note-editor, .obsidian-app .new-note-home, .obsidian-app .campus-tool, .obsidian-app .git-workspace-page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .obsidian-app .note-editor, .obsidian-app .new-note-home, .obsidian-app .campus-tool { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   /* Page title as Notion's breadcrumb pill. */
   .obsidian-app .mobile-tab-title { flex: 0 1 auto; margin: 0 auto; height: 34px; padding: 0 12px; border-radius: 999px; background: var(--hover-wash); font-size: 14px; font-weight: 500; }
 }
@@ -2173,7 +2173,7 @@
   box-shadow: 0 0 0 1px var(--control-border), 0 2px 4px rgba(15, 15, 15, .04); scroll-snap-align: start;
   transition: transform 200ms var(--spring), box-shadow 200ms var(--ease-out);
 }
-.notion-recent-card:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--control-border), 0 6px 14px rgba(15, 15, 15, .08); }
+.notion-recent-card:hover { box-shadow: 0 0 0 1px var(--control-border), 0 6px 14px rgba(15, 15, 15, .08); }
 .notion-recent-card:active { transform: scale(.98); }
 .notion-recent-cover { display: block; flex: none; width: calc(100% + 24px); height: 50px; margin: 0 -12px; background: var(--muted); }
 .notion-recent-icon { display: grid; width: 32px; height: 32px; place-items: center; margin-top: -16px; border-radius: 8px; background: var(--surface); color: var(--muted-foreground); box-shadow: 0 0 0 1px var(--control-border); }
@@ -2204,3 +2204,131 @@
 }
 
 :root[data-theme=dark] .obsidian-app { --shell-mark: #ffffff; }
+
+/* ===========================================================================
+   Notion web sidebar: one column — workspace, pill nav, lists, apps, actions.
+   =========================================================================== */
+.obsidian-app .obsidian-sidebar { flex-direction: column; background: var(--muted); border-right: 0; box-shadow: inset -1px 0 0 var(--border); }
+.obsidian-app .sidebar-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: transparent; border: 0; }
+.obsidian-app .obsidian-tree { flex: 1; min-height: 60px; overflow: auto; padding: 0 8px; }
+.notion-side-head { display: flex; align-items: center; gap: 4px; padding: 10px 8px 6px; }
+.obsidian-app .notion-side-head .sidebar-library-button {
+  display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 8px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--foreground); text-align: left;
+}
+.obsidian-app .notion-side-head .sidebar-library-button:hover { background: var(--hover-wash); }
+.notion-workspace-mark { display: grid; flex: none; width: 22px; height: 22px; place-items: center; border-radius: 6px; background: var(--foreground); color: var(--surface); font-size: 12px; font-weight: 700; }
+.obsidian-app .notion-side-head .sidebar-library-copy { display: flex; min-width: 0; flex-direction: column; }
+.obsidian-app .notion-side-head .sidebar-library-name { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* Counts stay available to assistive tech and tests but out of the way. */
+.obsidian-app .notion-side-head .sidebar-library-copy small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.obsidian-app .notion-side-head .sidebar-library-chevron { flex: none; color: var(--muted-foreground); }
+.notion-side-collapse { display: grid; flex: none; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); opacity: 0; transition: opacity 120ms; }
+.obsidian-sidebar:hover .notion-side-collapse, .notion-side-collapse:focus-visible { opacity: 1; }
+.notion-side-collapse:hover { background: var(--hover-wash); color: var(--foreground); }
+
+.notion-nav { display: flex; align-items: center; gap: 2px; padding: 2px 8px 10px; }
+.notion-nav button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; min-width: 30px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--muted-foreground); font-size: 14px; font-weight: 500; }
+.notion-nav button:hover { background: var(--hover-wash); color: var(--foreground); }
+.notion-nav button.is-active { background: var(--selected); color: var(--foreground); }
+.notion-nav .notion-nav-home { padding: 0 12px 0 10px; }
+.notion-nav .notion-nav-search { margin-left: auto; }
+
+.obsidian-app .obsidian-sidebar .tree-heading { padding: 12px 10px 4px 18px; }
+.notion-side-section { padding: 0 8px; }
+.notion-apps { flex: none; padding-bottom: 6px; }
+.notion-side-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px;
+  background: transparent; color: color-mix(in oklch, var(--foreground) 86%, var(--muted)); font-size: 14px; text-align: left;
+}
+.notion-side-row svg { flex: none; color: var(--muted-foreground); }
+.notion-side-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notion-side-row:hover { background: var(--hover-wash); }
+.notion-side-row.is-active { background: var(--selected); color: var(--foreground); font-weight: 500; }
+
+.obsidian-app .notion-side-bottom { display: flex; align-items: center; gap: 8px; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); border-top: 0; }
+.notion-new-chat, .notion-new-page {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border: 0; background: var(--surface); color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--control-border), 0 1px 2px rgba(15, 15, 15, .06); font-size: 14px;
+}
+.notion-new-chat { flex: 1; border-radius: 999px; }
+.notion-new-page { flex: none; width: 36px; border-radius: 50%; }
+.notion-new-chat:hover, .notion-new-page:hover { background: color-mix(in oklch, var(--surface) 94%, var(--foreground)); }
+
+/* Top bar and page chrome, after Notion web. */
+.obsidian-app .obsidian-topbar { height: 44px; background: var(--surface); border-bottom: 0; }
+.obsidian-app .workspace-tabs .workspace-tab { height: 30px; margin-top: 7px; border: 0; border-radius: 6px; background: transparent; }
+.obsidian-app .workspace-tabs .workspace-tab.is-active { background: var(--selected); }
+.notion-edited { color: var(--muted-foreground); font-size: 13px; white-space: nowrap; }
+.obsidian-main { position: relative; }
+.notion-ai-fab {
+  position: absolute; right: 22px; bottom: 44px; z-index: 12; display: grid; width: 44px; height: 44px; place-items: center;
+  border: 0; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border), 0 4px 12px rgba(15, 15, 15, .1);
+  transition: transform 200ms var(--spring), box-shadow 200ms var(--ease-out);
+}
+.notion-ai-fab:hover { box-shadow: 0 0 0 1px var(--control-border), 0 8px 20px rgba(15, 15, 15, .14); }
+.notion-ai-fab:active { transform: scale(.95); }
+@media (max-width: 720px) { .notion-ai-fab { display: none; } }
+/* Page canvas: Notion's 708px column and roomy top. */
+@media (min-width: 721px) {
+  .obsidian-app .note-editor { padding: 72px max(40px, calc((100% - 708px) / 2)) 120px; }
+}
+@media (min-width: 721px) { .obsidian-app:not(.sidebar-collapsed) .obsidian-topbar .sidebar-opener { display: none; } }
+.obsidian-app .notion-side-bottom .notion-new-chat, .obsidian-app .notion-side-bottom .notion-new-page { display: inline-flex; flex-direction: row; align-items: center; justify-content: center; padding: 0 12px; }
+.obsidian-app .notion-side-bottom .notion-new-page { padding: 0; }
+
+/* Desktop top bar: breathing room from the sidebar and between tabs. */
+@media (min-width: 721px) {
+  .obsidian-app .obsidian-topbar { gap: 6px; padding: 0 10px 0 12px; }
+  .obsidian-app .workspace-tabs { gap: 4px; align-items: center; height: 100%; padding: 0 4px; }
+  .obsidian-app .workspace-tabs .workspace-tab { flex: 0 1 200px; height: 30px; margin-top: 0; padding: 0 4px 0 10px; }
+  .obsidian-app .workspace-new-tab { width: 28px; height: 28px; margin: 0; border-radius: 6px; align-self: center; }
+  /* Collapsed sidebar: a quiet Notion icon button, not the phone's round control. */
+  .obsidian-app .obsidian-topbar .sidebar-opener {
+    width: 28px !important; height: 28px !important; min-width: 28px; border: 0 !important; border-radius: 6px !important;
+    background: transparent !important; box-shadow: none !important; color: var(--muted-foreground);
+  }
+  .obsidian-app .obsidian-topbar .sidebar-opener:hover { background: var(--hover-wash) !important; color: var(--foreground); }
+}
+@media (min-width: 721px) {
+  .obsidian-app .workspace-tabs { flex: 0 1 auto; min-width: 0; }
+  .obsidian-app .topbar-actions { margin-left: auto; }
+}
+
+/* Page chrome: back/forward and the edit/preview switch share one row that
+   lines up with the 708px text column instead of hugging the pane edges. */
+@media (min-width: 721px) {
+  .obsidian-app .note-toolbar { height: 28px; margin: -40px 0 12px; }
+  .obsidian-app .note-history { position: static; gap: 2px; margin-left: -6px; }
+  .obsidian-app .note-history button { width: 28px; height: 28px; border-radius: 6px; color: var(--muted-foreground); }
+  .obsidian-app .note-history button:hover:not(:disabled) { color: var(--foreground); }
+  .obsidian-app .note-toolbar .mode-switch { margin-right: -6px; }
+}
+
+/* Outline: Notion's quiet table of contents on the page surface. */
+.obsidian-app .obsidian-rail { padding: 0 10px 24px; border-left: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+.obsidian-app .rail-heading { height: 46px; padding: 0 2px 0 8px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.obsidian-app .rail-heading > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.obsidian-app .rail-heading small { color: color-mix(in oklch, var(--muted-foreground) 70%, transparent); font-size: 11px; font-variant-numeric: tabular-nums; }
+.obsidian-app .rail-heading button { width: 28px; height: 28px; border-radius: 6px; }
+.obsidian-app .outline-list { display: grid; gap: 1px; padding: 4px 0; }
+.obsidian-app .outline-item {
+  position: relative; display: block; width: 100%; min-height: 28px; padding: 4px 8px 4px 12px;
+  overflow: hidden; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted-foreground); font: inherit; font-size: 13px; line-height: 20px; text-align: left;
+  text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background-color 120ms, color 120ms;
+}
+.obsidian-app .outline-item:hover { background: var(--hover-wash, var(--shell-hover)); color: var(--foreground); }
+.obsidian-app .outline-item.level-1 { color: var(--foreground); font-weight: 500; }
+.obsidian-app .outline-item.level-2 { padding-left: 26px; }
+.obsidian-app .outline-item.level-3 { padding-left: 40px; font-size: 12.5px; }
+.obsidian-app .outline-item.level-4, .obsidian-app .outline-item.level-5, .obsidian-app .outline-item.level-6 { padding-left: 54px; font-size: 12.5px; }
+.obsidian-app .outline-item:not(.level-1)::before {
+  position: absolute; top: 4px; bottom: 4px; left: 14px; width: 1px; background: var(--line); content: "";
+}
+.obsidian-app .outline-item.level-3::before { left: 28px; }
+.obsidian-app .outline-item.level-4::before, .obsidian-app .outline-item.level-5::before, .obsidian-app .outline-item.level-6::before { left: 42px; }
+.obsidian-app .outline-muted { margin: 6px 8px; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.6; }
+@media (max-width: 720px) {
+  .obsidian-app .outline-item { min-height: 42px; padding-top: 11px; padding-bottom: 11px; font-size: 15px; }
+}

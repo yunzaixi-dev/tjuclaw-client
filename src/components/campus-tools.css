@@ -243,7 +243,7 @@
   box-shadow: var(--control-shadow), 0 0 0 .5px var(--control-border);
 }
 .campus-map-index > div { overflow: hidden; transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out); }
-.campus-map-index > div:hover { transform: translateY(-2px); box-shadow: var(--control-shadow-hover), 0 0 0 .5px var(--control-border); }
+.campus-map-index > div:hover { box-shadow: var(--control-shadow-hover), 0 0 0 .5px var(--control-border); }
 .campus-calendar-images a { overflow: hidden; }
 .campus-external { border: 0; border-radius: 999px; background: var(--control-surface); box-shadow: var(--control-shadow), var(--control-highlight), 0 0 0 .5px var(--control-border); }
 .campus-live-error { border-radius: 12px; }

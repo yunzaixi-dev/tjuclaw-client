@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const syntheticSessionA = {
@@ -909,7 +908,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
     await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.locator('.sidebar-activity').getByRole('button', { name: '小工具' }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '小工具' }).click();
     await expect(page.locator('.campus-sidebar-list')).toBeVisible();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
     await expect(page.locator('.campus-focus-clock')).toBeVisible();
@@ -917,7 +916,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
     await page.reload();
     await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.locator('.sidebar-activity').getByRole('button', { name: '小工具' }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '小工具' }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
     await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
     await page.getByRole('button', { name: '打开侧栏' }).click();
@@ -955,7 +954,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await expect(page.getByRole('menuitemradio', { name: '最近修改' })).toHaveCount(0);
     await page.getByRole('menuitemradio', { name: '手动排序' }).click();
-    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await page.getByRole('menuitemradio', { name: '手动排序' }).click();
     await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
@@ -1076,7 +1075,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.locator('.sidebar-sort-row').filter({ has: page.getByRole('button', { name: '知识图谱', exact: true }) }).getByRole('button', { name: '排序操作' }).click();
     await page.getByRole('menuitem', { name: '上移' }).click();
     await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
-    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '新建文件夹' }).click();
     await page.locator('.tree-inline-input').fill('资料');
     await page.locator('.tree-inline-input').press('Enter');
@@ -1187,7 +1186,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '新建标签页' }).click();
     await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveCount(2);
-    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await tablist.getByRole('tab', { name: '笔记 First note for user A' }).click();
     await page.locator('.note-title').fill('修改后的标题');
     await expect(page.getByRole('button', { name: '上一个笔记' })).toBeDisabled();
@@ -1226,426 +1225,6 @@ test.describe('Workspace mocked contract suite', () => {
     expect(state.sentRequests).toHaveLength(2);
     expect(state.sentRequests[1].client_request_id).toBe(state.sentRequests[0].client_request_id);
     expect(state.sentRequests[0].client_request_id).toMatch(/^[0-9a-f]{32}$/);
-  });
-
-  test('opens the Git notebook from the workspace without starting another Agent session', async ({ page }) => {
-    const state = defaultState();
-    await mockWorkspace(page, state);
-    let sessionReads = 0;
-    let sessionCreates = 0;
-    let grants = 0;
-    const requests = [];
-    await page.route(`**/api/entries/${guideA.id}/sessions`, route => {
-      if (route.request().method() === 'POST') sessionCreates++;
-      else sessionReads++;
-      return json(route, 200, { sessions: [sessionA] });
-    });
-    await page.route(`**/api/sessions/${sessionA.id}/sandbox-token`, route => {
-      grants++;
-      return json(route, 200, { token: 'git-notes-only', expires_at: '2099-01-01T00:00:00Z',
-        gateway_url: 'https://sandbox.example.invalid' });
-    });
-    await page.route('https://sandbox.example.invalid/v1/sessions/**', route => {
-      const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS' };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-      requests.push(route.request().postDataJSON());
-      return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify(route.request().url().endsWith('/notes')
-          ? { version: 'session.v1', paths: ['repo.md'], revision: 'a'.repeat(40) }
-          : { version: 'session.v1', path: 'repo.md', content: 'Forgejo version', revision: 'a'.repeat(40) }) });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Git 笔记' })).toBeVisible();
-    await expect(page.getByText('每一次保存都是一次提交，随时回到任何一个版本。')).toBeVisible();
-    expect(sessionReads).toBe(0);
-    expect(grants).toBe(0);
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await expect(panel).toBeVisible();
-    expect(sessionReads).toBe(1);
-    expect(sessionCreates).toBe(0);
-    expect(grants).toBe(0);
-    await panel.getByRole('button', { name: '查看文件' }).click();
-    await panel.getByRole('button', { name: 'repo.md' }).click();
-    await expect(panel.locator('pre')).toContainText('Forgejo version');
-    expect(grants).toBe(2);
-    expect(requests).toEqual([
-      expect.objectContaining({ owner_id: syntheticSessionA.id, session_id: sessionA.id, entry_id: guideA.id }),
-      expect.objectContaining({ owner_id: syntheticSessionA.id, session_id: sessionA.id, entry_id: guideA.id, path: 'repo.md' }),
-    ]);
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    expect(sessionCreates).toBe(0);
-    await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
-  });
-
-  test('creates and reopens browser-encrypted private notes in Forgejo without exposing titles or bodies', async ({ page }) => {
-    const state = defaultState();
-    state.vaultConfigured = true;
-    await mockWorkspace(page, state, { seedWorkspaceUnlock: false });
-    let loggedOut = false;
-    let logoutCalls = 0;
-    await page.route('**/api/auth/session', route => loggedOut
-      ? json(route, 401, { error: { id: 'session_required' } })
-      : json(route, 200, syntheticSessionA));
-    await page.route('**/api/auth/logout', route => {
-      logoutCalls++;
-      loggedOut = true;
-      return json(route, 200, {});
-    });
-    const objects = new Map();
-    const writes = [];
-    let counter = 0;
-    let sandboxGrants = 0;
-    await page.route('**/api/sessions/*/sandbox-token', route => {
-      sandboxGrants++;
-      return json(route, 503, { error: { id: 'unexpected_sandbox_access' } });
-    });
-    await page.route('**/api/vault/objects/*', route => {
-      const id = new URL(route.request().url()).pathname.split('/').at(-1);
-      const stored = objects.get(id);
-      if (route.request().method() === 'GET') {
-        return stored ? route.fulfill({ status: 200, contentType: 'application/vnd.tjuclaw.sealed+json',
-          headers: { ETag: stored.revision }, body: JSON.stringify(stored.object) })
-          : json(route, 404, { error: { id: 'vault_object_not_found' } });
-      }
-      expect(route.request().method()).toBe('PUT');
-      const headers = route.request().headers();
-      if (stored ? headers['if-match'] !== stored.revision : headers['if-none-match'] !== '*') {
-        return json(route, 409, { error: { id: 'vault_revision_conflict' } });
-      }
-      const revision = `"${(++counter).toString(16).padStart(40, '0')}"`;
-      const payload = route.request().postData();
-      writes.push(payload);
-      objects.set(id, { revision, object: JSON.parse(payload) });
-      return route.fulfill({ status: stored ? 200 : 201, contentType: 'application/json',
-        headers: { ETag: revision }, body: '{"ok":true}' });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('textbox', { name: '创建工作区口令' }).fill('private-workspace-key');
-    await page.getByLabel('再次输入口令').fill('private-workspace-key');
-    await page.getByRole('checkbox').check();
-    const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: '创建并下载备份' }).click();
-    await downloadPromise;
-    await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    const panel = page.getByRole('region', { name: '私密笔记' });
-    await expect(panel).toContainText('Agent 也读不到这里的内容');
-    await panel.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
-    await panel.getByRole('button', { name: '解锁私密笔记' }).click();
-    await panel.getByLabel('新笔记标题').fill('仅本人可见的标题');
-    await panel.getByRole('button', { name: '新建私密笔记' }).click();
-    await panel.getByRole('textbox', { name: '私密笔记正文' }).fill('仅本人可见的正文');
-    await panel.getByRole('button', { name: '保存密文' }).click();
-    await expect(panel.locator('pre')).toHaveText('仅本人可见的正文');
-    expect(sandboxGrants).toBe(0);
-    expect(writes).toHaveLength(4);
-    for (const payload of writes) expect(payload).not.toMatch(/仅本人可见|private-workspace-key/);
-    await panel.getByRole('button', { name: '编辑笔记' }).click();
-    await panel.getByRole('textbox', { name: '私密笔记正文' }).fill('切换视图后保留的草稿');
-    await page.getByRole('button', { name: /^协作笔记/ }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    const restored = page.getByRole('region', { name: '私密笔记' });
-    await restored.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
-    await restored.getByRole('button', { name: '解锁私密笔记' }).click();
-    await expect(restored.getByRole('textbox', { name: '私密笔记正文' })).toHaveValue('切换视图后保留的草稿');
-    expect(writes).toHaveLength(4);
-    await restored.getByRole('button', { name: '保存密文' }).click();
-    await expect(restored.locator('pre')).toHaveText('切换视图后保留的草稿');
-    expect(writes).toHaveLength(5);
-    for (const payload of writes) expect(payload).not.toMatch(/仅本人可见|切换视图后保留的草稿|private-workspace-key/);
-    await page.reload();
-    await page.getByLabel('工作区口令').fill('private-workspace-key');
-    await page.getByRole('button', { name: '解锁进入工作区' }).click();
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    const reopened = page.getByRole('region', { name: '私密笔记' });
-    await reopened.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
-    await reopened.getByRole('button', { name: '解锁私密笔记' }).click();
-    await reopened.getByRole('button', { name: '仅本人可见的标题' }).click();
-    await expect(reopened.locator('pre')).toHaveText('切换视图后保留的草稿');
-    await reopened.getByRole('button', { name: '修改标题' }).click();
-    await reopened.getByLabel('修改私密笔记标题').fill('改名后仅本人可见');
-    await reopened.getByRole('button', { name: '保存标题' }).click();
-    await expect(reopened.getByRole('button', { name: '改名后仅本人可见' })).toBeVisible();
-    expect(writes).toHaveLength(6);
-    for (const payload of writes) expect(payload).not.toMatch(/改名后仅本人可见/);
-    await reopened.getByRole('button', { name: '修改标题' }).click();
-    await reopened.getByLabel('修改私密笔记标题').fill('不应覆盖并发修改');
-    objects.get(createHash('sha256').update(`tjuclaw:private-notebook:v1:${libA.id}`).digest('hex').slice(0, 32)).revision =
-      '"ffffffffffffffffffffffffffffffffffffffff"';
-    await reopened.getByRole('button', { name: '保存标题' }).click();
-    await expect(reopened.getByRole('alert')).toContainText('远端版本已更新');
-    await expect(reopened.getByRole('button', { name: '改名后仅本人可见' })).toBeVisible();
-    expect(writes).toHaveLength(6);
-    await reopened.getByRole('button', { name: '取消改名' }).click();
-    await reopened.getByRole('button', { name: '编辑笔记' }).click();
-    await reopened.getByRole('textbox', { name: '私密笔记正文' }).fill('远端移除后仍需保留的草稿');
-    const manifestID = createHash('sha256').update(`tjuclaw:private-notebook:v1:${libA.id}`).digest('hex').slice(0, 32);
-    expect(objects.delete(manifestID)).toBe(true);
-    await page.getByRole('button', { name: /^协作笔记/ }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    const orphaned = page.getByRole('region', { name: '私密笔记' });
-    await orphaned.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
-    await orphaned.getByRole('button', { name: '解锁私密笔记' }).click();
-    await expect(orphaned.getByRole('textbox', { name: '私密笔记正文' })).toHaveValue('远端移除后仍需保留的草稿');
-    await expect(orphaned.getByRole('alert')).toContainText('远端目录已移除');
-    await expect(orphaned.getByRole('button', { name: '保存密文' })).toBeDisabled();
-    await expect(orphaned.getByRole('button', { name: '复制草稿' })).toBeVisible();
-    expect(writes).toHaveLength(6);
-    await page.getByRole('button', { name: '设置', exact: true }).click();
-    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
-    page.once('dialog', dialog => {
-      expect(dialog.message()).toContain('未保存的草稿');
-      return dialog.dismiss();
-    });
-    await page.getByRole('button', { name: '退出登录', exact: true }).click();
-    expect(logoutCalls).toBe(0);
-    await page.getByRole('button', { name: '关闭设置' }).click();
-    await expect(orphaned.getByRole('textbox', { name: '私密笔记正文' })).toHaveValue('远端移除后仍需保留的草稿');
-    await page.getByRole('button', { name: '设置', exact: true }).click();
-    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
-    page.once('dialog', dialog => dialog.accept());
-    await page.getByRole('button', { name: '退出登录', exact: true }).click();
-    await expect(page).toHaveURL(/\/auth\/logged-out/);
-    expect(logoutCalls).toBe(1);
-  });
-
-  test('never downgrades private notes to plaintext when the Forgejo vault is disabled', async ({ page }) => {
-    await mockWorkspace(page, defaultState());
-    let objectReads = 0;
-    await page.route('**/api/vault/objects/*', route => {
-      objectReads++;
-      return json(route, 503, { error: { id: 'vault_unavailable' } });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    await expect(page.getByRole('region', { name: '私密笔记' })).toContainText('不会改用明文保存');
-    expect(objectReads).toBe(0);
-  });
-
-  test('copies a legacy Markdown note into sealed Forgejo objects without changing the original', async ({ page }) => {
-    const state = defaultState();
-    state.vaultConfigured = true;
-    await mockWorkspace(page, state, { seedWorkspaceUnlock: false });
-    const objects = new Map();
-    const writes = [];
-    let counter = 0;
-    await page.route('**/api/vault/objects/*', route => {
-      const id = new URL(route.request().url()).pathname.split('/').at(-1);
-      const stored = objects.get(id);
-      if (route.request().method() === 'GET') {
-        return stored ? route.fulfill({ status: 200, contentType: 'application/vnd.tjuclaw.sealed+json',
-          headers: { ETag: stored.revision }, body: JSON.stringify(stored.object) })
-          : json(route, 404, { error: { id: 'vault_object_not_found' } });
-      }
-      expect(route.request().method()).toBe('PUT');
-      const headers = route.request().headers();
-      if (stored ? headers['if-match'] !== stored.revision : headers['if-none-match'] !== '*') {
-        return json(route, 409, { error: { id: 'vault_revision_conflict' } });
-      }
-      const payload = route.request().postData();
-      writes.push(payload);
-      const revision = `"${(++counter).toString(16).padStart(40, '0')}"`;
-      objects.set(id, { revision, object: JSON.parse(payload) });
-      return route.fulfill({ status: stored ? 200 : 201, contentType: 'application/json',
-        headers: { ETag: revision }, body: '{"ok":true}' });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('textbox', { name: '创建工作区口令' }).fill('private-workspace-key');
-    await page.getByLabel('再次输入口令').fill('private-workspace-key');
-    await page.getByRole('checkbox').check();
-    const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: '创建并下载备份' }).click();
-    await download;
-    await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: /^私密笔记/ }).click();
-    const panel = page.getByRole('region', { name: '私密笔记' });
-    await panel.getByLabel('再次输入工作区口令以解密私密笔记').fill('private-workspace-key');
-    await panel.getByRole('button', { name: '解锁私密笔记' }).click();
-    await panel.getByRole('button', { name: '查看可复制的旧 Markdown' }).click();
-    await expect(panel.getByLabel('选择一篇旧资料库笔记')).toHaveValue(noteA.id);
-    page.once('dialog', dialog => {
-      expect(dialog.message()).toContain('原件仍以明文留在旧资料库');
-      return dialog.accept();
-    });
-    await panel.getByRole('button', { name: '复制并核对密文' }).click();
-    await expect(panel.getByRole('status')).toContainText('密文已回读核对');
-    await expect(panel.locator('pre')).toHaveText(noteA.body);
-    await panel.getByRole('button', { name: '查看可复制的旧 Markdown' }).click();
-    await expect(panel.getByText('没有可复制的旧 Markdown。')).toBeVisible();
-    expect(state.entryById[noteA.id]).toEqual(noteA);
-    expect(writes).toHaveLength(3);
-    for (const payload of writes) expect(payload).not.toMatch(/First note for user A|Private note body|private-workspace-key|legacy_entry_id/);
-  });
-
-  test('retains an unsaved Git draft when switching between the notebook and Agent', async ({ page }) => {
-    await mockWorkspace(page, defaultState());
-    await page.route(`**/api/sessions/${sessionA.id}/sandbox-token`, route =>
-      json(route, 200, { token: 'draft-scoped-token', expires_at: '2099-01-01T00:00:00Z',
-        gateway_url: 'https://sandbox.example.invalid' }));
-    const writes = [];
-    await page.route('https://sandbox.example.invalid/v1/sessions/**', route => {
-      const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-        'Access-Control-Allow-Methods': 'POST, PATCH, OPTIONS' };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-      if (route.request().method() === 'PATCH') writes.push(route.request().postDataJSON());
-      return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify(route.request().url().endsWith('/notes')
-          ? { version: 'session.v1', paths: ['draft.md'], revision: 'a'.repeat(40) }
-          : { version: 'session.v1', path: 'draft.md', content: 'old text', revision: 'a'.repeat(40) }) });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    let panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await panel.getByRole('button', { name: '查看文件' }).click();
-    await panel.getByRole('button', { name: 'draft.md' }).click();
-    await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '笔记内容' }).fill('local unsaved draft');
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toHaveValue('local unsaved draft');
-    expect(writes).toHaveLength(0);
-  });
-
-  test('confirms a Git note save by reading Forgejo after a lost gateway response', async ({ page }) => {
-    await mockWorkspace(page, defaultState());
-    await page.route(`**/api/sessions/${sessionA.id}/sandbox-token`, route =>
-      json(route, 200, { token: 'write-scoped-token', expires_at: '2099-01-01T00:00:00Z',
-        gateway_url: 'https://sandbox.example.invalid' }));
-    let content = 'old text';
-    let revision = 'a'.repeat(40);
-    let patches = 0;
-    let reads = 0;
-    await page.route('https://sandbox.example.invalid/v1/sessions/**', route => {
-      const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-        'Access-Control-Allow-Methods': 'POST, PATCH, OPTIONS' };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-      const path = new URL(route.request().url()).pathname;
-      if (path.endsWith('/notes')) return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify({ version: 'session.v1', paths: ['draft.md'], revision }) });
-      if (route.request().method() === 'PATCH') {
-        patches++;
-        expect(route.request().postDataJSON().expected_revision).toBe('a'.repeat(40));
-        content = route.request().postDataJSON().content;
-        revision = 'b'.repeat(40);
-        return route.fulfill({ status: 503, contentType: 'application/json', headers, body: '{}' });
-      }
-      reads++;
-      return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify({ version: 'session.v1', path: 'draft.md', content, revision }) });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await panel.getByRole('button', { name: '查看文件' }).click();
-    await panel.getByRole('button', { name: 'draft.md' }).click();
-    await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '笔记内容' }).fill('saved despite 503');
-    await panel.getByRole('button', { name: '保存到 Git' }).click();
-    await expect(panel.locator('pre')).toContainText('saved despite 503');
-    expect(patches).toBe(1);
-    expect(reads).toBe(2);
-  });
-
-  test('retains the Git draft when a conflict read-back differs', async ({ page }) => {
-    await mockWorkspace(page, defaultState());
-    await page.route(`**/api/sessions/${sessionA.id}/sandbox-token`, route =>
-      json(route, 200, { token: 'write-scoped-token', expires_at: '2099-01-01T00:00:00Z',
-        gateway_url: 'https://sandbox.example.invalid' }));
-    let content = 'old text';
-    let revision = 'a'.repeat(40);
-    let patches = 0;
-    await page.route('https://sandbox.example.invalid/v1/sessions/**', route => {
-      const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-        'Access-Control-Allow-Methods': 'POST, PATCH, OPTIONS' };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-      if (route.request().url().endsWith('/notes')) return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify({ version: 'session.v1', paths: ['draft.md'], revision }) });
-      if (route.request().method() === 'PATCH') {
-        patches++;
-        content = 'someone else changed the note';
-        revision = 'b'.repeat(40);
-        return route.fulfill({ status: 409, contentType: 'application/json', headers, body: '{}' });
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', headers,
-        body: JSON.stringify({ version: 'session.v1', path: 'draft.md', content, revision }) });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
-    await panel.getByRole('button', { name: '查看文件' }).click();
-    await panel.getByRole('button', { name: 'draft.md' }).click();
-    await panel.getByRole('button', { name: '编辑文件' }).click();
-    await panel.getByRole('textbox', { name: '笔记内容' }).fill('keep this local draft');
-    await panel.getByRole('button', { name: '保存到 Git' }).click();
-    await expect(panel.getByRole('alert')).toContainText('远端文件已更新');
-    await expect(panel.getByRole('textbox', { name: '笔记内容' })).toHaveValue('keep this local draft');
-    expect(patches).toBe(1);
-  });
-
-  test('keeps the Git notebook disconnected on failed session lookup and allows retry', async ({ page }) => {
-    await mockWorkspace(page, defaultState());
-    let attempts = 0;
-    await page.route(`**/api/entries/${guideA.id}/sessions`, route => {
-      attempts++;
-      return attempts === 1 ? json(route, 503, { error: { id: 'unavailable' } })
-        : json(route, 200, { sessions: [sessionA] });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    await expect(page.getByRole('alert')).toContainText('暂时无法打开 Git 笔记');
-    await page.getByRole('button', { name: '重试', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
-    expect(attempts).toBe(2);
-  });
-
-  test('creates one Agent session on demand when opening the Git notebook for the first time', async ({ page }) => {
-    const state = defaultState();
-    state.sessionsByEntry[guideA.id] = [];
-    await mockWorkspace(page, state);
-    let created = 0;
-    await page.route(`**/api/entries/${guideA.id}/sessions`, route => {
-      if (route.request().method() === 'POST') {
-        created++;
-        state.sessionsByEntry[guideA.id] = [sessionA];
-        return json(route, 201, { session: sessionA });
-      }
-      return json(route, 200, { sessions: state.sessionsByEntry[guideA.id] });
-    });
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    expect(created).toBe(0);
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
-    expect(created).toBe(1);
-    await page.getByRole('button', { name: '资料夹', exact: true }).click();
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
-    await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toBeVisible();
-    expect(created).toBe(1);
-  });
-
-  test('opens the Git notebook on a narrow mobile viewport', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await mockWorkspace(page, defaultState());
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.locator('.sidebar-activity').getByRole('button', { name: 'Git 笔记' }).click();
-    await expect(page.getByRole('region', { name: 'Git 笔记' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '打开协作笔记' })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
   test('reads committed Agent Git notes directly from the gateway with a session token', async ({ page }) => {
@@ -1715,8 +1294,8 @@ test.describe('Workspace mocked contract suite', () => {
           body: JSON.stringify({ error: { id: 'note_not_found' } }) });
     });
     await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Git 笔记', exact: true }).click();
-    await page.getByRole('button', { name: '打开协作笔记' }).click();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Agent Git 工作区' });
     await panel.getByRole('button', { name: '查看文件' }).click();
     await panel.getByRole('button', { name: 'deleted.md' }).click();
@@ -1767,7 +1346,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(draft).toHaveValue('conflicting draft');
     expect(writes[1].body.expected_revision).toBe('b'.repeat(40));
     await expect(panel.getByRole('button', { name: '刷新' })).toBeDisabled();
-    await page.getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await expect(panel).toHaveCount(0);
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导', exact: true }).click();
@@ -2585,7 +2164,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '新建卡片' }).click();
     await page.getByPlaceholder('问题或提示').fill('A 的卡片');
     await expect.poll(() => state.ankiByOwner[syntheticSessionA.id]?.cards[0]?.front).toBe('A 的卡片');
-    await page.locator('.sidebar-activity').getByRole('button', { name: '资料夹', exact: true }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '主页', exact: true }).click();
     const ownerAEntries = state.entries.slice();
 
     state.session = syntheticSessionB;
@@ -2953,7 +2532,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     const main = page.locator('.obsidian-main');
     const before = await main.evaluate(element => element.getBoundingClientRect().width);
-    await page.locator('.sidebar-pane-header').getByRole('button', { name: '收起侧栏' }).click();
+    await page.locator('.notion-side-head').getByRole('button', { name: '收起侧栏' }).click();
     await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
     const after = await main.evaluate(element => element.getBoundingClientRect().width);
     expect(after).toBeGreaterThan(before + 200);
@@ -3042,12 +2621,13 @@ test('desktop panes share scrollbars, scroll independently and resize from a qui
   const inactive = await left.evaluate(element => getComputedStyle(element, '::after').backgroundColor);
   const leftBox = await left.boundingBox();
   expect(leftBox.width).toBe(7);
-  expect(leftBox.x + leftBox.width / 2).toBe(314);
-  expect(await sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(314);
-  expect(await page.locator('.sidebar-activity').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(48);
-  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(860);
+  // Notion-width sidebar: 18% of a 1440px window (259px), no separate icon rail.
+  const sidebarWidth = 259;
+  expect(leftBox.x + leftBox.width / 2).toBe(sidebarWidth);
+  expect(await sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(sidebarWidth);
+  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(1440 - sidebarWidth);
   expect(await left.evaluate(element => getComputedStyle(element, '::after').width)).toBe('1px');
-  await page.mouse.move(314, 200);
+  await page.mouse.move(sidebarWidth, 200);
   await expect.poll(() => left.evaluate(element => getComputedStyle(element, '::after').backgroundColor)).not.toBe(inactive);
   await page.mouse.down();
   await page.mouse.move(384, 200, { steps: 5 });
@@ -3130,35 +2710,29 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   expect(errors).toEqual([]);
 });
 
-test('mobile sidebar keeps the desktop activity rail on the left with motion-aware dismissal', async ({ page }) => {
+test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockWorkspace(page, defaultState());
   await page.goto('/workspace');
   await page.getByRole('button', { name: '打开侧栏' }).click();
   const sidebar = page.locator('.obsidian-sidebar');
-  const rail = sidebar.locator('.sidebar-activity');
-  const notes = rail.getByRole('button', { name: '资料夹' });
+  const home = sidebar.getByRole('button', { name: '主页', exact: true });
   const positions = await page.evaluate(() => {
     const rect = selector => document.querySelector(selector).getBoundingClientRect();
-    return {
-      rail: rect('.sidebar-activity').toJSON(),
-      pane: rect('.sidebar-pane').toJSON(),
-      notes: rect('.sidebar-activity .activity-main button').toJSON(),
-      settings: rect('.sidebar-activity .activity-settings').toJSON(),
-    };
+    return { head: rect('.notion-side-head').toJSON(), nav: rect('.notion-nav').toJSON(), tree: rect('.obsidian-tree').toJSON(), apps: rect('.notion-apps').toJSON() };
   });
-  expect(positions.rail.right).toBeLessThanOrEqual(positions.pane.left + 1);
-  expect(positions.rail.height).toBeGreaterThan(650);
-  expect(positions.notes.y).toBeLessThan(positions.settings.y - 450);
-  await expect(notes).toHaveAttribute('aria-current', 'page');
-  await expect(rail.locator('.activity-current-mark')).toHaveCount(1);
-  await rail.getByRole('button', { name: 'Agent' }).click();
-  await expect(rail.getByRole('button', { name: 'Agent' })).toHaveAttribute('aria-current', 'page');
-  await expect(rail.locator('.activity-current-mark')).toHaveCount(1);
-  await notes.click();
-  await page.screenshot({ path: 'test-results/workspace/mobile-left-rail.png' });
+  // Workspace switcher, then the pill nav, the section's list and the apps.
+  expect(positions.head.bottom).toBeLessThanOrEqual(positions.nav.top + 1);
+  expect(positions.nav.bottom).toBeLessThanOrEqual(positions.tree.top + 1);
+  expect(positions.tree.bottom).toBeLessThanOrEqual(positions.apps.top + 1);
+  await expect(home).toHaveAttribute('aria-current', 'page');
+  await sidebar.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(sidebar.getByRole('button', { name: 'Agent', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(home).not.toHaveAttribute('aria-current', 'page');
+  await home.click();
+  await page.screenshot({ path: 'test-results/workspace/mobile-notion-sidebar.png' });
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: 'test-results/workspace/mobile-left-rail-dark.png' });
+  await page.screenshot({ path: 'test-results/workspace/mobile-notion-sidebar-dark.png' });
   await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 350 } });
   await expect(sidebar).toHaveAttribute('inert', '');
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
@@ -3170,7 +2744,7 @@ test('mobile sidebar keeps the desktop activity rail on the left with motion-awa
 test('plugin directory opens real built-in features without claiming external installation', async ({ page }) => {
   await mockWorkspace(page, defaultState());
   await page.goto('/workspace');
-  const activity = page.locator('.sidebar-activity');
+  const activity = page.locator('.obsidian-sidebar');
   await activity.getByRole('button', { name: '插件' }).click();
   await expect(page.getByRole('heading', { name: 'Markdown 编辑器' })).toBeVisible();
   await expect(page.getByText('更多插件即将上线').first()).toBeVisible();
@@ -3189,7 +2763,7 @@ test('mobile plugin selection closes the drawer and keeps page scrolling interna
   await mockWorkspace(page, defaultState());
   await page.goto('/workspace');
   await page.getByRole('button', { name: '打开侧栏' }).click();
-  await page.locator('.sidebar-activity').getByRole('button', { name: '插件' }).click();
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '插件' }).click();
   await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
   await expect(page.locator('.obsidian-sidebar')).toHaveAttribute('inert', '');
   await expect(page.getByRole('button', { name: '打开知识图谱' })).toBeVisible();

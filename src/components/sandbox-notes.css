@@ -1,59 +1,5 @@
 .sandbox-notes { margin: 0 10px 22px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--shell-panel); }
-.git-workspace-page { flex: 1; min-height: 0; overflow: auto; padding: 48px clamp(16px, 5vw, 64px) 40px; }
-.git-hero { display: flex; align-items: center; gap: 16px; max-width: 840px; margin: 0 auto 22px; animation: git-in 320ms var(--ease-out) both; }
-.git-hero-mark {
-  display: grid; flex: none; width: 52px; height: 52px; place-items: center; border-radius: 15px;
-  background: linear-gradient(160deg, oklch(62% .16 255), oklch(48% .16 262)); color: oklch(100% 0 0);
-  box-shadow: 0 6px 16px -6px oklch(45% .16 258 / .6), inset 0 1px 0 oklch(100% 0 0 / .3);
-}
-.git-hero h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.025em; }
-.git-hero p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 14px; }
-.git-workspace-page.is-open .git-hero { margin-bottom: 16px; }
-.git-workspace-page.is-open .git-hero-mark { width: 40px; height: 40px; border-radius: 12px; }
-.git-workspace-page.is-open .git-hero h1 { font-size: 20px; }
-
-.git-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 840px; margin: 0 auto 22px; animation: git-in 360ms 40ms var(--ease-out) both; }
-.git-mode {
-  display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 16px; border: 0; border-radius: 16px;
-  background: var(--control-surface); color: var(--foreground); text-align: left;
-  box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
-  transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out);
-}
-.git-mode:hover { transform: translateY(-1px); box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); }
-.git-mode:active { transform: scale(.985); }
-.git-mode[aria-pressed="true"] { box-shadow: var(--control-shadow-hover), var(--control-highlight), 0 0 0 2px color-mix(in oklch, var(--primary) 70%, transparent); }
-.git-mode-icon { display: grid; flex: none; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: color-mix(in oklch, var(--primary) 9%, transparent); color: var(--primary); }
-.git-mode-text { display: grid; gap: 3px; min-width: 0; }
-.git-mode-text strong { font-size: 15px; }
-.git-mode-text small { color: var(--muted-foreground); font-size: 12.5px; line-height: 1.45; }
-
-.git-workspace-connect { display: grid; justify-items: center; gap: 12px; max-width: 840px; margin: 8px auto 0; padding: 28px 20px; border-radius: 20px; background: color-mix(in oklch, var(--foreground) 2.5%, transparent); animation: git-in 400ms 80ms var(--ease-out) both; }
-.git-features { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0 0 6px; padding: 0; list-style: none; }
-.git-features li { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--surface); color: var(--muted-foreground); font-size: 12.5px; box-shadow: 0 0 0 .5px var(--control-border); }
-.git-workspace-connect .git-open {
-  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; padding: 0 20px; border: 0; border-radius: 999px;
-  background: var(--primary-sheen), var(--primary); color: var(--primary-foreground); font-size: 15px; font-weight: 600;
-  box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .18), inset 0 -1px 0 oklch(0% 0 0 / .2);
-  transition: transform 220ms var(--spring), filter 160ms;
-}
-.git-workspace-connect .git-open:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-.5px); }
-.git-workspace-connect .git-open:active:not(:disabled) { transform: scale(.97); }
-.git-workspace-connect .git-open:disabled { cursor: wait; opacity: .75; }
-.git-open-note { margin: 0; color: var(--muted-foreground); font-size: 12.5px; }
-@keyframes git-in { from { opacity: 0; transform: translateY(6px); } }
-@media (max-width: 720px) {
-  .git-workspace-page { padding: 24px 16px 32px; }
-  .git-modes { grid-template-columns: 1fr; }
-  .git-hero h1 { font-size: 22px; }
-}
-@media (prefers-reduced-motion: reduce) { .git-hero, .git-modes, .git-workspace-connect, .git-mode { animation: none; transition: none; } }
-.git-workspace-page .sandbox-notes { max-width: 840px; margin: 0 auto 24px; }
-.git-workspace-page .sandbox-notes-preview textarea { min-height: 46vh; max-height: none; }
-.git-workspace-page .sandbox-notes-preview pre { max-height: 52vh; }
-.git-workspace-mode { display: flex; gap: 6px; max-width: 840px; margin: 0 auto 18px; border-bottom: 1px solid var(--line); }
-.git-workspace-mode button { padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted-foreground); cursor: pointer; font-size: 12px; }
-.git-workspace-mode button[aria-pressed="true"] { border-bottom-color: var(--primary); color: var(--foreground); font-weight: 600; }
-.git-workspace-mode button:focus-visible, .private-notebook button:focus-visible, .private-notebook input:focus-visible, .private-notebook textarea:focus-visible, .private-notebook select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.private-notebook button:focus-visible, .private-notebook input:focus-visible, .private-notebook textarea:focus-visible, .private-notebook select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .private-notebook { max-width: 840px; margin: 0 auto 24px; color: var(--foreground); }
 .private-notebook h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; }
 .private-notebook > p { margin: 0 0 16px; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
@@ -75,10 +21,8 @@
 .private-notebook-editor textarea { display: block; width: 100%; min-height: 42vh; margin: 12px 0 8px; padding: 12px; resize: vertical; font: 13px/1.65 ui-monospace, monospace; }
 .private-notebook-editor pre { max-height: 52vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; }
 @media (max-width: 480px) {
-  .git-workspace-mode button { flex: 1; padding: 9px 5px; font-size: 11px; }
   .private-notebook form button { width: 100%; }
 }
-@media (max-width: 720px) { .git-workspace-page { padding: 22px 16px; } }
 .sandbox-notes-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .sandbox-notes-heading strong, .sandbox-notes-heading small { display: block; }
 .sandbox-notes-heading strong { font-size: 13px; }

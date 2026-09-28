@@ -127,7 +127,7 @@ svg { flex-shrink: 0; }
   background: var(--primary-sheen), var(--primary); color: var(--primary-foreground);
   box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .18), inset 0 -1px 0 oklch(0% 0 0 / .2);
 }
-.ui-button-solid:hover { filter: brightness(1.08); transform: translateY(-.5px); }
+.ui-button-solid:hover { filter: brightness(1.08); }
 .ui-button-solid:active { filter: brightness(.96); box-shadow: var(--control-shadow-press), inset 0 1px 2px oklch(0% 0 0 / .25); }
 .ui-button-ghost { background: transparent; color: var(--muted-foreground); }
 .ui-button-ghost:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); }
@@ -136,7 +136,7 @@ svg { flex-shrink: 0; }
   background: var(--control-surface); color: var(--foreground);
   box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
 }
-.ui-button-floating:hover { box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); transform: translateY(-.5px); }
+.ui-button-floating:hover { box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); }
 .ui-button-floating:active { box-shadow: var(--control-shadow-press), inset 0 1px 2px oklch(0% 0 0 / .08), 0 0 0 .5px var(--control-border); }
 @media (prefers-reduced-motion: reduce) { .ui-button, .ui-button:hover, .ui-button:active { transform: none; transition: none; } }
 .product-app { min-height: calc(100dvh - var(--contest-banner-height, 0px)); padding: 0 28px; }

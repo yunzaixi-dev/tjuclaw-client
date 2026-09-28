@@ -152,6 +152,27 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
     input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
   }, [draft]);
 
+  const empty = Boolean(chat) && !loading && !messages.length && !sending;
+  const composer = (
+      <form className="chat-composer" onSubmit={onSubmit}>
+        <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
+        <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
+          onChange={event => onDraftChange(event.target.value)}
+          placeholder={chat ? '提问、搜索或创建任何内容…' : '会话尚未就绪'}
+          disabled={!chat || sending}
+          onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <div className="chat-composer-footer">
+          <span className="composer-capabilities">
+            <span className="agent-chip"><BookOpen size={12} aria-hidden="true" />当前知识库</span>
+            <ModelPill />
+          </span>
+          <span className="agent-hint">{sending ? '正在处理…' : 'Enter 发送 · Shift+Enter 换行'}</span>
+          <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
+            {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}
+          </button>
+        </div>
+      </form>
+  );
   let body: ReactNode;
   if (loading) body = <div className="session-feedback"><Loader2 className="animate-spin" size={16} /> 正在加载会话…</div>;
   else if (!chat) body = <div className="session-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
@@ -159,10 +180,13 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
     body = <div className="agent-empty">
       <span className="agent-empty-mark"><BrandIcon size={40} /></span>
       <h2>今天想让{title}做什么？</h2>
-      <p>它能查课表和考试、检索校园资料、读懂图片，也能把结果写进你的笔记。</p>
+      {composer}
       {capabilityLabels(tools).length ? <ul className="agent-capabilities" aria-label="可以使用">{capabilityLabels(tools).map(label => <li key={label}>{label}</li>)}</ul> : null}
-      <div className="session-starters">
-        {agentStarters(tools).map(prompt => <button type="button" key={prompt} onClick={() => { onDraftChange(prompt); inputRef.current?.focus(); }}><Sparkles size={14} aria-hidden="true" /><span>{prompt}</span></button>)}
+      <div className="agent-suggested">
+        <h3>建议</h3>
+        <div className="session-starters">
+          {agentStarters(tools).map(prompt => <button type="button" key={prompt} onClick={() => { onDraftChange(prompt); inputRef.current?.focus(); }}><Sparkles size={14} aria-hidden="true" /><span>{prompt}</span></button>)}
+        </div>
       </div>
     </div>;
   } else {
@@ -189,30 +213,13 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
     </div>;
   }
 
-  return <section className="session-view agent-thread" aria-label={`${title} 会话`}>
+  return <section className={`session-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
     <div className="chat-messages" ref={scrollRef} role="log" aria-label="会话记录">
       {chat && capabilities?.sandbox ? <SandboxNotes key={`${ownerId}:${chat.id}`} sessionId={chat.id} ownerId={ownerId} entryId={entryId} preset={preset} /> : null}
       {body}
     </div>
     <div className="session-composer-dock">
-      <form className="chat-composer" onSubmit={onSubmit}>
-        <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
-        <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
-          onChange={event => onDraftChange(event.target.value)}
-          placeholder={chat ? '提问、搜索或创建任何内容…' : '会话尚未就绪'}
-          disabled={!chat || sending}
-          onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-        <div className="chat-composer-footer">
-          <span className="composer-capabilities">
-            <span className="agent-chip"><BookOpen size={12} aria-hidden="true" />当前知识库</span>
-            <ModelPill />
-          </span>
-          <span className="agent-hint">{sending ? '正在处理…' : 'Enter 发送 · Shift+Enter 换行'}</span>
-          <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
-            {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}
-          </button>
-        </div>
-      </form>
+      {empty ? null : composer}
       {error && chat ? <div className="chat-inline-error" role="alert"><span>{error}</span><button type="button" onClick={onRetry}>确认发送结果</button></div> : null}
     </div>
   </section>;

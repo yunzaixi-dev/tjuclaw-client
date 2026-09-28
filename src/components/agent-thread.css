@@ -98,7 +98,7 @@
   box-shadow: var(--primary-glow), inset 0 1px 0 oklch(100% 0 0 / .2);
   transition: transform 200ms var(--spring), filter 160ms, opacity 160ms;
 }
-.agent-thread .chat-composer-footer .agent-send:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-.5px); }
+.agent-thread .chat-composer-footer .agent-send:hover:not(:disabled) { filter: brightness(1.1); }
 .agent-thread .chat-composer-footer .agent-send:active:not(:disabled) { transform: scale(.92); }
 .agent-thread .chat-composer-footer .agent-send:disabled { opacity: .3; box-shadow: none; }
 
@@ -129,7 +129,7 @@
   box-shadow: var(--control-shadow), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border);
   transition: transform 220ms var(--spring), box-shadow 220ms var(--ease-out);
 }
-.agent-picker-list button:hover { transform: translateY(-1px); box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); }
+.agent-picker-list button:hover { box-shadow: var(--control-shadow-hover), var(--control-highlight), var(--control-edge), 0 0 0 .5px var(--control-border); }
 .agent-picker-list button:active { transform: scale(.98); }
 .agent-picker-list button > span:nth-child(2) { display: grid; flex: 1; gap: 2px; }
 .agent-picker-list strong { font-size: 15px; }
@@ -173,3 +173,20 @@
 .agent-thread.session-view .chat-composer-footer .agent-chip.is-button { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; padding: 0 9px; place-items: initial; }
 .agent-thread .agent-steps li { justify-content: flex-start; }
 .agent-thread .agent-steps li span { flex: none; }
+
+/* Empty thread as Notion AI home: centered question, composer right below, suggestions. */
+/* margin:auto centres when there is room; unlike justify-content:center it
+   never pushes overflowing content above the scroll origin. */
+.agent-thread.is-empty .chat-messages { display: flex; flex-direction: column; }
+.agent-thread.is-empty .agent-empty { width: min(640px, 100%); margin: auto; padding-bottom: 8vh; }
+.agent-thread.is-empty .agent-empty h2 { margin: 6px 0 14px; font-size: 30px; font-weight: 700; letter-spacing: -.015em; }
+.agent-thread.is-empty .agent-empty .chat-composer { width: 100%; text-align: left; }
+.agent-thread.is-empty .agent-empty .chat-composer textarea { min-height: 52px; }
+.agent-suggested { width: 100%; margin-top: 22px; text-align: left; }
+.agent-suggested h3 { margin: 0 0 6px 10px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.agent-thread .agent-suggested .session-starters { gap: 0; margin: 0; }
+.agent-thread .agent-suggested .session-starters button {
+  min-height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; font-size: 14px;
+}
+.agent-thread .agent-suggested .session-starters button:hover { background: var(--hover-wash); transform: none; box-shadow: none; }
+.agent-thread.is-empty .agent-capabilities { margin-top: 12px; }
