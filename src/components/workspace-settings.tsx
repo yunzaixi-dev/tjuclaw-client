@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
-import { setAppearance, useAppearance, type Accent, type Mode } from '../lib/appearance';
+import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, modelDisplayName, putModel, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'account' | 'about';
@@ -158,6 +158,7 @@ export function WorkspaceSettings({
               <h3>界面</h3>
               <SettingRow title="配色模式" description="跟随系统，或固定为浅色、深色。"><SettingChoices<Mode> label="配色模式" value={appearance.mode} onChange={mode => setAppearance({ mode })} options={[{ value: 'system', label: '系统', Icon: Monitor }, { value: 'light', label: '浅色', Icon: Sun }, { value: 'dark', label: '深色', Icon: Moon }]} /></SettingRow>
               <SettingRow title="强调色" description="仅用于当前选中项和操作焦点。"><SettingChoices<Accent> label="强调色" value={appearance.accent} onChange={accent => setAppearance({ accent })} options={[{ value: 'mono', label: '单色' }, { value: 'blue', label: '蓝色' }]} /></SettingRow>
+              <SettingRow title="页面字体" description="笔记正文与标题使用的字体。"><SettingChoices<PageFont> label="页面字体" value={appearance.font} onChange={font => setAppearance({ font })} options={[{ value: 'sans', label: '默认' }, { value: 'serif', label: '文楷' }, { value: 'mono', label: '等宽' }]} /></SettingRow>
               {!appearance.canPersist ? <p className="settings-notice" role="status">浏览器阻止保存外观偏好，本次会话内仍可调整。</p> : null}
             </> : null}
             {active === 'editor' ? <>

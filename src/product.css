@@ -11,83 +11,88 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 :root {
+  /* Notion-style type: system sans for the interface; the page font is a
+     preference (data-font) — sans by default, WenKai or Cascadia on request. */
   --font-latin: "Cascadia Code";
   --font-cjk: "LXGW WenKai";
-  --font-ui: var(--font-latin), var(--font-cjk), "Noto Sans CJK SC", monospace;
-  --font-code: var(--font-latin), var(--font-cjk), monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --font-ui: var(--font-sans);
+  --font-page: var(--font-sans);
+  --font-code: var(--font-latin), var(--font-cjk), ui-monospace, SFMono-Regular, Menlo, monospace;
   font-family: var(--font-ui);
   font-synthesis: none;
-  --background: oklch(98.5% 0 0);
-  --foreground: oklch(17% 0 0);
-  --surface: oklch(100% 0 0);
-  --surface-raised: oklch(100% 0 0);
-  --muted: oklch(96% 0 0);
-  --muted-foreground: oklch(49% 0 0);
-  --border: oklch(92% 0 0);
-  --selected: oklch(93.5% 0 0);
-  --primary: oklch(17% 0 0);
-  --primary-foreground: oklch(100% 0 0);
-  --blue: oklch(50% .23 260);
-  --ring: oklch(30% 0 0);
-  --destructive: oklch(47% .18 27);
-  --overlay: oklch(20% 0 0 / .22);
-  --shadow-card: 0 1px 2px oklch(0% 0 0 / .045), 0 6px 18px -9px oklch(0% 0 0 / .13);
-  --shadow-popover: 0 2px 5px oklch(0% 0 0 / .06), 0 12px 28px -12px oklch(0% 0 0 / .18);
-  --shadow-dialog: 0 8px 24px -10px oklch(0% 0 0 / .14), 0 28px 64px -28px oklch(0% 0 0 / .2);
+  -webkit-font-smoothing: antialiased;
+  /* Warm neutrals with Notion's ink, hairlines and hover wash. */
+  --background: oklch(99.1% .002 75);
+  --foreground: #37352f;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --muted: #f7f7f5;
+  --muted-foreground: #787774;
+  --border: #ededec;
+  --selected: rgba(55, 53, 47, .08);
+  --primary: #37352f;
+  --primary-foreground: #ffffff;
+  --blue: #2383e2;
+  --ring: oklch(48% 0 0);
+  --destructive: #eb5757;
+  --overlay: rgba(15, 15, 15, .4);
+  --shadow-card: 0 0 0 1px rgba(15, 15, 15, .05), 0 2px 4px rgba(15, 15, 15, .05);
+  --shadow-popover: 0 0 0 1px rgba(15, 15, 15, .05), 0 3px 6px rgba(15, 15, 15, .1), 0 9px 24px rgba(15, 15, 15, .2);
+  --shadow-dialog: 0 0 0 1px rgba(15, 15, 15, .05), 0 5px 10px rgba(15, 15, 15, .1), 0 15px 40px rgba(15, 15, 15, .2);
   --floating-shadow: var(--shadow-card);
   --panel-shadow: var(--shadow-dialog);
-  /* Control material: a soft top light, a crisp lower edge and a two-level
-     shadow, so buttons read as raised surfaces rather than flat fills. */
-  --control-highlight: inset 0 1px 0 oklch(100% 0 0 / .7);
-  --control-edge: inset 0 -1px 0 oklch(0% 0 0 / .06);
-  --control-surface: linear-gradient(180deg, oklch(100% 0 0), oklch(97.6% 0 0));
-  --control-border: oklch(0% 0 0 / .1);
-  --control-shadow: 0 1px 1.5px oklch(0% 0 0 / .08), 0 2px 6px -2px oklch(0% 0 0 / .08);
-  --control-shadow-hover: 0 1px 2px oklch(0% 0 0 / .1), 0 6px 14px -6px oklch(0% 0 0 / .16);
-  --control-shadow-press: 0 0 1px oklch(0% 0 0 / .12);
-  --primary-sheen: linear-gradient(180deg, oklch(100% 0 0 / .16), oklch(100% 0 0 / 0) 55%);
-  --primary-glow: 0 1px 1px oklch(0% 0 0 / .18), 0 4px 12px -4px color-mix(in oklch, var(--primary) 55%, transparent);
-  --spring: cubic-bezier(.3, 1.3, .5, 1);
+  /* Controls: white fill, hairline ring, one soft drop (Notion's button). */
+  --control-highlight: 0 0 0 0 transparent;
+  --control-edge: 0 0 0 0 transparent;
+  --control-surface: var(--surface);
+  --control-border: rgba(15, 15, 15, .1);
+  --control-shadow: 0 1px 2px rgba(15, 15, 15, .1);
+  --control-shadow-hover: 0 2px 4px rgba(15, 15, 15, .12);
+  --control-shadow-press: 0 0 0 0 transparent;
+  --primary-sheen: linear-gradient(transparent, transparent);
+  --primary-glow: inset 0 0 0 1px rgba(15, 15, 15, .1), 0 1px 2px rgba(15, 15, 15, .1);
+  --hover-wash: rgba(55, 53, 47, .06);
+  --spring: cubic-bezier(.3, 1.2, .5, 1);
   --ease-out: cubic-bezier(.22, 1, .36, 1);
-  --radius-control: 16px;
-  --radius-panel: 40px;
+  --radius-control: 10px;
+  --radius-panel: 16px;
   --z-overlay: 40;
   --z-dialog: 50;
   color: var(--foreground);
   background: var(--background);
 }
 :root[data-theme=dark] {
-  --background: oklch(17% 0 0);
-  --foreground: oklch(98% 0 0);
-  --surface: oklch(20% 0 0);
-  --surface-raised: oklch(23% 0 0);
-  --muted: oklch(24% 0 0);
-  --muted-foreground: oklch(70% 0 0);
-  --border: oklch(29% 0 0);
-  --selected: oklch(29% 0 0);
-  --primary: oklch(97% 0 0);
-  --primary-foreground: oklch(17% 0 0);
-  --blue: oklch(67% .18 255);
-  --ring: oklch(90% 0 0);
-  --destructive: oklch(76% .13 27);
-  --overlay: oklch(0% 0 0 / .55);
-  --shadow-card: 0 1px 2px oklch(0% 0 0 / .15), 0 6px 18px -9px oklch(0% 0 0 / .32);
-  --shadow-popover: 0 2px 5px oklch(0% 0 0 / .2), 0 12px 28px -12px oklch(0% 0 0 / .45);
-  --shadow-dialog: 0 8px 24px -10px oklch(0% 0 0 / .36), 0 28px 64px -28px oklch(0% 0 0 / .55);
+  --background: #191919;
+  --foreground: rgba(255, 255, 255, .81);
+  --surface: #191919;
+  --surface-raised: #252525;
+  --muted: #202020;
+  --muted-foreground: rgba(255, 255, 255, .46);
+  --border: rgba(255, 255, 255, .094);
+  --selected: rgba(255, 255, 255, .055);
+  --primary: rgba(255, 255, 255, .81);
+  --primary-foreground: #191919;
+  --blue: #2383e2;
+  --ring: oklch(86% 0 0);
+  --destructive: #eb5757;
+  --overlay: rgba(0, 0, 0, .6);
+  --shadow-card: 0 0 0 1px rgba(255, 255, 255, .07), 0 2px 4px rgba(0, 0, 0, .3);
+  --shadow-popover: 0 0 0 1px rgba(255, 255, 255, .07), 0 3px 6px rgba(0, 0, 0, .3), 0 9px 24px rgba(0, 0, 0, .5);
+  --shadow-dialog: 0 0 0 1px rgba(255, 255, 255, .07), 0 5px 10px rgba(0, 0, 0, .3), 0 15px 40px rgba(0, 0, 0, .5);
   --floating-shadow: var(--shadow-card);
   --panel-shadow: var(--shadow-dialog);
-  --control-highlight: inset 0 1px 0 oklch(100% 0 0 / .08);
-  --control-edge: inset 0 -1px 0 oklch(0% 0 0 / .25);
-  --control-surface: linear-gradient(180deg, oklch(27% 0 0), oklch(23.5% 0 0));
-  --control-border: oklch(100% 0 0 / .1);
-  --control-shadow: 0 1px 1.5px oklch(0% 0 0 / .35), 0 2px 6px -2px oklch(0% 0 0 / .3);
-  --control-shadow-hover: 0 1px 2px oklch(0% 0 0 / .4), 0 6px 14px -6px oklch(0% 0 0 / .5);
-  --control-shadow-press: 0 0 1px oklch(0% 0 0 / .5);
-  --primary-sheen: linear-gradient(180deg, oklch(100% 0 0 / .1), oklch(100% 0 0 / 0) 55%);
-  --primary-glow: 0 1px 1px oklch(0% 0 0 / .4), 0 4px 12px -4px oklch(0% 0 0 / .6);
+  --control-surface: #252525;
+  --control-border: rgba(255, 255, 255, .094);
+  --control-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  --control-shadow-hover: 0 2px 4px rgba(0, 0, 0, .4);
+  --primary-glow: inset 0 0 0 1px rgba(255, 255, 255, .1), 0 1px 2px rgba(0, 0, 0, .3);
+  --hover-wash: rgba(255, 255, 255, .055);
 }
+:root[data-font=serif] { --font-page: var(--font-cjk), "Songti SC", "Noto Serif CJK SC", Georgia, serif; }
+:root[data-font=mono] { --font-page: var(--font-latin), var(--font-cjk), ui-monospace, monospace; }
 :root[data-accent=blue] { --primary: var(--blue); --primary-foreground: oklch(100% 0 0); }
-:root[data-theme=dark][data-accent=blue] { --primary-foreground: oklch(14% 0 0); }
+:root[data-theme=dark][data-accent=blue] { --primary-foreground: #ffffff; }
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -167,6 +167,7 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
     </div>;
   } else {
     body = <div className="session-transcript">
+      <header className="agent-thread-head"><span className="agent-thread-avatar"><BrandIcon size={22} /></span><span>{title}</span></header>
       {messages.map((message, index) => message.role === 'user'
         ? <article key={`${message.created_at}-${index}`} className="chat-message user"><p>{message.content}</p></article>
         : <article key={`${message.created_at}-${index}`} className="chat-message assistant">
@@ -198,7 +199,7 @@ export function AgentThread({ title, chat, ownerId, entryId, preset, capabilitie
         <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
         <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
           onChange={event => onDraftChange(event.target.value)}
-          placeholder={chat ? `问问${title}，或让它帮你完成一件事…` : '会话尚未就绪'}
+          placeholder={chat ? '提问、搜索或创建任何内容…' : '会话尚未就绪'}
           disabled={!chat || sending}
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <div className="chat-composer-footer">

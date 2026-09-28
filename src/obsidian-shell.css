@@ -1,11 +1,12 @@
 .obsidian-app {
-  --shell-rail: color-mix(in oklch, var(--muted) 72%, var(--background));
+  --shell-rail: var(--muted);
   --shell-panel: var(--muted);
   --shell-editor: var(--surface);
-  --shell-hover: color-mix(in oklch, var(--foreground) 8%, transparent);
-  --shell-mark: color-mix(in oklch, var(--foreground) 82%, var(--shell-editor));
+  --shell-hover: var(--hover-wash);
+  /* Markdown markers: a shade deeper than the ink so they stay legible yet distinct. */
+  --shell-mark: #1d1c1a;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .panel-resizer,
@@ -347,12 +348,12 @@
 .mode-switch button.is-active { background: var(--shell-hover); box-shadow: none; }
 .note-title {
   margin-bottom: 21px;
-  font-family: var(--font-ui);
-  font-size: clamp(28px, 3vw, 34px);
-  font-weight: 650;
+  font-family: var(--font-page);
+  font-size: clamp(30px, 3.4vw, 40px);
+  font-weight: 700;
   letter-spacing: -.025em;
 }
-.codemirror-editor, .markdown-preview { font-family: var(--font-ui); font-size: 15px; line-height: 1.8; }
+.codemirror-editor, .markdown-preview { font-family: var(--font-page); font-size: 16px; line-height: 1.75; }
 .markdown-preview :is(code, kbd, samp) { font-family: var(--font-code); }
 .codemirror-editor .cm-editor, .codemirror-editor { min-height: 55vh; }
 .codemirror-editor .cm-activeLine { background: transparent; }
@@ -2070,3 +2071,136 @@
 .obsidian-app .sidebar-activity button:active { transform: scale(.92); }
 .obsidian-app .sidebar-activity button.is-active { background: color-mix(in oklch, var(--primary) 11%, transparent); color: var(--primary); }
 .obsidian-app .new-note-recent { align-content: start; justify-content: stretch; }
+
+/* ===========================================================================
+   Notion layer: warm neutrals, system type, quiet rows, hairline controls.
+   =========================================================================== */
+.obsidian-app { --row-selected: var(--selected); color: var(--foreground); }
+
+/* Sidebar: 30px rows, soft wash for hover and selection, sentence-case headings. */
+.obsidian-app .obsidian-sidebar { background: var(--muted); }
+.obsidian-app .tree-heading { padding: 14px 14px 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.obsidian-app :is(.sidebar-sort-row, .obsidian-tree-row, .session-tree-item) { min-height: 30px; border-radius: 6px; color: color-mix(in oklch, var(--foreground) 88%, var(--muted)); font-size: 14px; }
+.obsidian-app :is(.sidebar-sort-row, .obsidian-tree-row):is(:hover, .is-active) { background: var(--row-selected); }
+.obsidian-app :is(.sidebar-sort-row, .obsidian-tree-row).is-active { color: var(--foreground); font-weight: 500; }
+.obsidian-app .obsidian-search { border: 0; border-radius: 6px; background: var(--hover-wash); }
+.obsidian-app .obsidian-search:focus-within { background: var(--surface); box-shadow: 0 0 0 1px var(--control-border), 0 0 0 3px color-mix(in oklch, var(--blue) 25%, transparent); }
+.obsidian-app .sidebar-activity button { border-radius: 8px; color: var(--muted-foreground); }
+.obsidian-app .sidebar-activity button:hover { background: var(--hover-wash); color: var(--foreground); }
+.obsidian-app .sidebar-activity button.is-active { background: var(--selected); color: var(--foreground); }
+
+/* Tabs and top bar: quiet, white active tab. */
+.obsidian-app .obsidian-topbar { background: var(--muted); border-bottom: 1px solid var(--border); }
+.obsidian-app .workspace-tabs .workspace-tab { border-color: var(--border); border-radius: 8px 8px 0 0; background: transparent; color: var(--muted-foreground); font-size: 13px; }
+.obsidian-app .workspace-tabs .workspace-tab:hover { background: var(--hover-wash); }
+.obsidian-app .workspace-tabs .workspace-tab.is-active { background: var(--surface); color: var(--foreground); }
+.obsidian-app .workspace-statusbar { background: var(--surface); color: var(--muted-foreground); font-size: 12px; }
+
+/* Buttons: Notion's hairline control and ink/blue primary. */
+.ui-button-default { border-radius: 8px; font-weight: 500; }
+.ui-button-solid { background: var(--primary); box-shadow: var(--primary-glow); }
+.ui-button-solid:hover { filter: none; background: color-mix(in oklch, var(--primary) 88%, black); transform: none; }
+.ui-button-floating { background: var(--control-surface); box-shadow: 0 0 0 1px var(--control-border), var(--control-shadow); }
+.ui-button-floating:hover { transform: none; background: color-mix(in oklch, var(--control-surface) 94%, var(--foreground)); }
+.obsidian-app :is(
+  .file-preview-heading button, .campus-action-button, .campus-choice-button, .campus-schedule-nav button,
+  .campus-form button, .campus-vault button, .campus-focus button, .campus-forum-pages button, .campus-office-form button,
+  .private-notebook button, .sandbox-notes-heading button, .sandbox-notes-files button,
+  .sandbox-notes form button, .sandbox-notes-preview-heading button, .sandbox-notes-copy,
+  .sandbox-notes-graph-heading button, .sandbox-notes-connections button,
+  .anki-recovery-actions button, .plugin-open-button, .session-starters button, .session-feedback button,
+  .anki-sample-button, .anki-page-heading > button, .anki-answer-actions button, .anki-danger-button,
+  .settings-action-button, .mobile-topbar-actions button, .sidebar-opener
+) { border-radius: 8px; background: var(--control-surface); box-shadow: 0 0 0 1px var(--control-border), var(--control-shadow); }
+.obsidian-app :is(.mobile-topbar-actions button, .sidebar-opener) { border-radius: 50% !important; }
+
+/* Page: generous white canvas, Notion title weight. */
+.obsidian-app .note-editor { background: var(--surface); }
+.obsidian-app .note-title { letter-spacing: -.01em; color: var(--foreground); }
+.obsidian-app .note-title::placeholder { color: color-mix(in oklch, var(--foreground) 22%, transparent); }
+.obsidian-app .markdown-preview a, .obsidian-app .codemirror-editor .cm-md-link-label { color: inherit; text-decoration-color: color-mix(in oklch, var(--foreground) 40%, transparent); }
+
+/* Menus and sheets: white grouped panels with icon rows. */
+.workspace-context-menu, .markdown-context-menu, .sidebar-sort-menu {
+  border: 0 !important; border-radius: 10px !important; background: var(--surface-raised) !important; box-shadow: var(--shadow-popover) !important;
+}
+.workspace-context-menu button, .sidebar-sort-menu button { min-height: 32px; border-radius: 6px; font-size: 14px; }
+.workspace-context-menu button:hover, .sidebar-sort-menu button:hover { background: var(--hover-wash); }
+.workspace-context-menu button.is-danger { color: var(--destructive); }
+
+/* Phone bottom bar, as in Notion: search, Ask AI and compose float over the page. */
+@media (max-width: 720px) {
+  .obsidian-app .mobile-command-bar {
+    position: fixed; right: 0; bottom: 0; left: 0; z-index: 25;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    min-height: 0; padding: 18px 14px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--surface) 55%, color-mix(in oklch, var(--surface) 0%, transparent));
+    pointer-events: none;
+  }
+  .obsidian-app .mobile-command-bar > button { pointer-events: auto; }
+  .obsidian-app .mobile-command-bar .mobile-bar-round,
+  .obsidian-app .mobile-command-bar .mobile-bar-ask {
+    height: 48px; border: 0; color: var(--foreground);
+    background: color-mix(in oklch, var(--surface-raised) 86%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+    box-shadow: 0 0 0 1px var(--control-border), 0 4px 14px rgba(15, 15, 15, .1);
+    -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--spring);
+  }
+  .obsidian-app .mobile-command-bar .mobile-bar-round { display: grid; flex: none; width: 48px; place-items: center; padding: 0; border-radius: 50%; }
+  .obsidian-app .mobile-command-bar .mobile-bar-ask {
+    display: flex; flex: 1; align-items: center; justify-content: flex-start; gap: 10px; width: auto;
+    padding: 0 16px 0 8px; border-radius: 999px; color: var(--muted-foreground); font-size: 16px;
+  }
+  .obsidian-app .mobile-command-bar button:active { transform: scale(.95); }
+  .mobile-bar-ask-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border); }
+  /* The Agent has its own composer, and editing shows the format bar. */
+  .obsidian-app:has(.agent-thread, .agent-picker) .mobile-command-bar { display: none; }
+  .obsidian-app .note-editor, .obsidian-app .new-note-home, .obsidian-app .campus-tool, .obsidian-app .git-workspace-page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* Page title as Notion's breadcrumb pill. */
+  .obsidian-app .mobile-tab-title { flex: 0 1 auto; margin: 0 auto; height: 34px; padding: 0 12px; border-radius: 999px; background: var(--hover-wash); font-size: 14px; font-weight: 500; }
+}
+
+/* Home, after Notion: greeting, horizontal recents, quiet create rows. */
+.obsidian-app .notion-home { display: block; width: min(820px, calc(100% - 64px)); margin: 0 auto; padding: clamp(40px, 9vh, 96px) 0 64px; }
+.notion-home-greeting { margin: 0 0 32px; font-size: 30px; font-weight: 700; letter-spacing: -.01em; text-align: center; }
+.notion-section { margin-bottom: 30px; }
+.notion-section-head { margin: 0 0 10px 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.notion-recents { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 12px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.notion-recents::-webkit-scrollbar { display: none; }
+.notion-recent-card {
+  position: relative; display: flex; flex: 0 0 148px; flex-direction: column; align-items: flex-start; gap: 4px; height: 142px;
+  padding: 0 12px 12px; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface); color: var(--foreground); text-align: left;
+  box-shadow: 0 0 0 1px var(--control-border), 0 2px 4px rgba(15, 15, 15, .04); scroll-snap-align: start;
+  transition: transform 200ms var(--spring), box-shadow 200ms var(--ease-out);
+}
+.notion-recent-card:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--control-border), 0 6px 14px rgba(15, 15, 15, .08); }
+.notion-recent-card:active { transform: scale(.98); }
+.notion-recent-cover { display: block; flex: none; width: calc(100% + 24px); height: 50px; margin: 0 -12px; background: var(--muted); }
+.notion-recent-icon { display: grid; width: 32px; height: 32px; place-items: center; margin-top: -16px; border-radius: 8px; background: var(--surface); color: var(--muted-foreground); box-shadow: 0 0 0 1px var(--control-border); }
+.notion-recent-card strong { display: -webkit-box; margin-top: 6px; overflow: hidden; font-size: 14px; font-weight: 600; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notion-recent-card small { margin-top: auto; color: var(--muted-foreground); font-size: 12px; }
+.notion-recent-card.is-empty { flex-basis: 220px; }
+.notion-list { display: grid; gap: 2px; }
+.notion-list button {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--foreground); font-size: 15px; text-align: left; transition: background-color 120ms;
+}
+.notion-list button:hover { background: var(--hover-wash); }
+.notion-list button svg { flex: none; color: var(--muted-foreground); }
+.notion-list button small { margin-left: auto; color: var(--muted-foreground); font-size: 13px; }
+@media (max-width: 720px) {
+  .obsidian-app .notion-home { width: calc(100% - 32px); padding-top: 24px; }
+  .notion-home-greeting { margin-bottom: 22px; font-size: 26px; text-align: left; }
+  .notion-list button small { display: none; }
+  .notion-recent-card { flex-basis: 136px; }
+}
+@media (max-width: 720px) {
+  .obsidian-app .obsidian-topbar { background: var(--surface); border-bottom: 0; }
+  .obsidian-app :is(.mobile-topbar-actions button, .sidebar-opener) {
+    width: 40px !important; height: 40px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--foreground);
+  }
+  .obsidian-app :is(.mobile-topbar-actions button, .sidebar-opener):active { background: var(--hover-wash) !important; }
+  .obsidian-app .mobile-topbar-actions .mobile-tab-count span { border-width: 1.6px; border-radius: 6px; }
+}
+
+:root[data-theme=dark] .obsidian-app { --shell-mark: #ffffff; }

@@ -908,14 +908,16 @@ test.describe('Workspace mocked contract suite', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await page.getByRole('button', { name: '打开小工具' }).click();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.locator('.sidebar-activity').getByRole('button', { name: '小工具' }).click();
     await expect(page.locator('.campus-sidebar-list')).toBeVisible();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
     await expect(page.locator('.campus-focus-clock')).toBeVisible();
     await page.getByRole('button', { name: '开始专注' }).click();
     await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
     await page.reload();
-    await page.getByRole('button', { name: '打开小工具' }).click();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.locator('.sidebar-activity').getByRole('button', { name: '小工具' }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '番茄时钟' }).click();
     await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
     await page.getByRole('button', { name: '打开侧栏' }).click();
@@ -1639,7 +1641,8 @@ test.describe('Workspace mocked contract suite', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
-    await page.getByRole('button', { name: '打开 Git 笔记' }).click();
+    await page.getByRole('button', { name: '打开侧栏' }).click();
+    await page.locator('.sidebar-activity').getByRole('button', { name: 'Git 笔记' }).click();
     await expect(page.getByRole('region', { name: 'Git 笔记' })).toBeVisible();
     await expect(page.getByRole('button', { name: '打开协作笔记' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -3170,7 +3173,7 @@ test('plugin directory opens real built-in features without claiming external in
   const activity = page.locator('.sidebar-activity');
   await activity.getByRole('button', { name: '插件' }).click();
   await expect(page.getByRole('heading', { name: 'Markdown 编辑器' })).toBeVisible();
-  await expect(page.getByText('第三方插件尚未开放').first()).toBeVisible();
+  await expect(page.getByText('更多插件即将上线').first()).toBeVisible();
   await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
   await page.getByRole('button', { name: '打开知识图谱' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -3334,9 +3337,13 @@ test('typing a Markdown heading keeps the marker legible without underlining the
     font: getComputedStyle(line).fontFamily,
   }));
   expect(loneMarker.decorated).toEqual([]);
-  expect(loneMarker.font).toContain('Cascadia Code');
-  expect(loneMarker.font).toContain('LXGW WenKai');
+  // The page font follows the appearance preference: system sans by default,
+  // Cascadia with WenKai when the monospace page font is chosen.
+  expect(loneMarker.font).toContain('-apple-system');
+  await page.evaluate(() => { document.documentElement.dataset.font = 'mono'; });
   await expect(page.locator('.codemirror-editor .cm-scroller')).toHaveCSS('font-family', /Cascadia Code.*LXGW WenKai/);
+  await page.evaluate(() => { document.documentElement.dataset.font = 'serif'; });
+  await expect(page.locator('.codemirror-editor .cm-scroller')).toHaveCSS('font-family', /^"?LXGW WenKai/);
   await expect(editor).toHaveAttribute('spellcheck', 'false');
   await page.keyboard.type(' ');
   await expect(editor.locator('.cm-line')).toHaveText('# ');

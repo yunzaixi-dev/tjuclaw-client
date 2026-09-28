@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, GitFork, LibraryBig, ListTree, MousePointer2, Network, PanelLeft, Plus, Search, Settings, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, GitFork, LibraryBig, ListTree, MousePointer2, Network, PanelLeft, Plus, Search, SquarePen, Settings, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from './compone
 import { MarkdownEditor } from './components/markdown-editor';
 import { WorkspaceLoading, type LoadStep } from './components/workspace-loading';
 import { AgentThread } from './components/agent-thread';
+import { BrandIcon } from './components/brand-icon';
 import { FilePreview } from './components/file-preview';
 import { EMPTY_RICH_TEXT } from './lib/rich-text';
 import { KnowledgeGraph } from './components/knowledge-graph';
@@ -174,14 +175,47 @@ function readPendingAnkiReview(key: string): PendingAnkiReview | null {
 }
 
 function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { entries: Entry[]; onCreate: (title?: string, body?: string) => void; onCreateRich: () => void; onUpload: () => void; onOpen: (id: string) => void }) {
-  const recent = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4);
   const templates = [
     { title: '空白笔记', description: '从一个标题或一句想法开始', icon: FilePlus2, body: '' },
     { title: '项目记录', description: '目标、进展、风险和下一步', icon: Table2, body: '# 项目记录\n\n## 目标\n\n## 当前进展\n\n## 风险与阻塞\n\n## 下一步\n\n- [ ] ' },
     { title: '读书卡片', description: '把摘录和思考沉淀成知识', icon: Quote, body: '# 书名\n\n> 一句重要摘录\n\n## 我的理解\n\n## 关联笔记\n\n- [[' },
     { title: '每日复盘', description: '记录今天发生了什么', icon: CheckSquare, body: `# ${new Date().toLocaleDateString('zh-CN')}\n\n## 完成了什么\n\n- [ ] \n\n## 学到了什么\n\n## 明天要做什么\n\n- [ ] ` },
   ];
-  return <section className="new-note-home"><div className="new-note-header"><h1>新建笔记</h1><Button className="new-note-primary" onClick={() => onCreate()}><Plus size={16} /> 空白笔记</Button></div><div className="new-note-grid"><div className="new-note-panel"><div className="new-note-panel-head"><span>从模板开始</span></div><div className="new-note-templates"><button type="button" onClick={onCreateRich}><span className="new-note-template-icon"><FilePenLine size={17} /></span><span><strong>富文本文档</strong><small>所见即所得地整理课程内容</small></span><ArrowRight size={15} /></button><button type="button" onClick={onUpload}><span className="new-note-template-icon"><FileUp size={17} /></span><span><strong>上传课程资料</strong><small>保留原件，支持多媒体预览</small></span><ArrowRight size={15} /></button>{templates.slice(1).map(template => { const Icon = template.icon; return <button type="button" key={template.title} onClick={() => onCreate(template.title, template.body)}><span className="new-note-template-icon"><Icon size={17} /></span><span><strong>{template.title}</strong><small>{template.description}</small></span><ArrowRight size={15} /></button>; })}</div></div><div className="new-note-panel new-note-recent"><div className="new-note-panel-head"><span>最近文档</span></div>{recent.length ? recent.map(entry => <button type="button" key={entry.id} onClick={() => onOpen(entry.id)}><FileText size={16} /><span><strong>{entry.title || '未命名笔记'}</strong><small>{new Date(entry.updated_at).toLocaleDateString('zh-CN')}</small></span></button>) : <div className="new-note-empty">暂无最近文档</div>}</div></div></section>;
+  const hour = new Date().getHours();
+  const greeting = hour < 5 ? '夜深了' : hour < 11 ? '早上好' : hour < 13 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
+  const recents = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8);
+  const rows = [
+    { key: 'blank', title: '空白笔记', description: '从一个标题开始', icon: FilePlus2, run: () => onCreate() },
+    { key: 'rich', title: '富文本文档', label: '新建富文本文档', description: '所见即所得地整理内容', icon: FilePenLine, run: onCreateRich },
+    { key: 'upload', title: '上传课程资料', description: '保留原件，支持预览', icon: FileUp, run: onUpload },
+    ...templates.slice(1).map(template => ({ key: template.title, title: template.title, description: template.description, icon: template.icon, run: () => onCreate(template.title, template.body) })),
+  ];
+  return <section className="new-note-home notion-home">
+    <h1 className="notion-home-greeting">{greeting}</h1>
+    <div className="notion-section">
+      <h2 className="notion-section-head">最近访问</h2>
+      <div className="notion-recents" role="list">
+        {recents.length ? recents.map(entry => <button type="button" role="listitem" key={entry.id} className="notion-recent-card" onClick={() => onOpen(entry.id)}>
+          <span className="notion-recent-cover" aria-hidden="true" />
+          <span className="notion-recent-icon" aria-hidden="true">{entry.kind === 'rich_text' ? <FilePenLine size={18} /> : <FileText size={18} />}</span>
+          <strong>{entry.title || '未命名笔记'}</strong>
+          <small>{new Date(entry.updated_at).toLocaleDateString('zh-CN')}</small>
+        </button>) : <button type="button" className="notion-recent-card is-empty" onClick={() => onCreate()}>
+          <span className="notion-recent-cover" aria-hidden="true" />
+          <span className="notion-recent-icon" aria-hidden="true"><Plus size={18} /></span>
+          <strong>写下第一篇笔记</strong><small>最近打开的会显示在这里</small>
+        </button>}
+      </div>
+    </div>
+    <div className="notion-section">
+      <h2 className="notion-section-head">新建</h2>
+      <div className="notion-list">
+        {rows.map(row => { const Icon = row.icon; return <button type="button" key={row.key} aria-label={row.label ?? row.title} onClick={row.run}>
+          <Icon size={18} aria-hidden="true" /><span>{row.title}</span><small>{row.description}</small>
+        </button>; })}
+      </div>
+    </div>
+  </section>;
 }
 
 function parseHeadings(markdown: string) {
@@ -1822,7 +1856,7 @@ export default function Workspace() {
         { id: 'anki', label: '记忆闪卡', Icon: Brain },
         { id: 'plugins', label: '插件', Icon: Blocks },
         { id: 'tools', label: '小工具', Icon: Wrench },
-      ] as const).map(({ id, label, Icon }) => <motion.button key={id} className={view === id ? 'is-active' : ''} type="button" title={label} aria-label={label} aria-current={view === id ? 'page' : undefined} whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => switchView(id)}>{view === id ? <motion.span className="activity-current-mark" layoutId="workspace-active-view" transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }} /> : null}<Icon size={19} /><span>{label}</span></motion.button>)}</div><motion.button className="activity-settings" type="button" title="知识图谱" aria-label="知识图谱" whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => setGraphOpen(true)}><Network size={19} /><span>图谱</span></motion.button></div>
+      ] as const).map(({ id, label, Icon }) => <motion.button key={id} className={view === id ? 'is-active' : ''} type="button" title={label} aria-label={label} aria-current={view === id ? 'page' : undefined} whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => { switchView(id); if (id === 'git' && isMobile) setSidebarOpen(false); }}>{view === id ? <motion.span className="activity-current-mark" layoutId="workspace-active-view" transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }} /> : null}<Icon size={19} /><span>{label}</span></motion.button>)}</div><motion.button className="activity-settings" type="button" title="知识图谱" aria-label="知识图谱" whileTap={reduceMotion ? undefined : { scale: 0.94 }} onClick={() => setGraphOpen(true)}><Network size={19} /><span>图谱</span></motion.button></div>
       <div className="sidebar-pane">
       <div className="sidebar-pane-header"><span>{view === 'notes' ? '资料夹' : view === 'git' ? 'Git 笔记' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆闪卡' : view === 'tools' ? '小工具' : '插件'}</span><button type="button" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button></div>
       {view !== 'plugins' && view !== 'tools' && view !== 'git' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={view === 'sessions' ? '搜索 Agent…' : view === 'anki' ? '搜索闪卡…' : '搜索笔记…'} aria-label={view === 'sessions' ? '搜索 Agent' : view === 'anki' ? '搜索闪卡' : '搜索笔记'} /></label> : null}
@@ -1902,7 +1936,11 @@ export default function Workspace() {
           : editorMode === 'preview' ? <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} /> : <MarkdownEditor key={selected.id} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
       </article>}
       </div>
-      <nav className="mobile-command-bar" aria-label="快捷操作"><button type="button" onClick={() => { switchView('notes'); setSidebarOpen(true); }} aria-label="打开资料夹"><LibraryBig size={19} /></button><button type="button" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={19} /></button><button type="button" onClick={() => void createNote()} aria-label="新建笔记"><Plus size={22} /></button><button type="button" onClick={() => switchView('git')} aria-label="打开 Git 笔记"><GitFork size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('sessions'); }} aria-label="打开 Agent"><MousePointer2 size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('anki'); }} aria-label="打开记忆闪卡"><Brain size={19} /></button><button type="button" onClick={() => { setSidebarOpen(true); switchView('tools'); }} aria-label="打开小工具"><Wrench size={19} /></button></nav>
+      <nav className="mobile-command-bar" aria-label="快捷操作">
+        <button type="button" className="mobile-bar-round" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={20} /></button>
+        <button type="button" className="mobile-bar-ask" onClick={() => { setSidebarOpen(false); switchView('sessions'); }} aria-label="打开 Agent"><span className="mobile-bar-ask-mark"><BrandIcon size={20} /></span><span>问 AI</span></button>
+        <button type="button" className="mobile-bar-round" onClick={() => void createNote()} aria-label="新建笔记"><SquarePen size={20} /></button>
+      </nav>
       <footer className="workspace-statusbar"><span>{view === 'git' ? 'Git 笔记' : library?.name ?? '我的知识库'}</span><span className="statusbar-details">{view === 'git' ? '每次保存都会留下版本' : <>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}</>}</span></footer>
     </main>
     {contextMenu ? <><button className="mobile-context-backdrop" type="button" aria-label="关闭操作菜单" onClick={() => setContextMenu(null)} /><WorkspaceContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onAction={handleContextAction} /></> : null}

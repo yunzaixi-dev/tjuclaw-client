@@ -2,9 +2,11 @@ import { useSyncExternalStore } from 'react';
 
 export type Mode = 'system' | 'light' | 'dark';
 export type Accent = 'mono' | 'blue';
-type Preferences = { mode: Mode; accent: Accent };
+/** Page text font, as in Notion's Default / Serif / Mono. */
+export type PageFont = 'sans' | 'serif' | 'mono';
+type Preferences = { mode: Mode; accent: Accent; font: PageFont };
 const key = 'tjuclaw.appearance.v1';
-const defaults: Preferences = { mode: 'system', accent: 'mono' };
+const defaults: Preferences = { mode: 'system', accent: 'mono', font: 'sans' };
 let canPersist = true;
 
 export function parseAppearance(raw: string | null): Preferences {
@@ -13,6 +15,7 @@ export function parseAppearance(raw: string | null): Preferences {
     return {
       mode: ['system', 'light', 'dark'].includes(value?.mode) ? value.mode : defaults.mode,
       accent: ['mono', 'blue'].includes(value?.accent) ? value.accent : defaults.accent,
+      font: ['sans', 'serif', 'mono'].includes(value?.font) ? value.font : defaults.font,
     };
   } catch { return { ...defaults }; }
 }
@@ -31,8 +34,9 @@ function apply() {
   const root = document.documentElement;
   root.dataset.theme = snapshot.resolved;
   root.dataset.accent = snapshot.accent;
+  root.dataset.font = snapshot.font;
   root.style.colorScheme = snapshot.resolved;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', snapshot.resolved === 'dark' ? '#101010' : '#fafafa');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', snapshot.resolved === 'dark' ? '#191919' : '#ffffff');
   listeners.forEach(listener => listener());
 }
 // Runs before the product's first render; no inline script or native CSP exception.

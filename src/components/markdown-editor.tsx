@@ -256,7 +256,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
-            '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-ui)', lineHeight: '1.85' },
+            '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-page)', lineHeight: '1.75' },
             '.cm-content': { minHeight: '60vh', padding: '0 0 100px', caretColor: 'var(--foreground)' },
             '.cm-line': { padding: '0' },
             '&.cm-focused': { outline: 'none' },

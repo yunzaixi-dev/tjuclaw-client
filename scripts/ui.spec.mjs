@@ -94,7 +94,7 @@ for (const theme of ['浅色', '深色']) {
     await input.fill('笔记');
     await expect(input).toBeFocused();
     await expect(input).toHaveCSS('outline-style', 'none');
-    await expect(field).toHaveCSS('border-radius', '16px');
+    await expect(field).toHaveCSS('border-radius', '10px');
     await expect(field).not.toHaveCSS('box-shadow', 'none');
     await expect(page.locator('.conversation-list li')).toHaveCount(1);
     await page.screenshot({ path: info.outputPath('search-focus.png') });
