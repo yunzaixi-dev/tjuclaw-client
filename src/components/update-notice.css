@@ -1,0 +1,86 @@
+.update-notice {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--foreground);
+  box-shadow: var(--shadow-popover);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.update-notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-notice-head svg { flex: none; color: var(--muted-foreground); }
+.update-notice-head strong { flex: 1; font-size: 14px; font-weight: 600; }
+
+.update-notice-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.update-notice-close:hover { background: var(--muted); color: var(--foreground); }
+
+.update-notice p {
+  margin-top: 6px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.update-notice-bar {
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--muted);
+}
+
+.update-notice-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 200ms ease;
+}
+
+.update-notice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.update-notice-actions button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-notice-actions .is-secondary { background: var(--muted); color: var(--foreground); }
+.update-notice-actions .is-primary { background: var(--primary); color: var(--primary-foreground); }
+.update-notice-actions .is-secondary:hover { background: var(--selected); }
+.update-notice-actions .is-primary:hover { opacity: .88; }
+
+@media (prefers-reduced-motion: reduce) {
+  .update-notice-bar span { transition: none; }
+}

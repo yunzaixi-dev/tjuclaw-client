@@ -15,7 +15,43 @@ import {
   publishDownloads,
   TARGET_ASSET_NAMES,
   EXPECTED_GITHUB_REPO,
+  compareVersions,
+  buildUpdaterManifest,
+  waitForWindowsRun,
+  findCurrentCiRun,
 } from './publish-downloads.mjs';
+import { signR2Request, publicObjectUrl, validateObjectKey } from './r2.mjs';
+
+const R2 = {
+  endpoint: 'https://account.r2.cloudflarestorage.com',
+  bucket: 'tjuclaw-release',
+  accessKeyId: 'AKIDEXAMPLE',
+  secretAccessKey: 'r2-secret-example',
+  publicUrl: 'https://dl.example.com',
+};
+
+// Records R2 calls and serves HEAD/GET from an in-memory bucket.
+function fakeR2(objects = new Map()) {
+  const calls = [];
+  const handle = async (url, options = {}) => {
+    const key = decodeURIComponent(new URL(url).pathname.replace(`/${R2.bucket}/`, ''));
+    assert.match(options.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\//);
+    const method = options.method;
+    if (method === 'HEAD') return new Response(null, { status: objects.has(key) ? 200 : 404 });
+    if (method === 'GET') return objects.has(key) ? new Response(objects.get(key)) : new Response(null, { status: 404 });
+    const source = options.headers['x-amz-copy-source'];
+    if (source) {
+      const from = decodeURIComponent(source.replace(`/${R2.bucket}/`, ''));
+      calls.push(['COPY', from, key]);
+      objects.set(key, objects.get(from));
+    } else {
+      calls.push(['PUT', key, options.headers['cache-control']]);
+      objects.set(key, Buffer.from(options.body).toString());
+    }
+    return new Response(null, { status: 200 });
+  };
+  return { calls, objects, handle };
+}
 
 test('validateSha enforces strict 40-character hexadecimal strings', () => {
   const valid = 'f254037f18dbd06f946043fe5a5ecf88da41806e';
@@ -357,7 +393,9 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
     assert.equal(res.assets[2].name, TARGET_ASSET_NAMES.exe);
 
     const writes = [];
+    const bucket = fakeR2();
     const publishFetch = async (url, options = {}) => {
+      if (url.startsWith(R2.endpoint)) return bucket.handle(url, options);
       if (options.method === 'POST' && url.endsWith('/releases')) {
         writes.push('draft');
         assert.equal(JSON.parse(options.body).draft, true);
@@ -374,9 +412,39 @@ with zipfile.ZipFile("${zipExe}", "w") as z:
       }
       return mockFetch(url);
     };
+    const signFn = file => `SIG-${file.split('.').pop()}`;
     const published = await publishDownloads({ sourceSha, githubRepo: EXPECTED_GITHUB_REPO,
-      ghToken: 'ghp_fake_token', outDir }, { fetchFn: publishFetch });
+      ghToken: 'ghp_fake_token', outDir, r2: R2 }, { fetchFn: publishFetch, signFn });
     assert.equal(published.success, true);
+    assert.equal(published.r2.uploaded, true);
+    assert.equal(published.r2.promoted, true);
+
+    const versioned = bucket.calls.filter(c => c[0] === 'PUT' && c[1].startsWith('client/v0.0.25/')).map(c => c[1].split('/').pop());
+    assert.deepEqual(versioned, [TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk, TARGET_ASSET_NAMES.exe,
+      `${TARGET_ASSET_NAMES.exe}.sig`, `${TARGET_ASSET_NAMES.deb}.sig`, 'SHA256SUMS', 'manifest.json']);
+    assert.ok(bucket.calls.filter(c => c[0] === 'PUT' && c[1].startsWith('client/v0.0.25/')).every(c => c[2].includes('immutable')));
+    assert.equal(bucket.calls.filter(c => c[0] === 'COPY').length, 7);
+    assert.deepEqual(bucket.calls.at(-1), ['PUT', 'client/latest.json', 'no-cache'], 'latest.json flips last');
+    const latest = JSON.parse(bucket.objects.get('client/latest.json'));
+    assert.equal(latest.version, '0.0.25');
+    assert.deepEqual(latest.platforms['windows-x86_64-nsis'], {
+      signature: 'SIG-exe', url: `https://dl.example.com/client/v0.0.25/${TARGET_ASSET_NAMES.exe}` });
+    assert.deepEqual(latest.platforms['linux-x86_64-deb'], {
+      signature: 'SIG-deb', url: `https://dl.example.com/client/v0.0.25/${TARGET_ASSET_NAMES.deb}` });
+    assert.equal(latest.platforms['linux-x86_64'], undefined);
+    assert.equal(await readFile(join(outDir, `${TARGET_ASSET_NAMES.exe}.sig`), 'utf8'), 'SIG-exe\n');
+
+    // A second push without a version bump publishes nothing.
+    const again = await publishDownloads({ sourceSha, githubRepo: EXPECTED_GITHUB_REPO,
+      ghToken: 'ghp_fake_token', outDir, r2: R2 }, {
+      signFn,
+      fetchFn: async (url, options = {}) => {
+        if (url.startsWith(R2.endpoint)) return bucket.handle(url, options);
+        if (url.includes('/releases/tags/')) return new Response('{}', { status: 200 });
+        return publishFetch(url, options);
+      },
+    });
+    assert.equal(again.skipped, true);
     assert.deepEqual(writes, ['draft', TARGET_ASSET_NAMES.deb, TARGET_ASSET_NAMES.apk,
       TARGET_ASSET_NAMES.exe, 'SHA256SUMS', 'manifest.json', 'published']);
   } finally {
@@ -388,4 +456,94 @@ test('existing release lookup fails closed on API errors', async () => {
   for (const status of [401, 403, 500]) {
     await assert.rejects(() => checkExistingRelease('v0.0.25', EXPECTED_GITHUB_REPO, 'token', async () => ({ status })), /lookup failed/);
   }
+});
+
+test('compareVersions orders releases before their prereleases', () => {
+  assert.equal(compareVersions('0.0.31', '0.0.30'), 1);
+  assert.equal(compareVersions('0.1.0', '0.0.99'), 1);
+  assert.equal(compareVersions('0.0.30', '0.0.30'), 0);
+  assert.equal(compareVersions('0.0.30-rc.1', '0.0.30'), -1);
+  assert.equal(compareVersions('0.0.9', '0.0.10'), -1);
+});
+
+test('buildUpdaterManifest maps NSIS and deb installers to Tauri updater targets', () => {
+  const manifest = buildUpdaterManifest('1.2.3', 'a'.repeat(40), '2026-09-28T00:00:00.000Z',
+    { exe: 'https://dl/x.exe', deb: 'https://dl/x.deb' }, { exe: 'S1', deb: 'S2' });
+  assert.deepEqual(Object.keys(manifest.platforms).sort(), ['linux-x86_64-deb', 'windows-x86_64', 'windows-x86_64-nsis']);
+  assert.equal(manifest.platforms['windows-x86_64'].signature, 'S1');
+  assert.equal(manifest.platforms['linux-x86_64-deb'].url, 'https://dl/x.deb');
+});
+
+test('publish does not move latest backwards when an older version is published later', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'test-r2-'));
+  try {
+    const { publishToR2 } = await import('./publish-downloads.mjs');
+    const file = join(dir, 'a.exe');
+    await (await import('node:fs/promises')).writeFile(file, 'x');
+    const bucket = fakeR2(new Map([['client/latest.json', JSON.stringify({ version: '0.0.40' })]]));
+    const res = await publishToR2(R2, { version: '0.0.39', updaterManifest: { version: '0.0.39' },
+      assets: [{ name: 'a.exe', filePath: file, download: true }] }, bucket.handle);
+    assert.equal(res.uploaded, true);
+    assert.equal(res.promoted, false);
+    assert.equal(bucket.calls.filter(c => c[0] === 'COPY').length, 0);
+    assert.equal(JSON.parse(bucket.objects.get('client/latest.json')).version, '0.0.40');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('signR2Request matches an independently computed SigV4 signature', () => {
+  const now = new Date('2026-09-28T01:02:03.000Z');
+  const req = signR2Request(R2, { method: 'PUT', key: 'client/v1/a_b.txt', payloadHash: 'abc', now,
+    headers: { 'content-type': 'text/plain' } });
+  assert.equal(req.url, 'https://account.r2.cloudflarestorage.com/tjuclaw-release/client/v1/a_b.txt');
+  assert.equal(req.headers['x-amz-date'], '20260928T010203Z');
+  assert.match(req.headers.authorization,
+    /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20260928\/auto\/s3\/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
+  const py = `
+import hashlib, hmac
+k=lambda key,msg: hmac.new(key, msg.encode(), hashlib.sha256).digest()
+canon="PUT\\n/tjuclaw-release/client/v1/a_b.txt\\n\\ncontent-type:text/plain\\nhost:account.r2.cloudflarestorage.com\\nx-amz-content-sha256:abc\\nx-amz-date:20260928T010203Z\\n\\ncontent-type;host;x-amz-content-sha256;x-amz-date\\nabc"
+sts="AWS4-HMAC-SHA256\\n20260928T010203Z\\n20260928/auto/s3/aws4_request\\n"+hashlib.sha256(canon.encode()).hexdigest()
+key=k(k(k(k(("AWS4r2-secret-example").encode(),"20260928"),"auto"),"s3"),"aws4_request")
+print(hmac.new(key, sts.encode(), hashlib.sha256).hexdigest())`;
+  const expected = execFileSync('python3', ['-c', py], { encoding: 'utf8' }).trim();
+  assert.ok(req.headers.authorization.endsWith(`Signature=${expected}`));
+});
+
+test('R2 object keys reject traversal and public URLs encode segments', () => {
+  assert.throws(() => validateObjectKey('client/../x'), /Invalid R2 object key/);
+  assert.throws(() => validateObjectKey('/client/x'), /Invalid R2 object key/);
+  assert.equal(publicObjectUrl(R2, 'client/latest/TJUClaw-linux-amd64.deb'),
+    'https://dl.example.com/client/latest/TJUClaw-linux-amd64.deb');
+});
+
+test('CI mode checks its own run and waits for the Windows Installer of the same push', async () => {
+  const sha = 'b'.repeat(40);
+  const base = { event: 'push', head_branch: 'release', head_sha: sha, head_repository: { full_name: EXPECTED_GITHUB_REPO } };
+  const okJobs = names => Response.json({ jobs: names.map(name => ({ name, status: 'completed', conclusion: 'success' })) });
+  let polls = 0;
+  const fetchFn = async url => {
+    if (url.endsWith('/actions/runs/7')) {
+      return Response.json({ ...base, id: 7, name: 'CI',
+        jobs_url: `https://api.github.com/repos/${EXPECTED_GITHUB_REPO}/actions/runs/7/jobs` });
+    }
+    if (url.includes('/runs/7/jobs')) {
+      return okJobs(['Build Linux amd64 Debian package', 'Build Android debug arm64 APK', 'Build unsigned universal macOS app',
+        'Compile unsigned iOS device and simulator archives', 'Portable checks', 'Build Web Client', 'Browser UI and workspace regression']);
+    }
+    if (url.includes('/actions/runs?head_sha=')) {
+      polls++;
+      const status = polls < 3 ? 'in_progress' : 'completed';
+      return Response.json({ workflow_runs: [{ ...base, id: 8, name: 'Windows Installer', status, conclusion: status === 'completed' ? 'success' : null,
+        jobs_url: `https://api.github.com/repos/${EXPECTED_GITHUB_REPO}/actions/runs/8/jobs` }] });
+    }
+    if (url.includes('/runs/8/jobs')) return okJobs(['windows']);
+    throw new Error(`unexpected ${url}`);
+  };
+  assert.equal((await findCurrentCiRun(7, sha, EXPECTED_GITHUB_REPO, 't', fetchFn)).id, 7);
+  await assert.rejects(() => findCurrentCiRun(7, 'c'.repeat(40), EXPECTED_GITHUB_REPO, 't', fetchFn), /not the release push CI run/);
+  const run = await waitForWindowsRun(sha, EXPECTED_GITHUB_REPO, 't', { fetchFn, sleep: async () => {}, intervalMs: 0 });
+  assert.equal(run.id, 8);
+  assert.equal(polls, 3);
 });

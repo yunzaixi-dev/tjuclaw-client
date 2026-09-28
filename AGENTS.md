@@ -24,10 +24,14 @@ Use `release` as the primary branch for rapid iteration and production deploymen
 ## Public client downloads
 
 Release branch pushes build Linux, Android and Windows Actions artifacts automatically.
-Promote a new client package version using `Publish Client Downloads` on `release`,
-with the exact successful source SHA. The workflow verifies release ancestry, both
-CI runs and artifact digests, then publishes a draft only after all five assets upload.
-Published tags/releases are immutable; bump package.json before the next version.
-The stable asset names are consumed by Wiki `/releases/latest/download/` links.
+The CI `publish-downloads` job then waits for the same push's Windows Installer run and
+publishes a package.json version that is not yet published to both Cloudflare R2
+(`client/v<version>/`, `client/latest/`, `client/latest.json`) and a GitHub Release;
+an unchanged version is skipped, so bump package.json to ship. `Publish Client Downloads`
+remains the manual path for an exact source SHA. Versions, tags and releases are
+immutable; R2 `latest` only moves forward and `latest.json` flips last.
+Wiki buttons use the stable `https://tjuclaw-release.zaixi.dev/client/latest/` names.
+Desktop builds check `latest.json` with `tauri-plugin-updater`; the minisign public key
+lives in `tauri.conf.json`, the private key only in repository secrets.
 Windows packages are unsigned; Android packages use debug signing. GitLab competition
 packaging remains a separate manual flow.

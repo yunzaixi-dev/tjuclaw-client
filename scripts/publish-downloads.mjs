@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { publicObjectUrl, r2Copy, r2Exists, r2GetText, r2Put, readR2Config } from './r2.mjs';
 
 export const EXPECTED_GITHUB_REPO = 'yunzaixi-dev/tjuclaw-client';
 export const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024; // 1 GiB
@@ -18,6 +21,52 @@ export const TARGET_ASSET_NAMES = {
   apk: 'TJUClaw-android-arm64-debug.apk',
   exe: 'TJUClaw-windows-x64-setup.exe',
 };
+
+export const R2_PREFIX = 'client';
+export const UPDATER_MANIFEST_KEY = `${R2_PREFIX}/latest.json`;
+
+// Tauri updater looks up `{os}-{arch}-{installer}` first, then `{os}-{arch}`.
+// Linux only ships .deb, so it has no bare `linux-x86_64` entry that an AppImage
+// install could mistake for its own format.
+export const UPDATER_PLATFORMS = {
+  'windows-x86_64-nsis': 'exe',
+  'windows-x86_64': 'exe',
+  'linux-x86_64-deb': 'deb',
+};
+
+const CACHE_IMMUTABLE = 'public, max-age=31536000, immutable';
+const CACHE_LATEST = 'public, max-age=300';
+const CACHE_MANIFEST = 'no-cache';
+
+const CONTENT_TYPES = {
+  '.deb': 'application/vnd.debian.binary-package',
+  '.apk': 'application/vnd.android.package-archive',
+  '.exe': 'application/vnd.microsoft.portable-executable',
+  '.sig': 'text/plain; charset=utf-8',
+  '.json': 'application/json',
+};
+
+export function contentTypeFor(name) {
+  if (name === 'SHA256SUMS') return 'text/plain; charset=utf-8';
+  const ext = name.slice(name.lastIndexOf('.'));
+  return CONTENT_TYPES[ext] || 'application/octet-stream';
+}
+
+export function compareVersions(a, b) {
+  const parse = v => {
+    const [core, pre] = String(v).split('-', 2);
+    return { nums: core.split('.').map(Number), pre };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < 3; i++) {
+    if ((x.nums[i] || 0) !== (y.nums[i] || 0)) return (x.nums[i] || 0) > (y.nums[i] || 0) ? 1 : -1;
+  }
+  if (x.pre === y.pre) return 0;
+  if (!x.pre) return 1;
+  if (!y.pre) return -1;
+  return x.pre > y.pre ? 1 : -1;
+}
 
 export function validateSha(sha, fieldName = 'source_sha') {
   if (typeof sha !== 'string' || !VALID_SHA_REGEX.test(sha)) {
@@ -141,6 +190,14 @@ export async function validateReleaseAncestry(sourceSha, githubRepo, ghToken, op
  * Checks whether release or tag already exists. Throws if exists (strictly immutable).
  */
 export async function checkExistingRelease(tag, githubRepo, ghToken, fetchFn = timedFetch) {
+  const existing = await releaseExists(tag, githubRepo, ghToken, fetchFn);
+  if (existing) throw new Error(`${existing}. Refusing to overwrite immutable release.`);
+}
+
+/**
+ * Returns a description when a GitHub release or tag named `tag` exists, otherwise null.
+ */
+export async function releaseExists(tag, githubRepo, ghToken, fetchFn = timedFetch) {
   validateGitHubRepo(githubRepo);
 
   const releaseUrl = `https://api.github.com/repos/${githubRepo}/releases/tags/${tag}`;
@@ -153,9 +210,7 @@ export async function checkExistingRelease(tag, githubRepo, ghToken, fetchFn = t
     redirect: 'error',
   });
 
-  if (res.status === 200) {
-    throw new Error(`Release with tag "${tag}" already exists. Refusing to overwrite immutable release.`);
-  }
+  if (res.status === 200) return `Release with tag "${tag}" already exists`;
 
   if (res.status !== 404) throw new Error(`Release lookup failed (HTTP ${res.status})`);
 
@@ -169,10 +224,9 @@ export async function checkExistingRelease(tag, githubRepo, ghToken, fetchFn = t
     redirect: 'error',
   });
 
-  if (tagRes.status === 200) {
-    throw new Error(`Git tag "${tag}" already exists. Refusing to overwrite immutable release.`);
-  }
+  if (tagRes.status === 200) return `Git tag "${tag}" already exists`;
   if (tagRes.status !== 404) throw new Error(`Tag lookup failed (HTTP ${tagRes.status})`);
+  return null;
 }
 
 export async function fetchPackageVersionFromGitHub(sourceSha, githubRepo, ghToken, fetchFn = timedFetch) {
@@ -247,51 +301,195 @@ export async function findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken,
       );
     }
 
-    // Verify required jobs inside run
-    const jobsUrl = validatedGitHubApiUrl(newestRun.jobs_url);
-    const jobsRes = await fetchFn(jobsUrl, {
-      headers: {
-        Authorization: `Bearer ${ghToken}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      redirect: 'error',
-    });
-
-    if (!jobsRes.ok) {
-      throw new Error(`GitHub API error querying jobs for run #${newestRun.id} (HTTP ${jobsRes.status})`);
-    }
-
-    const jobsData = await jobsRes.json();
-    const jobs = jobsData.jobs || [];
-
-    if (wfName === 'CI') {
-      const requiredJobNames = [
-        'Build Linux amd64 Debian package',
-        'Build Android debug arm64 APK',
-        'Build unsigned universal macOS app',
-        'Compile unsigned iOS device and simulator archives',
-        'Portable checks',
-        'Build Web Client',
-        'Browser UI and workspace regression',
-      ];
-      for (const req of requiredJobNames) {
-        const found = jobs.find(j => j.name === req);
-        if (!found || found.status !== 'completed' || found.conclusion !== 'success') {
-          throw new Error(`Required job "${req}" in CI run #${newestRun.id} was not successful`);
-        }
-      }
-    } else if (wfName === 'Windows Installer') {
-      const found = jobs.find(j => j.name === 'windows');
-      if (!found || found.status !== 'completed' || found.conclusion !== 'success') {
-        throw new Error(`Required job "windows" in Windows Installer run #${newestRun.id} was not successful`);
-      }
-    }
+    await verifyRequiredJobs(newestRun, wfName, ghToken, fetchFn);
 
     selectedRuns[wfName] = newestRun;
   }
 
   return selectedRuns;
+}
+
+export const REQUIRED_CI_JOBS = [
+  'Build Linux amd64 Debian package',
+  'Build Android debug arm64 APK',
+  'Build unsigned universal macOS app',
+  'Compile unsigned iOS device and simulator archives',
+  'Portable checks',
+  'Build Web Client',
+  'Browser UI and workspace regression',
+];
+
+async function verifyRequiredJobs(run, wfName, ghToken, fetchFn) {
+  const jobsUrl = validatedGitHubApiUrl(`${run.jobs_url}?per_page=100`);
+  const jobsRes = await fetchFn(jobsUrl, {
+    headers: {
+      Authorization: `Bearer ${ghToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    redirect: 'error',
+  });
+
+  if (!jobsRes.ok) {
+    throw new Error(`GitHub API error querying jobs for run #${run.id} (HTTP ${jobsRes.status})`);
+  }
+
+  const jobsData = await jobsRes.json();
+  const jobs = jobsData.jobs || [];
+
+  if (wfName === 'CI') {
+    for (const req of REQUIRED_CI_JOBS) {
+      const found = jobs.find(j => j.name === req);
+      if (!found || found.status !== 'completed' || found.conclusion !== 'success') {
+        throw new Error(`Required job "${req}" in CI run #${run.id} was not successful`);
+      }
+    }
+  } else if (wfName === 'Windows Installer') {
+    const found = jobs.find(j => j.name === 'windows');
+    if (!found || found.status !== 'completed' || found.conclusion !== 'success') {
+      throw new Error(`Required job "windows" in Windows Installer run #${run.id} was not successful`);
+    }
+  }
+}
+
+function ghHeaders(ghToken) {
+  return {
+    Authorization: `Bearer ${ghToken}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
+function isOwnReleasePush(run, sourceSha, githubRepo) {
+  return run.event === 'push' && run.head_branch === 'release' && run.head_sha === sourceSha &&
+    run.head_repository?.full_name === githubRepo;
+}
+
+/**
+ * CI mode: the publish job runs inside the CI run itself, so that run is still in
+ * progress. Its required build jobs must already have succeeded (they are `needs`).
+ */
+export async function findCurrentCiRun(runId, sourceSha, githubRepo, ghToken, fetchFn = timedFetch) {
+  if (!/^[0-9]+$/.test(String(runId))) throw new Error('Invalid CI run id');
+  const res = await fetchFn(`https://api.github.com/repos/${githubRepo}/actions/runs/${runId}`, {
+    headers: ghHeaders(ghToken),
+    redirect: 'error',
+  });
+  if (!res.ok) throw new Error(`GitHub API error querying CI run #${runId} (HTTP ${res.status})`);
+  const run = await res.json();
+  if (run.name !== 'CI' || !isOwnReleasePush(run, sourceSha, githubRepo)) {
+    throw new Error(`Run #${runId} is not the release push CI run for ${sourceSha}`);
+  }
+  await verifyRequiredJobs(run, 'CI', ghToken, fetchFn);
+  return run;
+}
+
+/**
+ * CI mode: waits for the separate Windows Installer workflow of the same push.
+ */
+export async function waitForWindowsRun(sourceSha, githubRepo, ghToken, options = {}) {
+  const fetchFn = options.fetchFn || timedFetch;
+  const wait = options.sleep || sleep;
+  const intervalMs = options.intervalMs ?? 30000;
+  const deadline = Date.now() + (options.timeoutMs ?? 55 * 60 * 1000);
+  const runsUrl = `https://api.github.com/repos/${githubRepo}/actions/runs?head_sha=${sourceSha}&event=push&branch=release&per_page=100`;
+
+  while (true) {
+    const res = await fetchFn(runsUrl, { headers: ghHeaders(ghToken), redirect: 'error' });
+    if (!res.ok) throw new Error(`GitHub API error querying workflow runs (HTTP ${res.status})`);
+    const runs = ((await res.json()).workflow_runs || [])
+      .filter(r => r.name === 'Windows Installer' && isOwnReleasePush(r, sourceSha, githubRepo))
+      .sort((a, b) => b.id - a.id);
+    const newest = runs[0];
+    if (newest?.status === 'completed') {
+      if (newest.conclusion !== 'success') {
+        throw new Error(`Windows Installer run #${newest.id} finished with conclusion ${newest.conclusion}`);
+      }
+      await verifyRequiredJobs(newest, 'Windows Installer', ghToken, fetchFn);
+      return newest;
+    }
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for the Windows Installer run');
+    await wait(intervalMs);
+  }
+}
+
+/**
+ * Signs a file for the Tauri updater with the pinned Tauri CLI and returns the
+ * signature text. The private key only reaches the signer process environment.
+ */
+export function signUpdaterAsset(filePath, signing, exec = execFileSync) {
+  if (!signing?.privateKey || !signing?.password) {
+    throw new Error('Missing TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
+  }
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(signing.cliVersion || '')) throw new Error('Tauri CLI version must be pinned');
+  exec('npx', ['--yes', `@tauri-apps/cli@${signing.cliVersion}`, 'signer', 'sign', filePath], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    timeout: 300000,
+    env: {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      CI: 'true',
+      TAURI_SIGNING_PRIVATE_KEY: signing.privateKey,
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: signing.password,
+    },
+  });
+  const signature = readFileSync(`${filePath}.sig`, 'utf8').trim();
+  if (!/^[A-Za-z0-9+/=]+$/.test(signature)) throw new Error(`Invalid updater signature for ${filePath}`);
+  return signature;
+}
+
+export function buildUpdaterManifest(version, sourceSha, pubDate, urls, signatures) {
+  const platforms = {};
+  for (const [platform, kind] of Object.entries(UPDATER_PLATFORMS)) {
+    platforms[platform] = { signature: signatures[kind], url: urls[kind] };
+  }
+  return {
+    version,
+    notes: `TJUClaw Client v${version}（源码提交 ${sourceSha.slice(0, 12)}）`,
+    pub_date: pubDate,
+    platforms,
+  };
+}
+
+/**
+ * Uploads a version under client/v<version>/ (immutable, skipped when its manifest
+ * already exists), then moves client/latest/ and client/latest.json forward only
+ * when this version is newer than the one currently published.
+ */
+export async function publishToR2(r2, { version, assets, updaterManifest }, fetchFn = timedFetch) {
+  const versionPrefix = `${R2_PREFIX}/v${version}`;
+  const manifestKey = `${versionPrefix}/manifest.json`;
+  const uploaded = !(await r2Exists(r2, manifestKey, fetchFn));
+
+  if (uploaded) {
+    // manifest.json goes last: its presence marks a complete version directory.
+    for (const asset of assets) {
+      await r2Put(r2, `${versionPrefix}/${asset.name}`, await readFile(asset.filePath), {
+        contentType: contentTypeFor(asset.name),
+        cacheControl: CACHE_IMMUTABLE,
+        contentDisposition: asset.download ? `attachment; filename="${asset.name}"` : undefined,
+      }, fetchFn);
+    }
+  }
+
+  const currentText = await r2GetText(r2, UPDATER_MANIFEST_KEY, fetchFn);
+  const current = currentText ? JSON.parse(currentText).version : null;
+  const promoted = !current || compareVersions(version, current) > 0;
+  if (promoted) {
+    for (const asset of assets) {
+      await r2Copy(r2, `${versionPrefix}/${asset.name}`, `${R2_PREFIX}/latest/${asset.name}`, {
+        contentType: contentTypeFor(asset.name),
+        cacheControl: CACHE_LATEST,
+        contentDisposition: asset.download ? `attachment; filename="${asset.name}"` : undefined,
+      }, fetchFn);
+    }
+    await r2Put(r2, UPDATER_MANIFEST_KEY, Buffer.from(JSON.stringify(updaterManifest, null, 2) + '\n'), {
+      contentType: 'application/json',
+      cacheControl: CACHE_MANIFEST,
+    }, fetchFn);
+  }
+
+  return { uploaded, promoted, previous: current, url: publicObjectUrl(r2, manifestKey) };
 }
 
 export async function resolveArtifactsForSha(sourceSha, githubRepo, selectedRuns, ghToken, fetchFn = timedFetch) {
@@ -501,7 +699,7 @@ export async function publishDownloads(options, injected = {}) {
   if (!ghToken) {
     throw new Error('Missing GITHUB_TOKEN (or GH_TOKEN)');
   }
-  secrets.push(ghToken);
+  secrets.push(ghToken, options.signing?.privateKey, options.signing?.password);
 
   const prepareOnly = Boolean(options.prepareOnly);
   const targetDir = options.outDir ? resolve(options.outDir) : await mkdtemp(resolve(tmpdir(), 'tjuclaw-release-'));
@@ -518,11 +716,28 @@ export async function publishDownloads(options, injected = {}) {
     const version = await fetchPackageVersionFromGitHub(sourceSha, githubRepo, ghToken, fetchFn);
     const tagName = `v${version}`;
 
-    // 3. Existing release check - refuse overwrite
-    await checkExistingRelease(tagName, githubRepo, ghToken, fetchFn);
+    // 3. Published versions are immutable: each target that already has this
+    // version is skipped, never overwritten. A version is published on R2 once its
+    // manifest exists and latest.json has reached it (or a newer version).
+    const githubExisting = await releaseExists(tagName, githubRepo, ghToken, fetchFn);
+    const r2 = prepareOnly ? null : (options.r2 || readR2Config());
+    if (r2) secrets.push(r2.secretAccessKey);
+    if (r2 && githubExisting && await r2Exists(r2, `${R2_PREFIX}/v${version}/manifest.json`, fetchFn)) {
+      const latestText = await r2GetText(r2, UPDATER_MANIFEST_KEY, fetchFn);
+      const latest = latestText ? JSON.parse(latestText).version : null;
+      if (latest && compareVersions(latest, version) >= 0) {
+        return { success: true, skipped: true, tagName, reason: `${tagName} is already published to GitHub and R2` };
+      }
+    }
 
-    // 4. Verify workflow runs
-    const runs = await findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken, fetchFn);
+    // 4. Verify workflow runs. In CI mode the publish job runs inside the CI run
+    // and waits for the separate Windows Installer workflow of the same push.
+    const runs = options.ciRunId
+      ? {
+          CI: await findCurrentCiRun(options.ciRunId, sourceSha, githubRepo, ghToken, fetchFn),
+          'Windows Installer': await waitForWindowsRun(sourceSha, githubRepo, ghToken, { fetchFn, sleep: injected.sleep }),
+        }
+      : await findSuccessfulWorkflowRuns(sourceSha, githubRepo, ghToken, fetchFn);
     const ciRun = runs['CI'];
     const windowsRun = runs['Windows Installer'];
 
@@ -620,7 +835,37 @@ export async function publishDownloads(options, injected = {}) {
       };
     }
 
-    // 9. Create draft release
+    // 9. Sign the desktop installers for the Tauri updater and publish to R2.
+    const signFn = injected.signFn || (file => signUpdaterAsset(file, options.signing));
+    const byName = Object.fromEntries(preparedAssets.map(a => [a.name, a]));
+    const signatures = {};
+    const signatureAssets = [];
+    for (const [kind, name] of [['exe', TARGET_ASSET_NAMES.exe], ['deb', TARGET_ASSET_NAMES.deb]]) {
+      const signature = signFn(byName[name].filePath);
+      const sigPath = `${byName[name].filePath}.sig`;
+      await writeFile(sigPath, signature + '\n', { mode: 0o644 });
+      signatures[kind] = signature;
+      signatureAssets.push({ name: `${name}.sig`, filePath: sigPath });
+    }
+    const versionUrl = name => publicObjectUrl(r2, `${R2_PREFIX}/v${version}/${name}`);
+    const updaterManifest = buildUpdaterManifest(version, sourceSha, new Date().toISOString(),
+      { exe: versionUrl(TARGET_ASSET_NAMES.exe), deb: versionUrl(TARGET_ASSET_NAMES.deb) }, signatures);
+    const r2Result = await publishToR2(r2, {
+      version,
+      updaterManifest,
+      assets: [
+        ...preparedAssets.map(a => ({ name: a.name, filePath: a.filePath, download: true })),
+        ...signatureAssets,
+        { name: 'SHA256SUMS', filePath: sha256SumsPath },
+        { name: 'manifest.json', filePath: manifestPath },
+      ],
+    }, fetchFn);
+
+    if (githubExisting) {
+      return { success: true, tagName, r2: r2Result, github: { skipped: true, reason: githubExisting } };
+    }
+
+    // 10. Create draft release
     const createReleaseUrl = `https://api.github.com/repos/${githubRepo}/releases`;
     const createRes = await fetchFn(createReleaseUrl, {
       method: 'POST',
@@ -652,7 +897,7 @@ export async function publishDownloads(options, injected = {}) {
       throw new Error('Unexpected release upload endpoint');
     }
 
-    // 10. Upload assets
+    // 11. Upload assets
     const filesToUpload = [
       ...preparedAssets.map(a => ({ name: a.name, path: a.filePath, contentType: 'application/octet-stream' })),
       { name: 'SHA256SUMS', path: sha256SumsPath, contentType: 'text/plain' },
@@ -679,7 +924,7 @@ export async function publishDownloads(options, injected = {}) {
       }
     }
 
-    // 11. Publish draft release as latest
+    // 12. Publish draft release as latest
     const publishUrl = `https://api.github.com/repos/${githubRepo}/releases/${releaseId}`;
     const pubRes = await fetchFn(publishUrl, {
       method: 'PATCH',
@@ -708,6 +953,7 @@ export async function publishDownloads(options, injected = {}) {
       tagName,
       url: published.html_url,
       manifest: manifestData,
+      r2: r2Result,
     };
   } catch (err) {
     const clean = sanitizeErrorMessage(err, secrets);
@@ -736,20 +982,31 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     }
   }
 
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const options = {
     sourceSha: cliSourceSha,
     githubRepo: process.env.GITHUB_REPOSITORY || EXPECTED_GITHUB_REPO,
     ghToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
     prepareOnly: cliPrepareOnly,
     outDir: cliOutDir,
+    ciRunId: process.env.CI_RUN_ID || undefined,
+    signing: {
+      privateKey: process.env.TAURI_SIGNING_PRIVATE_KEY,
+      password: process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+      cliVersion: pkg.devDependencies?.['@tauri-apps/cli'],
+    },
   };
 
   publishDownloads(options)
     .then(res => {
       if (res.preparedOnly) {
         console.log(`Successfully prepared downloads for commit ${res.sourceSha} (v${res.version}) at ${res.outDir}`);
+      } else if (res.skipped) {
+        console.log(`Nothing to publish: ${res.reason}. Bump package.json to release a new version.`);
       } else {
-        console.log(`Successfully published release ${res.tagName}: ${res.url}`);
+        const r2 = res.r2;
+        console.log(`R2 ${res.tagName}: ${r2.uploaded ? 'uploaded' : 'already present'}; latest ${r2.promoted ? `moved from ${r2.previous ?? 'none'}` : `kept at ${r2.previous}`}.`);
+        console.log(res.github?.skipped ? `GitHub release: ${res.github.reason}` : `GitHub release published: ${res.url}`);
       }
     })
     .catch(err => {

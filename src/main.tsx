@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import Auth from './auth';
 import { ContestBanner } from './contest-banner';
 import { LoadingFallback } from './components/loading-fallback';
+import { UpdateNotice } from './components/update-notice';
 import './lib/appearance';
 import { installScrollActivity } from './lib/scroll-activity';
 import './product.css';
@@ -20,5 +21,6 @@ createRoot(document.getElementById('root')!).render(
     <Suspense fallback={<LoadingFallback />}>
       <App />
     </Suspense>
+    {import.meta.env.MODE === 'audit' ? null : <UpdateNotice />}
   </StrictMode>,
 );

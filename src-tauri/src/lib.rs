@@ -2,7 +2,13 @@ mod store;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // 应用内更新只在桌面端可用；Android/iOS 仍通过下载页或应用商店分发。
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+    builder
         .setup(|app| {
             use tauri::Manager;
             // A store that cannot open must never stop the app from launching;

@@ -28,6 +28,43 @@ jobs:
     uses: ./.github/workflows/deploy-edgeone.yml
     secrets: inherit
 
+  publish-downloads:
+    name: Publish client downloads to R2 and GitHub Release
+    needs: [check, browser, build-artifacts, build-linux, build-android, build-macos, build-ios]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
+    runs-on: ubuntu-24.04
+    # Waits for the separate Windows Installer workflow of the same push, then publishes.
+    timeout-minutes: 75
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: publish-downloads-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Publish new version (skips when package.json version is already published)
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/publish-downloads.mjs
+
   check:
     name: Portable checks
     runs-on: ubuntu-24.04

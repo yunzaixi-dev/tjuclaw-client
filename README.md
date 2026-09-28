@@ -86,17 +86,27 @@ macOS 应用和 iOS 无签名归档都是短期 CI 产物。
 客户端不包含私有服务端源码；服务端的接口、部署和运行不构成对私有服务端实现的授权。
 ## 下载安装包与发布
 
-公开下载：[GitHub Releases](https://github.com/yunzaixi-dev/tjuclaw-client/releases/latest)。
+公开下载同时发布到 Cloudflare R2 与 [GitHub Releases](https://github.com/yunzaixi-dev/tjuclaw-client/releases/latest)。
 提供 Windows x64 EXE（未签名）、Linux amd64 DEB、Android arm64 APK（debug 签名），
-以及 `SHA256SUMS` 和记录来源提交/构建运行的 `manifest.json`。Wiki 按钮使用固定资产名的
-`releases/latest/download/` 链接。
+以及 `SHA256SUMS` 和记录来源提交/构建运行的 `manifest.json`。
 
-`release` 推送自动构建三端安装包；Actions 临时产物保留 7 天。持久发布新版本时，
-先更新客户端 `package.json` 版本并等待同一提交的 CI 和 Windows Installer 成功，再运行：
+| 地址 | 内容 |
+| --- | --- |
+| `https://tjuclaw-release.zaixi.dev/client/latest/<文件名>` | 最新版直链，Wiki 下载按钮使用 |
+| `https://tjuclaw-release.zaixi.dev/client/v<版本>/<文件名>` | 不可变的版本目录，含 `.sig` 更新签名 |
+| `https://tjuclaw-release.zaixi.dev/client/latest.json` | 桌面端应用内更新清单 |
+
+`release` 推送时，CI 的 `publish-downloads` 任务在全部构建成功、并等到同一提交的
+Windows Installer 成功后自动发布：**只有 `package.json` 版本号尚未发布时才会发布**，
+版本未变则跳过。要发布新版本，先提升版本号再推送。已发布的版本目录、Release 和标签
+不会覆盖；`latest/` 与 `latest.json` 只会前进、不会回退，并在全部文件上传后最后切换。
+需要补发时可手动运行：
 
 ```bash
 gh workflow run publish-downloads.yml --repo yunzaixi-dev/tjuclaw-client --ref release -f source_sha=<40位源码提交SHA>
 ```
 
-已发布版本和标签不会覆盖。流程验证提交归属、检查结果、产物 SHA-256，
-上传全部文件后才公开 Release。构建失败或缺包时停止发布；GitLab 比赛交付维持独立流程。
+桌面端（Windows NSIS、Linux DEB）启动后检查 `latest.json`，下载前用内置公钥校验
+Tauri 更新签名。签名私钥与口令只存于仓库 Secrets `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)`，
+私钥丢失后已安装的客户端将无法再自动更新。Android/iOS 不支持应用内更新。
+GitLab 比赛交付维持独立流程。

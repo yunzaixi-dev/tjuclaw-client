@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish client downloads to GitHub Release
+    name: Publish client downloads to R2 and GitHub Release
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.ref == 'refs/heads/release'
@@ -39,4 +39,11 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/publish-downloads.mjs
