@@ -1,5 +1,5 @@
 import { readVaultObject, VaultError, writeVaultObject } from './sealed-vault';
-import { authRequest } from './auth';
+import { authRequest, AuthError } from './auth';
 
 const encoder = new TextEncoder();
 const STORAGE_PREFIX = 'tjuclaw.workspace.vault.v1';
@@ -38,9 +38,19 @@ function verifierContent(workspaceId: string) {
 }
 
 export async function workspaceVerification(): Promise<WorkspaceVerification> {
-  const result = await authRequest<{ configured: boolean }>('/api/vault/status');
-  if (typeof result?.configured !== 'boolean') throw new Error('workspace_vault_unavailable');
-  return result.configured ? 'remote' : 'local';
+  // A momentary gateway hiccup should not lock the workspace; sign-in
+  // problems (4xx) are reported at once, everything else is retried briefly.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const result = await authRequest<{ configured: boolean }>('/api/vault/status');
+      if (typeof result?.configured !== 'boolean') throw new Error('workspace_vault_unavailable');
+      return result.configured ? 'remote' : 'local';
+    } catch (error) {
+      const status = error instanceof AuthError ? error.status : 0;
+      if (attempt >= 2 || (status >= 400 && status < 500)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+    }
+  }
 }
 
 export async function workspacePassphraseState(identity: string, workspaceId: string, verification: WorkspaceVerification): Promise<WorkspacePassphraseState> {
