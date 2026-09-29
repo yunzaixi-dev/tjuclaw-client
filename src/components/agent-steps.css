@@ -1,6 +1,6 @@
 /* A reply's thinking and tool calls: one quiet summary line that opens into
    a timeline, each row readable at a glance and expandable for details. */
-.agent-steps-block { display: grid; gap: 4px; margin-bottom: 2px; }
+.agent-steps-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-bottom: 2px; }
 .agent-steps-summary {
   display: inline-flex; justify-self: start; align-items: center; gap: 4px; height: 26px; margin-left: -6px; padding: 0 6px;
   border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; cursor: pointer;
@@ -9,7 +9,7 @@
 .agent-steps-summary svg { transition: transform 160ms var(--ease-out); }
 .agent-steps-block.is-open > .agent-steps-summary svg { transform: rotate(90deg); }
 
-.agent-steps-list { position: relative; display: grid; gap: 1px; margin: 0 0 6px; padding: 2px 0 2px 2px; list-style: none; animation: agent-steps-in 180ms var(--ease-out) both; }
+.agent-steps-list { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 0 6px; padding: 2px 0 2px 2px; list-style: none; animation: agent-steps-in 180ms var(--ease-out) both; }
 .agent-steps-list::before { position: absolute; top: 14px; bottom: 14px; left: 12px; width: 1px; background: var(--border); content: ""; }
 
 .agent-step > button {
