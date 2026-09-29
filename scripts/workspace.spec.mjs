@@ -2424,7 +2424,10 @@ test('block Markdown markers include their separating spaces in live preview', a
   expect(await heading.textContent()).toBe('标题');
   expect(await quote.textContent()).toBe('引用');
   expect(await bullet.textContent()).toBe('•列表');
-  expect(await ordered.locator('.cm-md-ordered-marker').textContent()).toBe('1.  ');
+  // The number and its spaces become one fixed-width marker, so no stray
+  // spaces are left in front of the text and wrapped lines can hang.
+  expect(await ordered.locator('.cm-md-ordered-marker').textContent()).toBe('1.');
+  expect(await ordered.textContent()).toBe('1.顺序');
   expect(await task.textContent()).toBe('待办');
 
   await heading.click();

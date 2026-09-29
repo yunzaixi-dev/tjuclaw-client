@@ -3,7 +3,7 @@ import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, defaultHighlightStyle, HighlightStyle, indentOnInput, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { EditorState, RangeSet } from '@codemirror/state';
+import { EditorState, RangeSet, StateEffect, StateField, type Range } from '@codemirror/state';
 import { Decoration, dropCursor, EditorView, highlightSpecialChars, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from '@codemirror/commands';
 import { keymap } from '@codemirror/view';
@@ -53,6 +53,8 @@ function TouchFormatBar({ view, onMore }: { view: EditorView; onMore: () => void
 }
 
 const hide = Decoration.replace({});
+/** Width of one list level and of a list marker, in em. */
+const LIST_STEP = 1.6;
 const mark = (className: string) => Decoration.mark({ class: className });
 // Keep CodeMirror's syntax colors without its default heading underline.
 const noteHighlight = HighlightStyle.define([
@@ -70,6 +72,42 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** Nested list indentation, drawn at a fixed width so wrapped lines can hang. */
+class IndentWidget extends WidgetType {
+  constructor(readonly level: number) { super(); }
+  eq(other: IndentWidget) { return this.level === other.level; }
+  toDOM() {
+    const indent = document.createElement('span');
+    indent.className = 'cm-md-indent';
+    indent.style.width = `${this.level * LIST_STEP}em`;
+    indent.setAttribute('aria-hidden', 'true');
+    return indent;
+  }
+}
+
+class OrderedWidget extends WidgetType {
+  constructor(readonly marker: string) { super(); }
+  eq(other: OrderedWidget) { return this.marker === other.marker; }
+  toDOM() {
+    const marker = document.createElement('span');
+    marker.className = 'cm-md-ordered-marker';
+    marker.textContent = this.marker;
+    return marker;
+  }
+}
+
+/** The language label that stands in for an opening code fence. */
+class FenceWidget extends WidgetType {
+  constructor(readonly language: string) { super(); }
+  eq(other: FenceWidget) { return this.language === other.language; }
+  toDOM() {
+    const label = document.createElement('span');
+    label.className = 'cm-md-code-label';
+    label.textContent = this.language;
+    return label;
+  }
+}
+
 class TaskWidget extends WidgetType {
   constructor(readonly from: number, readonly checked: boolean) { super(); }
   eq(other: TaskWidget) { return this.from === other.from && this.checked === other.checked; }
@@ -80,6 +118,9 @@ class TaskWidget extends WidgetType {
     checkbox.checked = this.checked;
     checkbox.setAttribute('aria-label', this.checked ? '标记任务未完成' : '标记任务完成');
     checkbox.addEventListener('mousedown', event => event.stopPropagation());
+    const box = document.createElement('span');
+    box.className = 'cm-md-task-box';
+    box.append(checkbox);
     checkbox.addEventListener('change', () => {
       view.dispatch({ changes: { from: this.from + 1, to: this.from + 2, insert: checkbox.checked ? 'x' : ' ' } });
     });
@@ -91,7 +132,7 @@ class TaskWidget extends WidgetType {
       if (event.shiftKey) redo(view);
       else undo(view);
     });
-    return checkbox;
+    return box;
   }
   ignoreEvent() { return true; }
 }
@@ -159,13 +200,31 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
       }
       if (name === 'ListMark') {
         const end = withSeparator(to);
+        const lineStart = doc.lineAt(from).from;
+        let level = 0;
+        for (let ancestor = parent?.parent?.parent; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.name === 'BulletList' || ancestor.name === 'OrderedList') level += 1;
+        }
+        // Wrapped lines hang under the item's text, not under the marker.
+        decorations.push(Decoration.line({
+          attributes: { class: 'cm-md-list-line', style: `--md-hang: ${(level + 1) * LIST_STEP}em` },
+        }).range(lineStart));
         if (activeLine) add(from, end, mark('cm-md-syntax'));
-        else if (parent?.parent?.name === 'OrderedList') add(from, end, mark('cm-md-ordered-marker'));
-        else if (/^\[[ xX]\]/.test(text.slice(end))) {
-          const range = hide.range(from, end);
-          decorations.push(range);
-          atomic.push(range);
-        } else decorations.push(Decoration.replace({ widget: new BulletWidget() }).range(from, end));
+        else {
+          if (from > lineStart) {
+            const indent = Decoration.replace({ widget: new IndentWidget(level) }).range(lineStart, from);
+            decorations.push(indent);
+            atomic.push(indent);
+          }
+          const replace = (widget: WidgetType | null) => {
+            const range = (widget ? Decoration.replace({ widget }) : hide).range(from, end);
+            decorations.push(range);
+            atomic.push(range);
+          };
+          if (/^\[[ xX]\]/.test(text.slice(end))) replace(null);
+          else if (parent?.parent?.name === 'OrderedList') replace(new OrderedWidget(text.slice(from, to)));
+          else replace(new BulletWidget());
+        }
       }
       if (name === 'TaskMarker') {
         const checked = text[from + 1]?.toLowerCase() === 'x';
@@ -178,14 +237,31 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         syntax(from, withSeparator(to), activeLine);
       }
       if (name === 'FencedCode') {
-        for (let pos = doc.lineAt(from).from; pos <= to; ) {
-          line(pos, 'cm-md-code-line');
+        const first = doc.lineAt(from);
+        const last = doc.lineAt(to);
+        const closed = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+        // Away from the cursor the fences give way to a language label.
+        const reveal = selected(from, to);
+        for (let pos = first.from; pos <= to; ) {
           const current = doc.lineAt(pos);
+          const edge = current.number === first.number ? ' cm-md-code-first' : current.number === last.number && closed ? ' cm-md-code-last' : '';
+          line(pos, `cm-md-code-line${edge}${edge && !reveal ? ' is-collapsed' : ''}`);
           if (current.to >= to || current.number === doc.lines) break;
           pos = current.to + 1;
         }
+        if (!reveal) {
+          const language = first.text.replace(/^\s*(```|~~~)+/, '').trim().split(/\s+/)[0] ?? '';
+          const opening = Decoration.replace({ widget: new FenceWidget(language) }).range(first.from, first.to);
+          decorations.push(opening);
+          atomic.push(opening);
+          if (closed && last.from < last.to) {
+            const closing = hide.range(last.from, last.to);
+            decorations.push(closing);
+            atomic.push(closing);
+          }
+        }
       }
-      if ((name === 'CodeMark' || name === 'CodeInfo') && parent?.name === 'FencedCode') add(from, to, mark('cm-md-fence'));
+      if ((name === 'CodeMark' || name === 'CodeInfo') && parent?.name === 'FencedCode' && selected(parent.from, parent.to)) add(from, to, mark('cm-md-fence'));
       if (name === 'HorizontalRule') {
         if (!activeLine) add(from, to, mark('cm-md-rule'));
       }
@@ -207,6 +283,127 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
   });
   return { decorations: Decoration.set(decorations, true), hidden: RangeSet.of(atomic, true) };
 }
+
+type TableCell = { text: string; pos: number };
+
+/** Splits one table row into cells, keeping each cell's document position. */
+function tableRow(line: string, lineFrom: number): TableCell[] {
+  const cells: TableCell[] = [];
+  let start = 0;
+  let end = line.length;
+  while (start < end && /\s/.test(line[start])) start += 1;
+  if (line[start] === '|') start += 1;
+  while (end > start && /\s/.test(line[end - 1])) end -= 1;
+  if (end > start && line[end - 1] === '|' && line[end - 2] !== '\\') end -= 1;
+  let cellStart = start;
+  for (let index = start; index <= end; index += 1) {
+    if (index === end || (line[index] === '|' && line[index - 1] !== '\\')) {
+      const raw = line.slice(cellStart, index);
+      const lead = raw.length - raw.trimStart().length;
+      cells.push({ text: raw.trim().replace(/\\\|/g, '|'), pos: lineFrom + cellStart + lead });
+      cellStart = index + 1;
+    }
+  }
+  return cells;
+}
+
+/** Bold, italic, inline code and link labels inside a table cell, as DOM. */
+function inlineCell(target: HTMLElement, text: string) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|!?\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]*\))/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const token = match[0];
+    const index = match.index ?? 0;
+    if (index > last) target.append(text.slice(last, index));
+    let element: HTMLElement;
+    if (token.startsWith('`')) { element = document.createElement('code'); element.className = 'cm-md-inline-code'; element.textContent = token.slice(1, -1); }
+    else if (token.startsWith('**')) { element = document.createElement('strong'); element.textContent = token.slice(2, -2); }
+    else if (token.startsWith('~~')) { element = document.createElement('s'); element.textContent = token.slice(2, -2); }
+    else if (token.startsWith('*')) { element = document.createElement('em'); element.textContent = token.slice(1, -1); }
+    else if (token.includes('[[')) {
+      element = document.createElement('span'); element.className = 'cm-md-wikilink';
+      const inner = token.replace(/^!?\[\[|\]\]$/g, '');
+      element.textContent = inner.slice(inner.lastIndexOf('|') + 1);
+    } else { element = document.createElement('span'); element.className = 'cm-md-link-label'; element.textContent = token.slice(1, token.indexOf('](')); }
+    target.append(element);
+    last = index + token.length;
+  }
+  if (last < text.length) target.append(text.slice(last));
+}
+
+class TableWidget extends WidgetType {
+  constructor(readonly source: string, readonly from: number) { super(); }
+  eq(other: TableWidget) { return this.source === other.source && this.from === other.from; }
+  toDOM(view: EditorView) {
+    const lines = this.source.split('\n');
+    let offset = this.from;
+    const rows = lines.map(line => { const row = tableRow(line, offset); offset += line.length + 1; return row; });
+    const aligns = (rows[1] ?? []).map(cell => {
+      const spec = cell.text.replace(/\s/g, '');
+      return spec.startsWith(':') && spec.endsWith(':') ? 'center' : spec.endsWith(':') ? 'right' : '';
+    });
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-md-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'cm-md-table';
+    const columns = rows[0]?.length ?? 0;
+    rows.forEach((row, rowIndex) => {
+      if (rowIndex === 1) return;
+      const tr = document.createElement('tr');
+      for (let column = 0; column < columns; column += 1) {
+        const cell = document.createElement(rowIndex === 0 ? 'th' : 'td');
+        const source = row[column];
+        if (source) inlineCell(cell, source.text);
+        if (aligns[column]) cell.style.textAlign = aligns[column];
+        // Clicking a cell opens the table source with the caret in that cell.
+        const pos = source?.pos ?? this.from;
+        cell.addEventListener('mousedown', event => {
+          event.preventDefault();
+          view.dispatch({ selection: { anchor: pos } });
+          view.focus();
+        });
+        tr.append(cell);
+      }
+      (rowIndex === 0 ? (table.createTHead()) : (table.tBodies[0] ?? table.createTBody())).append(tr);
+    });
+    wrap.append(table);
+    return wrap;
+  }
+  ignoreEvent() { return true; }
+}
+
+const setEditorFocus = StateEffect.define<boolean>();
+const editorFocus = StateField.define<boolean>({
+  create: () => false,
+  update: (value, tr) => tr.effects.reduce((focused, effect) => effect.is(setEditorFocus) ? effect.value : focused, value),
+});
+
+function tableDecorations(state: EditorState): DecorationSet {
+  const focused = state.field(editorFocus, false) ?? false;
+  const ranges: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== 'Table') return;
+      const from = state.doc.lineAt(node.from).from;
+      const to = state.doc.lineAt(node.to).to;
+      const editing = focused && state.selection.ranges.some(range => range.from <= to && range.to >= from);
+      if (!editing) ranges.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to), from), block: true }).range(from, to));
+      return false;
+    },
+  });
+  return Decoration.set(ranges);
+}
+
+/** Tables render as tables until the caret enters them (block widgets need a state field). */
+const tablePreview = StateField.define<DecorationSet>({
+  create: tableDecorations,
+  update(value, tr) {
+    const syntaxChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
+    if (tr.docChanged || tr.selection || syntaxChanged || tr.effects.some(effect => effect.is(setEditorFocus))) return tableDecorations(tr.state);
+    return value;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
 
 class LivePreviewPlugin {
   preview: PreviewRanges;
@@ -248,6 +445,9 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           syntaxHighlighting(noteHighlight),
           livePreview,
           previewAtomicRanges,
+          editorFocus,
+          tablePreview,
+          EditorView.focusChangeEffect.of((_state, focusing) => setEditorFocus.of(focusing)),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': '正文', role: 'textbox', spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {

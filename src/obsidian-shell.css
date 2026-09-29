@@ -48,6 +48,15 @@
 .obsidian-app .codemirror-editor .cm-content:focus-visible,
 .obsidian-app .codemirror-editor .cm-editor.cm-focused,
 .obsidian-app .chat-composer textarea:focus-visible,
+.obsidian-app .agent-composer textarea:focus-visible,
+.obsidian-app .anki-note-editor input:focus-visible,
+.obsidian-app .anki-note-editor textarea:focus-visible,
+.obsidian-app .campus-form input:focus-visible,
+.obsidian-app .campus-form select:focus-visible,
+.obsidian-app .campus-vault-unlock input:focus-visible,
+.obsidian-app .campus-room-filters input:focus-visible,
+.obsidian-app .campus-room-filters select:focus-visible,
+.obsidian-app .campus-office-form input:focus-visible,
 .obsidian-app .obsidian-search input:focus-visible,
 .obsidian-app .anki-inline-search input:focus-visible,
 .obsidian-app .markdown-context-search input:focus-visible {
@@ -384,11 +393,18 @@
 .codemirror-editor .cm-md-code-line,
 .markdown-preview pre { font-family: var(--font-code); }
 .codemirror-editor .cm-md-image-label { color: var(--primary); }
-.codemirror-editor .cm-md-bullet { display: inline-block; width: 1ch; margin-right: 1ch; color: var(--shell-mark); text-align: center; }
+/* List items hang: wrapped lines line up with the item's text. Indents and
+   markers are fixed-width widgets (see LIST_STEP in markdown-editor.tsx). */
+.codemirror-editor .cm-md-list-line { padding-left: var(--md-hang) !important; text-indent: calc(-1 * var(--md-hang)); }
+.codemirror-editor .cm-md-list-line :is(.cm-md-indent, .cm-md-bullet, .cm-md-ordered-marker, .cm-md-task-box) { text-indent: 0; }
+.codemirror-editor .cm-md-indent { display: inline-block; }
+.codemirror-editor .cm-md-bullet { display: inline-block; width: 1.6em; color: var(--shell-mark); text-align: center; }
+.codemirror-editor .cm-md-list-line .cm-md-ordered-marker { display: inline-block; width: 1.6em; padding-right: .3em; text-align: right; white-space: nowrap; }
+.codemirror-editor .cm-md-task-box { display: inline-block; width: 1.6em; }
 .codemirror-editor .cm-md-checkbox {
   width: 16px;
   height: 16px;
-  margin: 0 6px 0 0;
+  margin: 0;
   border: 1.5px solid var(--muted-foreground);
   border-radius: 4px;
   appearance: none;
@@ -407,7 +423,19 @@
 }
 .codemirror-editor .cm-md-checkbox:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .codemirror-editor .cm-md-quote-line { padding-left: 12px; border-left: 2px solid var(--border); color: var(--muted-foreground); }
-.codemirror-editor .cm-md-code-line { padding: 0 10px; background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); }
+.codemirror-editor .cm-md-code-line { padding: 0 14px !important; background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); font-size: 14px; }
+.codemirror-editor .cm-md-code-first { margin-top: 4px; border-radius: 8px 8px 0 0; }
+.codemirror-editor .cm-md-code-last { margin-bottom: 4px; border-radius: 0 0 8px 8px; }
+.codemirror-editor .cm-md-code-first.cm-md-code-last { border-radius: 8px; }
+/* Collapsed fences: the opening line carries the language, the closing line
+   is just the bottom edge of the block. */
+.codemirror-editor .cm-md-code-first.is-collapsed { padding-top: 4px !important; line-height: 1.6; }
+.codemirror-editor .cm-md-code-last.is-collapsed { font-size: 6px; line-height: 1; }
+.codemirror-editor .cm-md-code-label { color: var(--muted-foreground); font-family: var(--font-page); font-size: 12px; letter-spacing: .02em; }
+.codemirror-editor .cm-md-table-wrap { margin: .4em 0; overflow-x: auto; cursor: text; }
+.codemirror-editor .cm-md-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.6; }
+.codemirror-editor .cm-md-table :is(th, td) { padding: 7px 11px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.codemirror-editor .cm-md-table th { background: var(--muted); font-weight: 650; }
 .codemirror-editor .cm-md-rule { color: var(--shell-mark); }
 
 .new-note-home {
