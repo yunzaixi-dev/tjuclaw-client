@@ -1,4 +1,4 @@
-import { Blocks, Brain, FileText, Network } from 'lucide-react';
+import { Blocks, FileText, Network, SquareStack } from 'lucide-react';
 
 export const builtInPlugins = [
   {
@@ -23,7 +23,7 @@ export const builtInPlugins = [
     description: '在浏览器中整理卡片，并导出 Anki 可导入的 TSV。',
     details: ['编辑卡片正面、背面与标签', '导出 TSV 文件'],
     action: '打开记忆闪卡',
-    Icon: Brain,
+    Icon: SquareStack,
   },
 ] as const;
 

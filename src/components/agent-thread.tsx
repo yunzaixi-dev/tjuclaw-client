@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowUp, BookOpen, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
 import { AgentSteps } from './agent-steps';
-import { chooseProductModel, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { agentEffort, chooseProductModel, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
 
@@ -39,6 +39,19 @@ function Working({ name }: { name: string }) {
   return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
     <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span><span className="agent-working-time">{seconds} 秒</span></div>
   </div>;
+}
+
+/** Thinking strength for the next turns, remembered on this device. */
+function EffortPicker() {
+  const [effort, setEffort] = useState<AgentEffort>(() => agentEffort());
+  return <label className="agent-chip agent-effort" title="思考强度：深入会更慢、更仔细；快速更快给出答案">
+    <Brain size={12} aria-hidden="true" />
+    <select aria-label="思考强度" value={effort} onChange={event => { const next = event.target.value as AgentEffort; setEffort(next); setAgentEffort(next); }}>
+      <option value="">思考 · 自动</option>
+      <option value="low">思考 · 快速</option>
+      <option value="high">思考 · 深入</option>
+    </select>
+  </label>;
 }
 
 function ModelPill({ onManage }: { onManage: () => void }) {
@@ -151,7 +164,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
         <div className="agent-composer-bar">
           <span className="agent-composer-tools">
             <ModelPill key={`${modelVersion}:${messages.length}:${error ? 1 : 0}`} onManage={onManageModels} />
-            <span className="agent-chip" title="Agent 可以读取和修改当前知识库"><BookOpen size={12} aria-hidden="true" /><span>当前知识库</span></span>
+            <EffortPicker />
           </span>
           <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
             {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}

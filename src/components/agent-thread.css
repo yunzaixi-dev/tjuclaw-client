@@ -191,3 +191,12 @@
   .agent-working-text { animation: none; }
   .agent-working-text { color: var(--muted-foreground); }
 }
+
+/* Thinking strength: a chip holding a native select, no system chrome. */
+.agent-composer .agent-effort { position: relative; cursor: pointer; }
+.agent-composer .agent-effort:hover, .agent-composer .agent-effort:focus-within { background: var(--hover-wash); color: var(--foreground); }
+.agent-composer .agent-effort select {
+  appearance: none; border: 0; padding: 0; margin: 0; background: transparent; color: inherit;
+  font: inherit; cursor: pointer; outline: none;
+}
+.agent-composer .agent-effort:focus-within { box-shadow: 0 0 0 2px var(--ring); }

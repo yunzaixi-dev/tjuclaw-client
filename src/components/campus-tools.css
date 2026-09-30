@@ -248,3 +248,16 @@
   .campus-tool-icon svg { width: 32px; height: 32px; }
   .campus-tool-header h1 { font-size: 28px; }
 }
+
+/* A tool that needs an account points to Settings, as a quiet callout. */
+.obsidian-app .campus-account-hint {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 20px; padding: 10px 14px;
+  border-radius: 6px; background: var(--muted); color: var(--foreground); font-size: 14px;
+}
+.obsidian-app .campus-account-hint svg { flex: none; color: var(--muted-foreground); }
+.obsidian-app .campus-account-hint p { flex: 1; margin: 0; }
+.obsidian-app .campus-account-hint button {
+  flex: none; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--foreground); font: inherit; font-size: 13px; cursor: pointer;
+}
+.obsidian-app .campus-account-hint button:hover { background: var(--hover-wash); }

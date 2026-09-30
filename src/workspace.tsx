@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, History, Layers3, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
@@ -177,6 +177,9 @@ function readPendingAnkiReview(key: string): PendingAnkiReview | null {
 }
 
 /** Notion's "Edited …" line. */
+/** Wall-clock time for event handlers (send deadlines), never for rendering. */
+const clockNow = () => Date.now();
+
 /** A conversation is named by its first question. */
 function conversationTitle(session: ChatSession | null): string {
   const first = session?.messages?.find(message => message.role === 'user')?.content.trim().replace(/\s+/g, ' ');
@@ -235,11 +238,21 @@ function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { en
   </section>;
 }
 
+/** Headings with their line, skipping fenced code, in document order. */
 function parseHeadings(markdown: string) {
+  let fence = '';
   return markdown.split('\n').flatMap((line, index) => {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    return match ? [{ id: `heading-${index}`, level: match[1].length, text: match[2] }] : [];
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (marker && (!fence || marker[0] === fence[0] && marker.length >= fence.length)) { fence = fence ? '' : marker; return []; }
+    if (fence) return [];
+    const match = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    return match ? [{ id: `heading-${index}`, line: index, level: match[1].length, text: match[2].replace(/[*_`]/g, '') }] : [];
   });
+}
+type OutlineHeading = ReturnType<typeof parseHeadings>[number];
+const OUTLINE_KEY = 'tjuclaw.outline.open.v1';
+function outlinePreferred() {
+  try { return localStorage.getItem(OUTLINE_KEY) !== 'closed'; } catch { return true; }
 }
 
 // Original campus images load through the authenticated API proxy, so the
@@ -329,6 +342,8 @@ export default function Workspace() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 720);
   const reduceMotion = useReducedMotion();
   const [railOpen, setRailOpen] = useState(false);
+  const [activeHeading, setActiveHeading] = useState('');
+  const [collapsedHeadings, setCollapsedHeadings] = useState<Set<string>>(() => new Set());
   // Notion's sidebar sits around 256px on a laptop screen.
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(280, Math.max(240, Math.round(window.innerWidth * 0.18))));
   const [railWidth, setRailWidth] = useState(defaultContentPaneWidth);
@@ -563,6 +578,8 @@ export default function Workspace() {
     setSelected(null); setSelectedId(null); setTitle(''); setBody('');
     setChat(null); setRailOpen(false);
     if (isMobile) setSidebarOpen(false);
+    // A new conversation tab starts a fresh conversation (an empty one is reused).
+    if (kind === 'agent-blank') void startNewChat(key, true);
   }
 
   function activateTab(tab: WorkspaceTab, preserveSidebar = false) {
@@ -1004,6 +1021,8 @@ export default function Workspace() {
     if (!preserveSidebar && window.innerWidth <= 720) setSidebarOpen(false);
     // Like Notion, the page opens without a side panel; the outline is on demand.
     if (item.kind !== 'note') setRailOpen(false);
+    // The outline is open beside notes on wide screens unless the reader closed it.
+    else if (window.innerWidth > 1100 && outlinePreferred()) setRailOpen(true);
     if (item.kind === 'agent') {
       const request = ++chatRequestRef.current;
       setChat(chatCacheRef.current[id] ?? null); setChatLoading(true); setChatError(''); setDraft(draftsRef.current[id] ?? '');
@@ -1045,7 +1064,7 @@ export default function Workspace() {
             pendingChatRequestRef.current = pending;
           }
           chatCacheRef.current[id] = next;
-          setChat(next);
+          showChat(next);
         }
       } catch (error) {
         if (generation === identityGeneration.current && request === chatRequestRef.current) {
@@ -1068,7 +1087,7 @@ export default function Workspace() {
 
   const agentKey = entries.filter(entry => entry.kind === 'agent').map(entry => entry.id).join(',');
   useEffect(() => {
-    if (!agentKey) { setConversations([]); return; }
+    if (!agentKey) return;
     const generation = identityGeneration.current;
     let cancelled = false;
     void (async () => {
@@ -1088,17 +1107,22 @@ export default function Workspace() {
   }, [agentKey]);
 
   // The open conversation keeps its row current: title, and first place once it moves.
-  useEffect(() => {
-    if (!chat) return;
-    const title = conversationTitle(chat);
-    setConversations(current => {
-      const existing = current.find(item => item.id === chat.id);
-      if (existing && existing.title === title && existing.updatedAt === chat.updated_at) return current;
-      const next = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title };
-      return [next, ...current.filter(item => item.id !== chat.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    });
+  const listedConversations = useMemo(() => {
+    const known = agentKey ? conversations : [];
+    if (!chat) return known;
+    const row = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title: conversationTitle(chat) };
+    return [row, ...known.filter(item => item.id !== chat.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
+  }, [agentKey, conversations, chat]);
+
+  /** Shows a conversation and names its tab after the first question. */
+  function showChat(next: ChatSession) {
+    setChat(next);
+    const title = conversationTitle(next);
+    // Keep the row once the conversation is no longer the open one.
+    setConversations(current => [{ id: next.id, entryId: next.entry_id, updatedAt: next.updated_at, title },
+      ...current.filter(item => item.id !== next.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)));
     setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' && tab.title !== title ? { ...tab, title } : tab));
-  }, [chat]);
+  }
 
   /** The Agent new conversations use: a general one, created once when only the guide exists. */
   async function conversationAgent(): Promise<Entry | null> {
@@ -1120,14 +1144,6 @@ export default function Workspace() {
     openConversation(agent.id, 'new', agent, tabKey, preserveSidebar);
   }
 
-  // An empty conversation tab (new tab, first visit) starts a fresh conversation.
-  const autoStartedTab = useRef('');
-  useEffect(() => {
-    if (view !== 'sessions' || selected || !library || !activeTabKey || autoStartedTab.current === activeTabKey) return;
-    if (!entries.some(entry => entry.kind === 'agent')) return;
-    autoStartedTab.current = activeTabKey;
-    void startNewChat(activeTabKey, true);
-  });
 
   function adoptAnkiCards(cards: RemoteAnkiCard[]) {
     const display = cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') }));
@@ -1483,7 +1499,7 @@ export default function Workspace() {
     if (next !== 'notes') setRailOpen(false);
     setSelected(null); setSelectedId(null);
     // Opening conversations lands in a fresh one (an empty latest one is reused).
-    if (next === 'sessions' && blankKey) { autoStartedTab.current = blankKey; void startNewChat(blankKey, true); }
+    if (next === 'sessions' && blankKey) void startNewChat(blankKey, true);
   }
 
   async function createNote(noteTitle = '未命名笔记', initialBody = '', folderId?: string) {
@@ -1617,7 +1633,7 @@ export default function Workspace() {
       if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
       if (generation === identityGeneration.current && request === chatRequestRef.current) {
         if (entryId) { chatCacheRef.current[entryId] = next; draftsRef.current[entryId] = ''; }
-        setChat(next);
+        showChat(next);
         setDraft('');
       }
     } catch (cause) {
@@ -1635,13 +1651,13 @@ export default function Workspace() {
         // saves it; wait for the reply under this request id before giving up.
         const status = cause instanceof AuthError ? cause.status : 0;
         const pending = status === 0 || status === 502 || status === 504;
-        const deadline = Date.now() + (pending ? 200_000 : 0);
+        const deadline = clockNow() + (pending ? 200_000 : 0);
         let latest = await getSession(currentId);
         const answered = (session: ChatSession) => {
           const index = session.messages?.findIndex(message => message.role === 'user' && message.client_request_id === requestId && message.content === text) ?? -1;
           return index >= 0 && Boolean(session.messages?.slice(index + 1).some(message => message.role === 'assistant' && message.content));
         };
-        while (pending && !answered(latest) && Date.now() < deadline
+        while (pending && !answered(latest) && clockNow() < deadline
           && generation === identityGeneration.current && request === chatRequestRef.current) {
           await new Promise(resolve => setTimeout(resolve, 3000));
           latest = await getSession(currentId);
@@ -1652,7 +1668,7 @@ export default function Workspace() {
           delivered = true;
           if (generation === identityGeneration.current && request === chatRequestRef.current) {
             if (entryId) { chatCacheRef.current[entryId] = latest; draftsRef.current[entryId] = ''; }
-            setChat(latest);
+            showChat(latest);
             setDraft('');
           }
           return;
@@ -1976,12 +1992,51 @@ export default function Workspace() {
     void logout();
   }
 
-  function jumpToHeading(text: string) {
-    const offset = body.indexOf(text);
-    if (offset < 0 || !bodyRef.current) return;
-    bodyRef.current.focus();
-    bodyRef.current.dispatch({ selection: { anchor: offset, head: offset + text.length } });
+  function jumpToHeading(item: OutlineHeading) {
+    setActiveHeading(item.id);
+    if (editorMode === 'preview' || !bodyRef.current) {
+      const index = headings.findIndex(heading => heading.id === item.id);
+      const target = document.querySelectorAll('.markdown-preview :is(h1, h2, h3, h4, h5, h6)')[index];
+      target?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+      return;
+    }
+    const view = bodyRef.current;
+    const line = view.state.doc.line(Math.min(item.line + 1, view.state.doc.lines));
+    // Scroll only: a caret on the heading would reveal its Markdown marks.
+    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 72 }) });
   }
+
+  function setOutlineOpen(open: boolean) {
+    setRailOpen(open);
+    if (selected?.kind === 'note' && !isMobile) {
+      try { localStorage.setItem(OUTLINE_KEY, open ? 'open' : 'closed'); } catch { /* the choice lasts for this page */ }
+    }
+  }
+
+  // The outline follows reading: the last heading above the top of the page is current.
+  useEffect(() => {
+    if (!railOpen || view !== 'notes' || selected?.kind !== 'note' || !headings.length) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const scroller = document.querySelector('.note-editor');
+      const top = (scroller?.getBoundingClientRect().top ?? 0) + 96;
+      let current = headings[0].id;
+      if (editorMode === 'preview' || !bodyRef.current) {
+        const nodes = document.querySelectorAll('.markdown-preview :is(h1, h2, h3, h4, h5, h6)');
+        nodes.forEach((node, index) => { if (headings[index] && node.getBoundingClientRect().top <= top) current = headings[index].id; });
+      } else {
+        const editor = bodyRef.current;
+        const line = editor.state.doc.lineAt(editor.lineBlockAtHeight(Math.max(0, top - editor.documentTop)).from).number - 1;
+        for (const heading of headings) if (heading.line <= line) current = heading.id;
+      }
+      setActiveHeading(current);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    document.addEventListener('scroll', schedule, true);
+    return () => { document.removeEventListener('scroll', schedule, true); if (frame) cancelAnimationFrame(frame); };
+  }, [railOpen, view, selected?.id, selected?.kind, headings, editorMode]);
 
   function sidebarRow(id: string, group: string, label: string, icon: ReactNode, onClick: () => void, active = false, extraClass = '') {
     return <div className={`sidebar-sort-row${active ? ' is-active' : ''}${extraClass ? ` ${extraClass}` : ''}`} key={id} {...dragProps(id, group)}
@@ -2076,23 +2131,22 @@ export default function Workspace() {
               </div>
             </div>
             <div className="anki-sidebar-list">
-          {ankiDecks.map(deck => <Fragment key={deck.id}><div className="anki-sidebar-deck-row"><button type="button" disabled={ankiDeckBusy} className={`anki-sidebar-deck${view === 'anki' && ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => { if (view !== 'anki') switchView('anki'); void selectAnkiDeck(deck); }}><Layers3 size={15} /><span><strong>{deck.name}</strong>{ankiDeckId === deck.id && ankiCards.length ? <small>{ankiCards.length}</small> : null}</span></button><span className="anki-deck-actions"><button type="button" className="anki-deck-action" disabled={ankiDeckBusy} onClick={() => void renameAnkiDeckAction(deck)} aria-label={`重命名牌组 ${deck.name}`} title="重命名牌组"><Pencil size={13} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy || ankiDecks.length <= 1} onClick={() => void removeAnkiDeck(deck)} aria-label={`删除牌组 ${deck.name}`} title={ankiDecks.length <= 1 ? '请至少保留一个牌组' : '删除牌组及全部卡片'}><Trash2 size={13} /></button></span></div>
+          {ankiDecks.map(deck => <Fragment key={deck.id}><div className="anki-sidebar-deck-row"><button type="button" disabled={ankiDeckBusy} className={`anki-sidebar-deck${view === 'anki' && ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => { if (view !== 'anki') switchView('anki'); void selectAnkiDeck(deck); }}><SquareStack size={15} /><span><strong>{deck.name}</strong>{ankiDeckId === deck.id && ankiCards.length ? <small>{ankiCards.length}</small> : null}</span></button><span className="anki-deck-actions"><button type="button" className="anki-deck-action" disabled={ankiDeckBusy} onClick={() => void renameAnkiDeckAction(deck)} aria-label={`重命名牌组 ${deck.name}`} title="重命名牌组"><Pencil size={13} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy || ankiDecks.length <= 1} onClick={() => void removeAnkiDeck(deck)} aria-label={`删除牌组 ${deck.name}`} title={ankiDecks.length <= 1 ? '请至少保留一个牌组' : '删除牌组及全部卡片'}><Trash2 size={13} /></button></span></div>
           {view === 'anki' && ankiDeckId === deck.id ? orderedItems(siblings('anki'), sidebarSort.anki, sidebarOrder.anki).map((item, index) => { const card = ankiCards.find(candidate => `card:${candidate.id}` === item.id)!; return sidebarRow(item.id, 'anki', card.front || `新卡片 ${index + 1}`, <StickyNote size={15} />, () => openAnkiCard(card.id), false, 'anki-card'); }) : null}</Fragment>)}
         </div>
           </div>
         </> : <>
-          {conversations.filter(item => !query.trim() || (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item =>
+          {listedConversations.filter(item => !query.trim() || (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item =>
             <div key={item.id} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`}>
               <button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
             </div>)}
-          {!conversations.length ? <p className="plugin-sidebar-note">还没有对话</p> : null}
+          {!listedConversations.length ? <p className="plugin-sidebar-note">还没有对话</p> : null}
         </>}
       </nav>
       <div className="notion-side-section notion-apps" aria-label="应用">
         <div className="tree-heading"><span>应用</span></div>
         {([
           { id: 'tools', label: '小工具', Icon: Wrench },
-          { id: 'plugins', label: '插件', Icon: Blocks },
         ] as const).map(({ id, label, Icon }) => <button key={id} type="button" className={`notion-side-row${view === id ? ' is-active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => switchView(id)}><Icon size={15} /><span>{label}</span></button>)}
         <button type="button" className="notion-side-row" onClick={() => setGraphOpen(true)}><Network size={15} /><span>知识图谱</span></button>
         <button type="button" className="notion-side-row" onClick={() => { setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
@@ -2106,7 +2160,7 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <motion.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
-      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
+      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setOutlineOpen(!railOpen)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
       {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
         <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
           <div className="mobile-tab-sheet-grip" aria-hidden="true" />
@@ -2123,13 +2177,13 @@ export default function Workspace() {
       {saveConflictId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveConflictId)?.title || '未命名笔记'}」云端已更新，本地内容未保存。请先复制备份，再决定是否加载云端版本。</span>{selectedId !== saveConflictId ? <button type="button" onClick={() => void openEntry(saveConflictId)}>返回冲突笔记</button> : null}<button type="button" onClick={() => void copyConflictDraft()}>复制我的内容</button><button type="button" onClick={() => void discardConflictDraft()}>加载云端版本</button></div> : null}
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady
         ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={ankiWorkspaceRef} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
-        : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><Brain size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
-        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><p>正在开始新对话…</p></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><SquareStack size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
+        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
         <div className="note-toolbar">
           <div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div>
           <div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={16} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={16} /></button></div>
@@ -2140,7 +2194,7 @@ export default function Workspace() {
           : editorMode === 'preview' ? <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
       </article>}
       </div>
-      {!isMobile && view !== 'sessions' ? <button type="button" className="notion-ai-fab" aria-label="问 AI" title="问 AI" onClick={() => switchView('sessions')}><BrandIcon size={24} /></button> : null}
+      {!isMobile && view !== 'sessions' && view !== 'notes' && view !== 'anki' ? <button type="button" className="notion-ai-fab" aria-label="问 AI" title="问 AI" onClick={() => switchView('sessions')}><BrandIcon size={24} /></button> : null}
       <nav className="mobile-command-bar" aria-label="快捷操作">
         <button type="button" className="mobile-bar-round" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={20} /></button>
         <button type="button" className="mobile-bar-ask" onClick={() => { setSidebarOpen(false); switchView('sessions'); }} aria-label="打开 Agent"><span className="mobile-bar-ask-mark"><BrandIcon size={20} /></span><span>问 AI</span></button>
@@ -2155,10 +2209,27 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && railOpen ? <motion.button type="button" className="mobile-rail-backdrop" aria-label="关闭大纲" onClick={() => setRailOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <motion.aside ref={railRef} className="obsidian-rail" aria-hidden={!railOpen} inert={!railOpen}
       initial={false} animate={{ x: isMobile && !railOpen ? '100%' : '0%', opacity: isMobile && !railOpen ? 0 : 1 }}
-      transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}><div className="rail-heading"><span>{view === 'anki' ? '记忆闪卡' : '大纲'}{view !== 'anki' && headings.length ? <small>{headings.length}</small> : null}</span><Button variant="ghost" size="icon" onClick={() => setRailOpen(false)} aria-label="关闭信息栏"><X size={15} /></Button></div>{view === 'anki' ? <div className="rail-tip"><BookOpen size={15} /> 导出为 TSV 后可在 Anki 中导入。</div> : <nav className="rail-section outline-list" aria-label="笔记大纲">{selected?.kind === 'note' && headings.length ? headings.map(item => <button key={item.id} className={`outline-item level-${item.level - outlineBase + 1}`} type="button" onClick={() => { jumpToHeading(item.text); if (window.innerWidth <= 720) setRailOpen(false); }}>{item.text}</button>) : <p className="outline-muted">用 # 开头的行会作为标题出现在这里。</p>}</nav>}</motion.aside>
-    <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} />
+      transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}><div className="rail-heading"><span>{view === 'anki' ? '记忆闪卡' : '大纲'}{view !== 'anki' && headings.length ? <small>{headings.length}</small> : null}</span><Button variant="ghost" size="icon" onClick={() => setOutlineOpen(false)} aria-label="关闭信息栏"><X size={15} /></Button></div>{view === 'anki' ? <div className="rail-tip"><BookOpen size={15} /> 导出为 TSV 后可在 Anki 中导入。</div> : <nav className="rail-section outline-list" aria-label="笔记大纲">{selected?.kind === 'note' && headings.length ? headings.map((item, index) => {
+          const depth = item.level - outlineBase;
+          const next = headings[index + 1];
+          const parent = headings.slice(0, index).reverse();
+          // Hidden while any enclosing heading is collapsed.
+          let level = item.level;
+          for (const above of parent) if (above.level < level) { if (collapsedHeadings.has(above.id)) return null; level = above.level; }
+          const hasChildren = Boolean(next && next.level > item.level);
+          const collapsed = collapsedHeadings.has(item.id);
+          return <div key={item.id} className={`outline-row${activeHeading === item.id ? ' is-active' : ''}`} style={{ paddingLeft: depth * 14 }}>
+            {hasChildren ? <button type="button" className="outline-toggle" aria-label={collapsed ? `展开 ${item.text}` : `折叠 ${item.text}`} aria-expanded={!collapsed} onClick={() => setCollapsedHeadings(current => { const nextSet = new Set(current); if (collapsed) nextSet.delete(item.id); else nextSet.add(item.id); return nextSet; })}><ChevronRight size={12} /></button> : <span className="outline-toggle" aria-hidden="true" />}
+            <button className={`outline-item level-${depth + 1}`} type="button" aria-current={activeHeading === item.id ? 'location' : undefined} onClick={() => { jumpToHeading(item); if (window.innerWidth <= 720) setRailOpen(false); }}>{item.text}</button>
+          </div>;
+        }) : <p className="outline-muted">用 # 开头的行会作为标题出现在这里。</p>}</nav>}</motion.aside>
+    <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
+      setSettingsOpen(false);
+      if (id === 'graph') { setGraphOpen(true); return; }
+      switchView(id === 'flashcards' ? 'anki' : 'notes');
+    }} />
     <KnowledgeGraph key={session.id} open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} />
     <Dialog open={moveEntryId !== null} onOpenChange={open => { if (!open) setMoveEntryId(null); }}><DialogContent className="workspace-move-dialog"><DialogTitle>移动到</DialogTitle><DialogDescription>选择文档所在的文件夹</DialogDescription><div className="workspace-folder-picker"><button type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, null)}><Folder size={17} /> 知识库根目录 <MoveRight size={15} /></button>{folders.map(folder => <button key={folder.id} type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, folder.id)} style={{ paddingLeft: 16 + folders.filter(parent => parent.id === folder.parentId).length * 16 }}><Folder size={17} /> {folder.name} <MoveRight size={15} /></button>)}</div></DialogContent></Dialog>
-    <Dialog open={commandOpen} onOpenChange={setCommandOpen}><DialogContent className="command-dialog"><DialogTitle>快速切换</DialogTitle><DialogDescription>跳转到笔记、Agent 或工具。</DialogDescription><div className="command-list">{entries.filter(item => item.title.toLowerCase().includes(query.toLowerCase())).slice(0, 12).map(item => <button key={item.id} type="button" onClick={() => { setView(item.kind === 'agent' ? 'sessions' : 'notes'); void openEntry(item.id); setCommandOpen(false); }}><Link2 size={15} /><span>{item.title}</span><small>{item.kind === 'agent' ? 'Agent' : '笔记'}</small></button>)}<button type="button" onClick={() => { setView('anki'); setCommandOpen(false); }}><Brain size={15} /><span>打开记忆闪卡</span><small>工具</small></button></div></DialogContent></Dialog>
+    <Dialog open={commandOpen} onOpenChange={setCommandOpen}><DialogContent className="command-dialog"><DialogTitle>快速切换</DialogTitle><DialogDescription>跳转到笔记、Agent 或工具。</DialogDescription><div className="command-list">{entries.filter(item => item.title.toLowerCase().includes(query.toLowerCase())).slice(0, 12).map(item => <button key={item.id} type="button" onClick={() => { setView(item.kind === 'agent' ? 'sessions' : 'notes'); void openEntry(item.id); setCommandOpen(false); }}><Link2 size={15} /><span>{item.title}</span><small>{item.kind === 'agent' ? 'Agent' : '笔记'}</small></button>)}<button type="button" onClick={() => { setView('anki'); setCommandOpen(false); }}><SquareStack size={15} /><span>打开记忆闪卡</span><small>工具</small></button></div></DialogContent></Dialog>
   </div>;
 }

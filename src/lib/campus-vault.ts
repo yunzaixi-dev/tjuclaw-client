@@ -31,13 +31,13 @@ export function hasCampusCredentials(identity: string): boolean {
 }
 
 export async function storeCampusCredentials(identity: string, passphrase: string, credentials: CampusCredentials): Promise<void> {
-  if (
-    passphrase.length < 12
-    || !credentials.wpyUsername.trim()
-    || !credentials.wpyPassword
-    || !credentials.officeUsername.trim()
-    || !credentials.officePassword
-  ) throw new Error('请分别填写微北洋账号、办公网账号及密码，并设置至少 12 位的独立解锁口令。');
+  const wpy = Boolean(credentials.wpyUsername.trim() && credentials.wpyPassword);
+  const office = Boolean(credentials.officeUsername.trim() && credentials.officePassword);
+  // Either account alone is enough; a half-filled account is not.
+  if (passphrase.length < 12 || (!wpy && !office)
+    || (!wpy && Boolean(credentials.wpyUsername.trim() || credentials.wpyPassword))
+    || (!office && Boolean(credentials.officeUsername.trim() || credentials.officePassword))
+  ) throw new Error('至少完整填写微北洋或办公网其中一个账号，并设置至少 12 位的独立解锁口令。');
   if (!crypto.subtle) throw new Error('当前环境不支持安全加密，未保存账号。');
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -70,7 +70,7 @@ export async function unlockCampusCredentials(identity: string, passphrase: stri
     officeUsername: decoded.officeUsername ?? decoded.username ?? '',
     officePassword: decoded.officePassword ?? decoded.password ?? '',
   };
-  if (!result.wpyUsername || !result.wpyPassword || !result.officeUsername || !result.officePassword) throw new Error('账号内容无效，请重新分别保存微北洋和办公网账号。');
+  if (!(result.wpyUsername && result.wpyPassword) && !(result.officeUsername && result.officePassword)) throw new Error('账号内容无效，请重新保存校园账号。');
   return result;
 }
 

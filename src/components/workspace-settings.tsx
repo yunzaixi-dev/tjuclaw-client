@@ -1,18 +1,22 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { BookOpen, Bot, Brain, ChevronRight, CircleHelp, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, Sun, UserRound, X } from 'lucide-react';
+import { Blocks, BookOpen, Bot, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { AgentRuntimeSetting } from './agent-runtime-setting';
+import { CampusAccounts } from './campus-accounts';
+import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
-export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'account' | 'about';
+export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'account' | 'about';
 
 const sections = [
   { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色' },
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
-  { id: 'flashcards', label: '记忆闪卡', icon: Brain, keywords: 'Anki 导出 TSV' },
+  { id: 'flashcards', label: '记忆闪卡', icon: SquareStack, keywords: 'Anki 导出 TSV' },
   { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
+  { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
+  { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置' },
   { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
@@ -23,6 +27,8 @@ const descriptions: Record<SettingsSection, string> = {
   library: '当前知识库中的内容概况。',
   flashcards: '管理记忆卡片与 Anki 格式导出。',
   model: 'Agent 对话使用的模型服务。',
+  campus: '校园小工具使用的微北洋与办公网账号，各自独立绑定。',
+  plugins: '工作区内置的能力，无需安装。',
   account: '当前登录状态与账户操作。',
   about: '关于此工作区。',
 };
@@ -37,8 +43,10 @@ function SettingChoices<T extends string>({ label, value, options, onChange }: {
 
 export function WorkspaceSettings({
   open, onOpenChange, section, onSectionChange, libraryName, fileCount, noteCount, folderCount, cardCount, email, editorMode, onEditorModeChange,
-  onShowNotes, onShowCards, onExportCards, legacyAnkiBackupAvailable, onExportLegacyAnkiBackup, onLogout,
+  onShowNotes, onShowCards, onExportCards, legacyAnkiBackupAvailable, onExportLegacyAnkiBackup, onLogout, identity, onOpenPlugin,
 }: {
+  identity: string;
+  onOpenPlugin: (id: BuiltInPluginId) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   section: SettingsSection;
@@ -222,6 +230,12 @@ export function WorkspaceSettings({
                   <button type="submit" className="settings-action-button is-primary" disabled={modelBusy || !modelForm.baseUrl.trim() || !modelForm.apiKey.trim()}>{modelBusy ? '正在保存…' : '保存并使用'}</button>
                 </div>
               </form>
+            </> : null}
+            {active === 'campus' ? <CampusAccounts identity={identity} /> : null}
+            {active === 'plugins' ? <>
+              <h3>内置插件</h3>
+              {builtInPlugins.map(plugin => <SettingRow key={plugin.id} title={plugin.name} description={plugin.description}><button type="button" className="settings-action-button" onClick={() => onOpenPlugin(plugin.id)}>{plugin.action} <ChevronRight size={14} /></button></SettingRow>)}
+              <p className="settings-about-note">第三方插件尚未开放。</p>
             </> : null}
             {active === 'account' ? <>
               <h3>当前会话</h3>

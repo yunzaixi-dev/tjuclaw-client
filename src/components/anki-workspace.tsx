@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { ArrowLeft, BarChart3, BookOpen, Check, Download, FileUp, Layers3, MoreHorizontal, Pencil, Play, Plus, Search, Settings2, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, BookOpen, Check, Download, FileUp, SquareStack, MoreHorizontal, Pencil, Play, Plus, Search, Settings2, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import './anki-workspace.css';
 
 export type AnkiCard = { id: string; front: string; back: string; tags: string };
@@ -243,7 +243,7 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
       <div className="anki-content">
         <header className="anki-workspace-header">
           <div className="anki-title-block">
-            <p className="anki-crumb"><Layers3 size={14} />记忆闪卡</p>
+            <p className="anki-crumb"><SquareStack size={14} />记忆闪卡</p>
             <h1>{displayDeckName}</h1>
           </div>
           <div className="anki-header-actions">

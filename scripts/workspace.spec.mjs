@@ -25,6 +25,27 @@ const sessionA = { id: 'ffffffffffffffffffffffffffffffff', entry_id: guideA.id, 
 const guideB = { id: '11111111111111111111111111111111', library_id: libB.id, parent_id: '', kind: 'agent', preset: 'guide', title: '新手向导', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 const sessionB = { id: '22222222222222222222222222222222', entry_id: guideB.id, messages: [], created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
 
+/** Binds campus accounts in Settings (校园账号) and closes Settings. */
+async function bindCampusAccounts(page, { wpy, office, passphrase = 'long-local-secret-2026' }) {
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  const settings = page.getByRole('dialog');
+  if (await settings.getByRole('button', { name: '更换绑定' }).count()) await settings.getByRole('button', { name: '更换绑定' }).click();
+  if (wpy) {
+    await settings.getByRole('textbox', { name: /^微北洋账号/ }).fill(wpy[0]);
+    await settings.getByLabel('微北洋密码').fill(wpy[1]);
+  }
+  if (office) {
+    await settings.getByRole('textbox', { name: /^办公网账号/ }).fill(office[0]);
+    await settings.getByLabel('办公网密码').fill(office[1]);
+  }
+  await settings.getByLabel('本地解锁口令').fill(passphrase);
+  await settings.getByRole('button', { name: '加密保存' }).click();
+  await expect(settings.getByText('已加密保存在这台设备上。')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toHaveCount(0);
+}
+
 function json(route, status, body) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
@@ -471,18 +492,9 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '小工具', exact: true }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
     await expect(page.getByText('入校码需要实时认证')).toBeVisible();
-    await page.getByRole('button', { name: '绑定账号后获取' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) {
-      await page.getByRole('button', { name: '更换绑定' }).click();
-    }
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-secret-user');
-    await page.getByLabel('微北洋密码').fill('campus-secret-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-secret-user');
-    await page.getByLabel('办公网密码').fill('office-secret-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-secret-user', 'campus-secret-password'], office: ['office-secret-user', 'office-secret-password'], passphrase: 'long-local-secret-2026' });
     if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
-    await expect(page.getByText('已绑定')).toBeVisible();
+    await expect(page.getByRole('region', { name: '校园账号' })).toHaveCount(0);
     const storage = await page.evaluate(() => localStorage.getItem('tjuclaw.campus.credentials.v1.user-identity-uuid-aaaa'));
     expect(storage).toBeTruthy();
     expect(storage).not.toContain('campus-secret-user');
@@ -490,21 +502,25 @@ test.describe('Workspace mocked contract suite', () => {
     await page.reload();
     await page.getByRole('button', { name: '小工具', exact: true }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
-    await page.getByRole('button', { name: '解锁已绑定账号' }).click();
-    await page.getByPlaceholder('输入独立解锁口令').fill('wrong-password');
-    await page.getByRole('button', { name: '解锁并继续' }).click();
-    await expect(page.getByRole('dialog').getByText('解锁失败：口令错误或本地数据已损坏。')).toBeVisible();
-    await page.getByPlaceholder('输入独立解锁口令').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '解锁并继续' }).click();
+    // A locked binding points to Settings, where it is unlocked.
+    await page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去解锁' }).click();
+    const settings = page.getByRole('dialog');
+    await settings.getByLabel('本地解锁口令').fill('wrong-password');
+    await settings.getByRole('button', { name: '解锁' }).click();
+    await expect(settings.getByText('解锁失败：口令错误或本地数据已损坏。')).toBeVisible();
+    await settings.getByLabel('本地解锁口令').fill('long-local-secret-2026');
+    await settings.getByRole('button', { name: '解锁' }).click();
+    await expect(settings.getByText('账号 campus-secret-user')).toBeVisible();
+    await expect(settings.getByText('账号 office-secret-user')).toBeVisible();
+    await page.keyboard.press('Escape');
     if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
-    await expect(page.getByText('微北洋 campus-secret-user · 办公网 office-secret-user')).toBeVisible();
     state.session = syntheticSessionB;
     state.libraries = [libB];
     state.entries = [{ ...guideB }];
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await page.getByRole('button', { name: '小工具', exact: true }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
-    await expect(page.getByRole('button', { name: '绑定微北洋与办公网账号' })).toBeVisible();
+    await expect(page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去绑定' })).toBeVisible();
     await expect(page.getByText('campus-secret-user')).toHaveCount(0);
   });
 
@@ -537,14 +553,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
-    await page.getByRole('button', { name: '同步校园账号' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
     await expect(page.getByRole('img', { name: '办公网验证码' })).toBeVisible();
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
@@ -594,14 +603,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
-    await page.getByRole('button', { name: '同步校园账号' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
     await expect(page.locator('.campus-class').first()).toContainText('后端课表');
     await expect(page.getByRole('img', { name: '办公网验证码' })).toHaveCount(0);
     expect(academicRequests).toBeGreaterThan(0);
@@ -633,23 +635,19 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
-    await page.getByRole('button', { name: '同步校园账号' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect.poll(() => officeLogins).toBe(1);
-    await page.getByRole('button', { name: '稍后再说' }).click();
-    await page.getByRole('button', { name: '锁定' }).click();
+    if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '锁定' }).click();
+    await page.keyboard.press('Escape');
     const response = page.waitForResponse(res => new URL(res.url()).pathname === '/api/campus/office/session' && res.request().method() === 'POST');
     releaseOffice();
     await response;
-    await expect(page.getByRole('button', { name: '解锁已绑定账号' })).toBeVisible();
+    await expect(page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去解锁' })).toBeVisible();
     await expect(page.locator('.campus-class')).toHaveCount(0);
     await page.waitForTimeout(150);
     expect(academicReads).toBe(0);
@@ -693,14 +691,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('textbox', { name: '课程名' }).fill('手动课程');
     await page.getByRole('button', { name: '添加到课表' }).click();
     await expect(page.locator('.campus-class')).toContainText('手动课程');
-    await page.getByRole('button', { name: '同步校园账号' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect(page.locator('.campus-schedule-nav')).toContainText('第 1 教学周');
@@ -750,14 +741,7 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
-    await page.getByRole('button', { name: '同步校园账号' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect(page.getByRole('alert')).toContainText('教务数据暂时无法验证');
@@ -793,7 +777,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('img', { name: '办公网验证码' })).toBeVisible();
     await expect(page.locator('.campus-class')).toHaveCount(0);
     await expect(page.locator('.campus-exam-list')).toHaveCount(0);
-    await page.getByRole('button', { name: '稍后再说' }).click();
+    if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: 'GPA', exact: true }).click();
     await expect(page.locator('.campus-gpa-result strong')).toHaveText('4.000');
     await expect(page.getByRole('button', { name: '连接办公网' }).first()).toBeVisible();
@@ -828,15 +812,8 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '论坛' }).click();
-    await page.getByRole('button', { name: '绑定账号后查看' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
-    await page.getByRole('button', { name: '稍后再说' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
     await page.getByRole('button', { name: '读取帖子' }).click();
     await expect(page.locator('.campus-forum-list li')).toHaveCount(10);
     await expect(page.locator('.campus-forum-list')).toContainText('回复 0');
@@ -848,9 +825,12 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '刷新帖子' }).click();
     await expect(page.getByRole('alert')).toContainText('论坛数据格式异常');
     await expect(page.locator('.campus-forum-list')).toContainText('最后一帖');
-    await page.getByRole('button', { name: '锁定' }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '锁定' }).click();
+    await page.keyboard.press('Escape');
     await expect(page.locator('.campus-forum-list li')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '绑定账号后查看' })).toBeVisible();
+    await expect(page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去解锁' })).toBeVisible();
   });
 
   test('checks studyroom availability by date and session and renders schedule states', async ({ page }) => {
@@ -874,15 +854,8 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await page.getByRole('button', { name: '小工具', exact: true }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '空教室' }).click();
-    await page.getByRole('button', { name: '绑定账号后读取' }).click();
-    if (await page.getByRole('button', { name: '更换绑定' }).count()) await page.getByRole('button', { name: '更换绑定' }).click();
-    await page.getByRole('textbox', { name: '微北洋账号', exact: true }).fill('campus-user');
-    await page.getByLabel('微北洋密码').fill('campus-password');
-    await page.getByRole('textbox', { name: '办公网账号', exact: true }).fill('office-user');
-    await page.getByLabel('办公网密码').fill('office-password');
-    await page.getByLabel('本地独立解锁口令（至少 12 位）').fill('long-local-secret-2026');
-    await page.getByRole('button', { name: '绑定并加密保存' }).click();
-    await page.getByRole('button', { name: '稍后再说' }).click();
+    await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
     await page.getByRole('button', { name: '读取校区' }).click();
     await page.getByRole('button', { name: '北洋园校区' }).click();
     await page.getByLabel('日期').fill('2026-10-08');
@@ -1056,18 +1029,11 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.workspace-statusbar')).toContainText('已保存');
   });
 
-  test('offers touch-friendly order actions for plugins and keeps file moves separate', async ({ page }) => {
+  test('creates a note inside a folder from the folder actions on phones', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockWorkspace(page, defaultState());
     await page.goto('/workspace');
     await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.getByRole('button', { name: '插件', exact: true }).click();
-    const pluginList = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
-    await expect.poll(() => pluginList.allTextContents()).toEqual(['Markdown 编辑器', '知识图谱', '记忆闪卡']);
-    await page.locator('.sidebar-sort-row').filter({ has: page.getByRole('button', { name: '知识图谱', exact: true }) }).getByRole('button', { name: '排序操作' }).click();
-    await page.getByRole('menuitem', { name: '上移' }).click();
-    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
-    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '新建文件夹' }).click();
     await page.locator('.tree-inline-input').fill('资料');
     await page.locator('.tree-inline-input').press('Enter');
@@ -1075,12 +1041,6 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('menuitem', { name: '新建笔记' }).click();
     await page.getByRole('button', { name: '打开侧栏' }).click();
     await expect(page.locator('.obsidian-tree .tree-children').getByRole('button', { name: '未命名笔记' })).toBeVisible();
-    await page.getByRole('button', { name: '插件', exact: true }).click();
-    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
-    await page.reload();
-    await page.getByRole('button', { name: '打开侧栏' }).click();
-    await page.getByRole('button', { name: '插件', exact: true }).click();
-    await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
   });
 
   test('reorders flashcards without changing their data', async ({ page }) => {
@@ -2124,13 +2084,15 @@ test('desktop panes share scrollbars, scroll independently and resize from a qui
   const left = page.getByRole('separator', { name: '调整左侧面板宽度' });
   const inactive = await left.evaluate(element => getComputedStyle(element, '::after').backgroundColor);
   const leftBox = await left.boundingBox();
-  expect(leftBox.width).toBe(7);
+  expect(leftBox.width).toBe(9);
   // Notion-width sidebar: 18% of a 1440px window (259px), no separate icon rail.
   const sidebarWidth = 259;
   expect(leftBox.x + leftBox.width / 2).toBe(sidebarWidth);
   expect(await sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(sidebarWidth);
-  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(1440 - sidebarWidth);
-  expect(await left.evaluate(element => getComputedStyle(element, '::after').width)).toBe('1px');
+  // The outline opens beside a note by default, so the page sits between the panes.
+  const openRail = await page.locator('.obsidian-rail').evaluate(element => Math.round(element.getBoundingClientRect().width));
+  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(1440 - sidebarWidth - openRail);
+  expect(await left.evaluate(element => getComputedStyle(element, '::after').width)).toBe('2px');
   await page.mouse.move(sidebarWidth, 200);
   await expect.poll(() => left.evaluate(element => getComputedStyle(element, '::after').backgroundColor)).not.toBe(inactive);
   await page.mouse.down();
@@ -2195,9 +2157,9 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   await expect(page.getByRole('menu', { name: '文档操作' })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-actions.png' });
   await page.getByRole('menuitem', { name: '大纲' }).click();
-  await expect(page.locator('.obsidian-rail').getByRole('button', { name: '今日计划' })).toBeVisible();
+  await expect(page.locator('.obsidian-rail').getByRole('button', { name: '今日计划', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-outline.png' });
-  await page.locator('.obsidian-rail').getByRole('button', { name: '今日计划' }).click();
+  await page.locator('.obsidian-rail').getByRole('button', { name: '今日计划', exact: true }).click();
   await expect(page.locator('.obsidian-app')).toHaveClass(/rail-collapsed/);
   await page.getByRole('button', { name: '更多操作' }).click();
   await page.getByRole('menuitem', { name: '移动到…' }).click();
@@ -2245,33 +2207,25 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
-test('plugin directory opens real built-in features without claiming external installation', async ({ page }) => {
+test('plugins live in Settings and open the real built-in features', async ({ page }) => {
   await mockWorkspace(page, defaultState());
   await page.goto('/workspace');
   const activity = page.locator('.obsidian-sidebar');
-  await activity.getByRole('button', { name: '插件' }).click();
-  await expect(page.getByRole('heading', { name: 'Markdown 编辑器' })).toBeVisible();
-  await expect(page.getByText('更多插件即将上线').first()).toBeVisible();
-  await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
-  await page.getByRole('button', { name: '打开知识图谱' }).click();
+  await expect(activity.getByRole('button', { name: '插件' })).toHaveCount(0);
+  const openPlugins = async () => {
+    await activity.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '插件' }).click();
+  };
+  await openPlugins();
+  await expect(page.getByRole('dialog').getByText('第三方插件尚未开放。')).toBeVisible();
+  await page.getByRole('button', { name: /打开知识图谱/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await page.locator('.obsidian-tree').getByRole('button', { name: '记忆闪卡' }).click();
-  await page.getByRole('button', { name: '打开记忆闪卡' }).click();
+  await openPlugins();
+  await page.getByRole('button', { name: /打开记忆闪卡/ }).click();
   await expect(page.getByRole('region', { name: 'Anki 记忆闪卡' }).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(activity.getByRole('button', { name: '记忆闪卡' })).toHaveAttribute('aria-current', 'page');
-});
-
-test('mobile plugin selection closes the drawer and keeps page scrolling internal', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await mockWorkspace(page, defaultState());
-  await page.goto('/workspace');
-  await page.getByRole('button', { name: '打开侧栏' }).click();
-  await page.locator('.obsidian-sidebar').getByRole('button', { name: '插件' }).click();
-  await page.locator('.obsidian-tree').getByRole('button', { name: '知识图谱' }).click();
-  await expect(page.locator('.obsidian-sidebar')).toHaveAttribute('inert', '');
-  await expect(page.getByRole('button', { name: '打开知识图谱' })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
 test('reduced motion keeps the mobile drawer operable without a transition', async ({ page }) => {
@@ -3129,4 +3083,78 @@ test('conversations are listed on their own and 新对话 starts one without pic
   await expect.poll(() => created).toBe(2);
   await expect(log).not.toContainText('上次的回答');
   await expect(rows).toHaveCount(3);
+});
+
+test('the outline is open beside notes, follows reading and jumps to the exact heading', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = defaultState();
+  const body = '# 概览\n\n' + '引言段落。\n\n'.repeat(40) + '## 概览\n\n' + '正文。\n\n'.repeat(40) + '```\n# 代码里的注释\n```\n\n## 结论\n\n收尾。';
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const outline = page.getByRole('navigation', { name: '笔记大纲' });
+  // Open by default on wide screens; fenced code is not a heading.
+  await expect(outline.locator('.outline-item')).toHaveText(['概览', '概览', '结论']);
+  await expect(outline.locator('.outline-row.is-active')).toHaveText('概览');
+  // Jumps to the second 概览 (not the first match of its text) without moving the caret.
+  await outline.locator('.outline-item').nth(1).click();
+  await expect(outline.locator('.outline-row').nth(1)).toHaveClass(/is-active/);
+  await expect(page.locator('.cm-md-heading-line-2').first()).toBeInViewport();
+  await outline.getByRole('button', { name: '结论', exact: true }).click();
+  await expect(outline.locator('.outline-row').nth(2)).toHaveClass(/is-active/);
+  // Collapsing a section hides its children.
+  await outline.getByRole('button', { name: '折叠 概览' }).click();
+  await expect(outline.locator('.outline-item')).toHaveText(['概览']);
+  // Closing it is remembered for the next note.
+  await page.getByRole('button', { name: '关闭信息栏' }).click();
+  await page.reload();
+  await expect(page.locator('.note-title')).toBeVisible();
+  await expect(page.locator('.obsidian-rail')).toHaveAttribute('aria-hidden', 'true');
+});
+
+test('each campus account is bound on its own and only the tools that need it ask for it', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  let captchas = 0;
+  await page.route('**/api/campus/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/campus/session' && route.request().method() === 'POST') return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: '2099-01-01T00:00:00Z' });
+    if (path === '/api/campus/office/captcha') { captchas++; return json(route, 200, { captcha_id: 'c1', content_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', expires_at: '2099-01-01T00:00:00Z' }); }
+    return json(route, 204, {});
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '小工具', exact: true }).click();
+  // Tools without an account need nothing.
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '校园地图' }).click();
+  await expect(page.getByRole('region', { name: '校园账号' })).toHaveCount(0);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+  await expect(page.getByRole('region', { name: '校园账号' })).toContainText('微北洋');
+  // Only 微北洋: the entry code is ready, the timetable still asks for 办公网, and no captcha appears.
+  await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'] });
+  await expect(page.getByRole('region', { name: '校园账号' })).toHaveCount(0);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '课程表' }).click();
+  await expect(page.getByRole('region', { name: '校园账号' })).toContainText('办公网账号，当前没有绑定');
+  await expect(page.getByRole('img', { name: '办公网验证码' })).toHaveCount(0);
+  expect(captchas).toBe(0);
+});
+
+test('the composer sends the chosen thinking strength', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const effort = page.getByRole('combobox', { name: '思考强度' });
+  await expect(effort).toHaveValue('');
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('默认');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect.poll(() => state.sentRequests.length).toBe(1);
+  expect(state.sentRequests[0].effort).toBeUndefined();
+  await effort.selectOption('high');
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('深入');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect.poll(() => state.sentRequests.length).toBe(2);
+  expect(state.sentRequests[1].effort).toBe('high');
+  await page.reload();
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '思考强度' })).toHaveValue('high');
 });

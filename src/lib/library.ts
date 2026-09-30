@@ -319,8 +319,24 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Chat
 /** Validates a session returned by another route (the desktop local turn). */
 export const isChatSession = (value: unknown): value is ChatSession => isSession(value);
 
+export type AgentEffort = '' | 'low' | 'high';
+const EFFORT_KEY = 'tjuclaw.agent.effort.v1';
+
+/** The thinking strength for new turns: '' leaves it to the model. */
+export function agentEffort(): AgentEffort {
+  try {
+    const value = localStorage.getItem(EFFORT_KEY);
+    return value === 'low' || value === 'high' ? value : '';
+  } catch { return ''; }
+}
+
+export function setAgentEffort(effort: AgentEffort) {
+  try { if (effort) localStorage.setItem(EFFORT_KEY, effort); else localStorage.removeItem(EFFORT_KEY); } catch { /* lasts for this page */ }
+}
+
 export async function sendMessage(sessionId: string, content: string, clientRequestId: string, signal?: AbortSignal): Promise<ChatSession> {
-  const data = await authRequest<{ session: unknown }>(`/api/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content, client_request_id: clientRequestId }), signal }, 195000);
+  const effort = agentEffort();
+  const data = await authRequest<{ session: unknown }>(`/api/sessions/${sessionId}/messages`, { method: 'POST', body: JSON.stringify({ content, client_request_id: clientRequestId, ...(effort ? { effort } : {}) }), signal }, 195000);
   if (!isSession(data.session)) throw new AuthError(503);
   return data.session;
 }
