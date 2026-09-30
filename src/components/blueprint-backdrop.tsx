@@ -118,7 +118,7 @@ export function BlueprintBackdrop() {
     <div className="bp-backdrop" aria-hidden="true">
       <svg className="bp-defs" width="0" height="0" focusable="false">
         <filter id="bp-chalk-filter" x="-10%" y="-10%" width="120%" height="120%">
-          <feTurbulence type="fractalNoise" baseFrequency="1.3" numOctaves="2" seed="3" result="jitter" />
+          <feTurbulence type="fractalNoise" baseFrequency="1.3" numOctaves="1" seed="3" result="jitter" />
           <feDisplacementMap in="SourceGraphic" in2="jitter" scale="3.2" xChannelSelector="R" yChannelSelector="G" result="rough" />
           <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="1" seed="11" result="grain" />
           <feColorMatrix in="grain" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -2.4 0 0 0 1.95" result="breaks" />

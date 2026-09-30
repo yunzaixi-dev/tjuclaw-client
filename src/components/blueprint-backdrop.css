@@ -75,6 +75,10 @@
   z-index: -1;
   inset: 0;
   overflow: hidden;
+  /* The chalk filter (turbulence + displacement) is costly per pixel. Keep
+     the drawing out of the card's layout and paint so typing, focus rings
+     and timers never re-run it. */
+  contain: strict;
   color: var(--chalk);
   pointer-events: none;
 }
@@ -85,6 +89,8 @@
   position: absolute;
   display: block;
   overflow: visible;
+  /* Each drawing is rasterised once on its own compositor layer. */
+  will-change: transform;
 }
 
 .bp-chalk {
@@ -166,6 +172,8 @@
   .bp-backdrop { display: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
+/* On large screens redrawing the filtered arcs every frame stutters; they
+   simply appear. */
+@media (prefers-reduced-motion: reduce), (min-width: 1280px) {
   .bp-draw { animation: none; }
 }
