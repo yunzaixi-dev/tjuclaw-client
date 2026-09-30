@@ -200,3 +200,15 @@
   mask-image: radial-gradient(ellipse 48% 58% at 50% 46%, transparent 45%, #000 100%);
 }
 @media (max-width: 720px) { .life-background { opacity: .1; } }
+
+/* Empty conversation: the name as terminal ASCII art and a prompt line. */
+.agent-ascii { display: grid; justify-items: center; gap: 14px; margin: 0 0 22px; font-weight: 400; }
+.agent-ascii pre {
+  margin: 0; overflow: hidden; color: var(--foreground); font-family: var(--font-code), 'JetBrains Mono', 'Cascadia Mono', monospace;
+  font-size: clamp(5.5px, 1.05vw, 11px); line-height: 1.12; letter-spacing: 0; white-space: pre;
+}
+.agent-ascii-prompt { color: var(--muted-foreground); font-family: var(--font-code), monospace; font-size: 14px; }
+.agent-ascii-prompt b { color: var(--foreground); font-weight: 600; }
+.agent-ascii-prompt i { display: inline-block; width: .55em; height: 1.05em; margin-left: 4px; vertical-align: -.15em; background: var(--foreground); animation: agent-caret 1.1s steps(1) infinite; }
+@keyframes agent-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .agent-ascii-prompt i { animation: none; } }

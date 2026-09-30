@@ -65,6 +65,9 @@ function Working({ name, sessionId }: { name: string; sessionId?: string }) {
   </div>;
 }
 
+/** TJUClaw in figlet's ANSI Shadow, for the empty conversation. */
+const TITLE_ART = "████████╗  ██╗██╗   ██╗ ██████╗██╗      █████╗ ██╗    ██╗\n╚══██╔══╝  ██║██║   ██║██╔════╝██║     ██╔══██╗██║    ██║\n   ██║     ██║██║   ██║██║     ██║     ███████║██║ █╗ ██║\n   ██║██   ██║██║   ██║██║     ██║     ██╔══██║██║███╗██║\n   ██║╚█████╔╝╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝\n   ╚═╝ ╚════╝  ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ \n                                                         ";
+
 /** Closes a chip menu on an outside press or Escape. */
 function useMenuDismiss(open: boolean, close: () => void, ref: { current: HTMLElement | null }) {
   useEffect(() => {
@@ -223,7 +226,10 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   } else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
   else if (!messages.length && !sending && !pending) {
     body = <div className="agent-empty">
-      <h2>今天想让{title}做什么？</h2>
+      <h2 className="agent-ascii" aria-label={`今天想让${title}做什么？`}>
+        <pre aria-hidden="true">{TITLE_ART}</pre>
+        <span className="agent-ascii-prompt" aria-hidden="true"><b>&gt;</b> 今天想让 {title} 做什么？<i /></span>
+      </h2>
       {composer}
       {notice}
       {capabilityLabels(tools).length ? <ul className="agent-capabilities" aria-label="可以使用">{capabilityLabels(tools).map(label => <li key={label}>{label}</li>)}</ul> : null}

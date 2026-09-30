@@ -1150,7 +1150,11 @@ export default function Workspace() {
 
   /** Opens an Agent on a fresh conversation, or on one from its history. */
   function openConversation(agentId: string, sessionId: string | 'new', agent?: Entry, tabKey?: string, preserveSidebar = false) {
-    if (sessionId !== 'new' && sessionId === chat?.id && selectedId === agentId && view === 'sessions') return;
+    if (sessionId !== 'new' && sessionId === chat?.id && selectedId === agentId && view === 'sessions') {
+      // Already open: on a phone, picking it still closes the drawer.
+      if (!preserveSidebar && isMobile) setSidebarOpen(false);
+      return;
+    }
     sessionChoiceRef.current[agentId] = sessionId;
     delete chatCacheRef.current[agentId];
     const tab = tabs.find(item => item.key === activeTabRef.current);
