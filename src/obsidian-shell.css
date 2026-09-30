@@ -2394,20 +2394,5 @@
 .obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row .session-tree-item { height: 29px; min-height: 29px; padding: 0 28px 0 48px; gap: 7px; color: var(--foreground); font-size: 14px; }
 .obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row .session-tree-item > svg { color: var(--muted-foreground); }
 
-/* Agent conversation history, from the top bar. */
-.session-history-anchor { position: relative; display: inline-flex; }
-.session-history-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
-  width: 280px; max-height: min(420px, 70vh); overflow: auto; padding: 5px;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--shell-panel); box-shadow: var(--shadow-popover); color: var(--foreground);
-}
-.session-history-menu p { margin: 0; padding: 8px 10px; color: var(--muted); font-size: 13px; }
-.session-history-menu button {
-  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px;
-  border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; cursor: pointer;
-}
-.session-history-menu button:hover { background: var(--hover-wash); }
-.session-history-menu button > span { display: grid; flex: 1; min-width: 0; gap: 2px; }
-.session-history-menu strong { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.session-history-menu small { color: var(--muted); font-size: 12px; }
+/* Conversations list in the sidebar: one line per conversation. */
+.obsidian-app .conversation-row .session-tree-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

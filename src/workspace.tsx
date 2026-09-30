@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, History, Layers3, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, MousePointer2, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, History, Layers3, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
@@ -177,6 +177,12 @@ function readPendingAnkiReview(key: string): PendingAnkiReview | null {
 }
 
 /** Notion's "Edited …" line. */
+/** A conversation is named by its first question. */
+function conversationTitle(session: ChatSession | null): string {
+  const first = session?.messages?.find(message => message.role === 'user')?.content.trim().replace(/\s+/g, ' ');
+  return first ? first.slice(0, 40) : '新对话';
+}
+
 function editedLabel(updatedAt: string) {
   const minutes = Math.floor((Date.now() - Date.parse(updatedAt)) / 60000);
   if (!Number.isFinite(minutes) || minutes < 1) return '刚刚编辑';
@@ -382,7 +388,8 @@ export default function Workspace() {
   // Which conversation each Agent shows: a session ID, 'new' for a fresh one,
   // or nothing for the most recently active.
   const sessionChoiceRef = useRef<Record<string, string>>({});
-  const [sessionMenu, setSessionMenu] = useState<{ agentId: string; items: { session: ChatSession; preview?: string }[]; loading: boolean } | null>(null);
+  // Conversations are listed on their own; Agents are only where they are stored.
+  const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string }[]>([]);
   const pendingChatRequestRef = useRef<PendingChatRequest | null>(null);
   const activeTabRef = useRef<string | null>('home');
   const identityRef = useRef<string | null>(null);
@@ -798,9 +805,8 @@ export default function Workspace() {
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!sortMenuRef.current?.contains(event.target as Node)) setSortMenuOpen(false);
-      if (!(event.target as Element | null)?.closest?.('.session-history-anchor')) setSessionMenu(null);
     };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSortMenuOpen(false); setSessionMenu(null); } };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setSortMenuOpen(false); };
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', escape);
     return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', escape); };
@@ -1052,30 +1058,76 @@ export default function Workspace() {
   }
 
   /** Opens an Agent on a fresh conversation, or on one from its history. */
-  function openConversation(agentId: string, sessionId: string | 'new', agent?: Entry) {
-    if (sessionId !== 'new' && sessionId === chat?.id && selectedId === agentId) { setSessionMenu(null); return; }
+  function openConversation(agentId: string, sessionId: string | 'new', agent?: Entry, tabKey?: string, preserveSidebar = false) {
+    if (sessionId !== 'new' && sessionId === chat?.id && selectedId === agentId && view === 'sessions') return;
     sessionChoiceRef.current[agentId] = sessionId;
     delete chatCacheRef.current[agentId];
-    setSessionMenu(null);
     const tab = tabs.find(item => item.key === activeTabRef.current);
-    void openEntry(agentId, agent, tab && (tab.kind === 'agent' || tab.kind === 'agent-blank') ? tab.key : undefined);
+    void openEntry(agentId, agent, tabKey ?? (tab && (tab.kind === 'agent' || tab.kind === 'agent-blank') ? tab.key : undefined), undefined, preserveSidebar);
   }
 
-  async function openSessionMenu(agentId: string) {
-    if (sessionMenu) { setSessionMenu(null); return; }
-    setSessionMenu({ agentId, items: [], loading: true });
-    try {
-      const sessions = await listSessions(agentId);
-      setSessionMenu(menu => menu?.agentId === agentId ? { agentId, items: sessions.map(session => ({ session })), loading: false } : menu);
+  const agentKey = entries.filter(entry => entry.kind === 'agent').map(entry => entry.id).join(',');
+  useEffect(() => {
+    if (!agentKey) { setConversations([]); return; }
+    const generation = identityGeneration.current;
+    let cancelled = false;
+    void (async () => {
+      const lists = await Promise.all(agentKey.split(',').map(id => listSessions(id).then(list => list.map(item => ({ id: item.id, entryId: id, updatedAt: item.updated_at }))).catch(() => [])));
+      if (cancelled || generation !== identityGeneration.current) return;
+      const merged = lists.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setConversations(current => merged.map(item => ({ ...item, title: current.find(old => old.id === item.id)?.title })));
       // The list has no messages; read the first question of recent ones.
-      await Promise.all(sessions.slice(0, 15).map(async session => {
-        const full = session.messages ? session : await getSession(session.id).catch(() => null);
-        const preview = full?.messages?.find(message => message.role === 'user')?.content.trim().slice(0, 60) || '空白会话';
-        setSessionMenu(menu => menu?.agentId === agentId
-          ? { ...menu, items: menu.items.map(item => item.session.id === session.id ? { ...item, preview } : item) } : menu);
-      }));
-    } catch { setSessionMenu(menu => menu?.agentId === agentId ? { ...menu, loading: false } : menu); setError('读取历史会话失败，请稍后再试。'); }
+      for (const item of merged.slice(0, 40)) {
+        const full = await getSession(item.id).catch(() => null);
+        if (cancelled || generation !== identityGeneration.current) return;
+        const title = conversationTitle(full);
+        setConversations(current => current.map(old => old.id === item.id ? { ...old, title } : old));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [agentKey]);
+
+  // The open conversation keeps its row current: title, and first place once it moves.
+  useEffect(() => {
+    if (!chat) return;
+    const title = conversationTitle(chat);
+    setConversations(current => {
+      const existing = current.find(item => item.id === chat.id);
+      if (existing && existing.title === title && existing.updatedAt === chat.updated_at) return current;
+      const next = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title };
+      return [next, ...current.filter(item => item.id !== chat.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    });
+    setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' && tab.title !== title ? { ...tab, title } : tab));
+  }, [chat]);
+
+  /** The Agent new conversations use: a general one, created once when only the guide exists. */
+  async function conversationAgent(): Promise<Entry | null> {
+    const general = entries.find(entry => entry.kind === 'agent' && entry.preset !== 'guide');
+    if (general) return general;
+    if (!library) return entries.find(entry => entry.kind === 'agent') ?? null;
+    try {
+      const created = await createEntry(library.id, { kind: 'agent', title: 'TJUClaw' });
+      setEntries(items => items.some(item => item.id === created.id) ? items : [...items, created]);
+      return created;
+    } catch {
+      return entries.find(entry => entry.kind === 'agent') ?? null;
+    }
   }
+
+  async function startNewChat(tabKey?: string, preserveSidebar = false) {
+    const agent = await conversationAgent();
+    if (!agent) { setError('暂时无法开始新对话，请稍后再试。'); return; }
+    openConversation(agent.id, 'new', agent, tabKey, preserveSidebar);
+  }
+
+  // An empty conversation tab (new tab, first visit) starts a fresh conversation.
+  const autoStartedTab = useRef('');
+  useEffect(() => {
+    if (view !== 'sessions' || selected || !library || !activeTabKey || autoStartedTab.current === activeTabKey) return;
+    if (!entries.some(entry => entry.kind === 'agent')) return;
+    autoStartedTab.current = activeTabKey;
+    void startNewChat(activeTabKey, true);
+  });
 
   function adoptAnkiCards(cards: RemoteAnkiCard[]) {
     const display = cards.map(card => ({ id: card.id, front: card.front, back: card.back, tags: (card.tags ?? []).join(' ') }));
@@ -1289,7 +1341,7 @@ export default function Workspace() {
         draftsRef.current = {};
         chatCacheRef.current = {};
         sessionChoiceRef.current = {};
-        setSessionMenu(null);
+        setConversations([]);
         pendingChatRequestRef.current = null;
         pendingSave.current = null;
         failedSave.current = null;
@@ -1430,9 +1482,8 @@ export default function Workspace() {
     setView(next);
     if (next !== 'notes') setRailOpen(false);
     setSelected(null); setSelectedId(null);
-    // Opening the Agent view lands in a conversation, not an empty picker.
-    const agent = next === 'sessions' ? entries.find(entry => entry.kind === 'agent') : undefined;
-    if (agent && blankKey) void openEntry(agent.id, agent, blankKey, undefined, true);
+    // Opening conversations lands in a fresh one (an empty latest one is reused).
+    if (next === 'sessions' && blankKey) { autoStartedTab.current = blankKey; void startNewChat(blankKey, true); }
   }
 
   async function createNote(noteTitle = '未命名笔记', initialBody = '', folderId?: string) {
@@ -1992,17 +2043,18 @@ export default function Workspace() {
         <button type="button" className="notion-nav-search" aria-label="搜索" title="搜索" onClick={() => setCommandOpen(true)}><Search size={16} /></button>
       </div>
       <div className="sidebar-pane">
-      {sideView !== 'plugins' && sideView !== 'tools' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={sideView === 'sessions' ? '搜索 Agent…' : '搜索笔记…'} aria-label={sideView === 'sessions' ? '搜索 Agent' : '搜索笔记'} /></label> : null}
-      <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'sessions' ? 'Agent' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
+      {sideView !== 'plugins' && sideView !== 'tools' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={sideView === 'sessions' ? '搜索会话…' : '搜索笔记…'} aria-label={sideView === 'sessions' ? '搜索会话' : '搜索笔记'} /></label> : null}
+      <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'sessions' ? '会话' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
           {sideView === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
-          <div className="sidebar-sort-anchor" ref={sortMenuRef}>
+          {sideView === 'sessions' ? <button type="button" onClick={() => void startNewChat()} aria-label="新建对话" title="新对话"><Plus size={15} /></button> : null}
+          {sideView !== 'sessions' ? <div className="sidebar-sort-anchor" ref={sortMenuRef}>
             <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[sideView]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
             {sortMenuOpen ? <div className="sidebar-sort-menu" role="menu" aria-label="侧栏排序方式">
-              {(sideView === 'notes' || sideView === 'sessions' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[sideView] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[sideView] === mode ? <Check size={14} /> : null}</button>)}
+              {(sideView === 'notes' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[sideView] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[sideView] === mode ? <Check size={14} /> : null}</button>)}
               <small>拖动或在项目操作中上移/下移，可改为手动排序</small>
             </div> : null}
-          </div>
+          </div> : null}
         </div>
       </div>
       <input ref={uploadRef} type="file" multiple hidden aria-label="上传课程资料" onChange={event => { void handleFileUpload(event.target.files); event.target.value = ''; }} />
@@ -2028,13 +2080,13 @@ export default function Workspace() {
           {view === 'anki' && ankiDeckId === deck.id ? orderedItems(siblings('anki'), sidebarSort.anki, sidebarOrder.anki).map((item, index) => { const card = ankiCards.find(candidate => `card:${candidate.id}` === item.id)!; return sidebarRow(item.id, 'anki', card.front || `新卡片 ${index + 1}`, <StickyNote size={15} />, () => openAnkiCard(card.id), false, 'anki-card'); }) : null}</Fragment>)}
         </div>
           </div>
-        </> : orderedItems(roots.map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at })), sidebarSort.sessions, sidebarOrder.sessions).map(item => {
-          const entry = roots.find(candidate => `entry:${candidate.id}` === item.id)!;
-          return <div key={item.id} className={`sidebar-sort-row${selectedId === entry.id ? ' is-active' : ''}`} {...dragProps(item.id, 'sessions')} onContextMenu={event => openContextMenu(event, 'sidebar', item.id, 'sessions')}>
-            <button className="session-tree-item" type="button" onClick={() => void openEntry(entry.id)}><MousePointer2 size={15} /><span>{entry.title}</span></button>
-            <button className="tree-more" type="button" aria-label="排序操作" onClick={event => openContextMenu(event, 'sidebar', item.id, 'sessions')}><MoreHorizontal size={14} /></button>
-          </div>;
-        })}
+        </> : <>
+          {conversations.filter(item => !query.trim() || (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item =>
+            <div key={item.id} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`}>
+              <button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
+            </div>)}
+          {!conversations.length ? <p className="plugin-sidebar-note">还没有对话</p> : null}
+        </>}
       </nav>
       <div className="notion-side-section notion-apps" aria-label="应用">
         <div className="tree-heading"><span>应用</span></div>
@@ -2046,7 +2098,7 @@ export default function Workspace() {
         <button type="button" className="notion-side-row" onClick={() => { setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
       </div>
       <div className="sidebar-bottom notion-side-bottom" aria-label="工作区工具">
-        <button type="button" className="notion-new-chat" onClick={() => newBlankTab('sessions')}><MessageCircle size={15} /><span>新对话</span></button>
+        <button type="button" className="notion-new-chat" onClick={() => void startNewChat()}><MessageCircle size={15} /><span>新对话</span></button>
         <button type="button" className="notion-new-page" title="新建笔记" aria-label="新建笔记页面" onClick={() => void createNote()}><SquarePen size={16} /></button>
       </div>
       </div>
@@ -2054,7 +2106,7 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <motion.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
-      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><div className="session-history-anchor"><Button variant="ghost" size="icon" onClick={() => void openSessionMenu(selected.id)} aria-label="历史会话" aria-expanded={Boolean(sessionMenu)} title="历史会话"><History size={17} /></Button>{sessionMenu ? <div className="session-history-menu" role="menu" aria-label="历史会话">{sessionMenu.loading ? <p>正在读取…</p> : sessionMenu.items.length ? sessionMenu.items.map(({ session: item, preview }) => <button type="button" role="menuitemradio" aria-checked={item.id === chat?.id} key={item.id} onClick={() => openConversation(sessionMenu.agentId, item.id)}><span><strong>{preview ?? '…'}</strong><small>{new Date(item.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></span>{item.id === chat?.id ? <Check size={14} /> : null}</button>) : <p>还没有会话</p>}</div> : null}</div><Button variant="ghost" size="icon" onClick={() => openConversation(selected.id, 'new', selected)} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
+      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
       {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
         <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
           <div className="mobile-tab-sheet-grip" aria-hidden="true" />
@@ -2071,13 +2123,13 @@ export default function Workspace() {
       {saveConflictId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveConflictId)?.title || '未命名笔记'}」云端已更新，本地内容未保存。请先复制备份，再决定是否加载云端版本。</span>{selectedId !== saveConflictId ? <button type="button" onClick={() => void openEntry(saveConflictId)}>返回冲突笔记</button> : null}<button type="button" onClick={() => void copyConflictDraft()}>复制我的内容</button><button type="button" onClick={() => void discardConflictDraft()}>加载云端版本</button></div> : null}
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title={selected.title} chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady
         ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={ankiWorkspaceRef} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
         : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><Brain size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
-        : view === 'sessions' ? <section className="agent-picker" aria-label="选择 Agent"><h2>和谁开始新的对话？</h2><p>选择一个 Agent，它会带着你的知识库和校园工具一起工作。</p><div className="agent-picker-list">{entries.filter(entry => entry.kind === 'agent').map(agent => <button type="button" key={agent.id} onClick={() => openConversation(agent.id, 'new', agent)}><span className="agent-picker-icon"><MousePointer2 size={18} /></span><span><strong>{agent.title || '未命名 Agent'}</strong><small>{agent.preset === 'guide' ? '上手引导，也能直接帮你完成任务' : '自定义 Agent'}</small></span><ArrowRight size={16} /></button>)}</div></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><p>正在开始新对话…</p></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
         <div className="note-toolbar">
           <div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div>
           <div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={16} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={16} /></button></div>

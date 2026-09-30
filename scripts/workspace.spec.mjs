@@ -261,7 +261,7 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
     });
     if (sessions && method === 'POST') {
       const sess = state.sessionsByEntry[sessions[1]]?.[0] ?? sessionA;
-      return json(route, 201, { session: sess });
+      return json(route, 201, { session: state.sessionById[sess.id] ?? sess });
     }
     const oneSession = path.match(/^\/api\/sessions\/([0-9a-f]{32})$/);
     if (oneSession && method === 'GET') {
@@ -947,11 +947,6 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('menuitemradio', { name: '名称 A → Z' }).click();
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '侧栏排序' }).click();
-    await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
-    await page.getByRole('menuitemradio', { name: '手动排序' }).click();
-    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await page.getByRole('menuitemradio', { name: '手动排序' }).click();
     await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
@@ -1088,19 +1083,10 @@ test.describe('Workspace mocked contract suite', () => {
     await expect.poll(() => pluginList.allTextContents()).toEqual(['知识图谱', 'Markdown 编辑器', '记忆闪卡']);
   });
 
-  test('reorders Agents and flashcards without changing their data', async ({ page }) => {
+  test('reorders flashcards without changing their data', async ({ page }) => {
     const state = defaultState();
-    const otherAgent = { ...guideA, id: '33333333333333333333333333333333', title: '课程助手' };
-    state.entries.push(otherAgent);
-    state.entryById[otherAgent.id] = otherAgent;
     await mockWorkspace(page, state);
     await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    const agentNames = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
-    await expect.poll(() => agentNames.allTextContents()).toEqual(['新手向导', '课程助手']);
-    await page.locator('.obsidian-tree .sidebar-sort-row').nth(1).dragTo(page.locator('.obsidian-tree .sidebar-sort-row').nth(0), { targetPosition: { x: 20, y: 2 } });
-    await expect.poll(() => agentNames.allTextContents()).toEqual(['课程助手', '新手向导']);
-    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await page.getByRole('button', { name: '加载 4 张示例卡片' }).click();
     const cardNames = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
@@ -1174,12 +1160,11 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(tablist.getByRole('tab', { name: '笔记 新建笔记' }).last()).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '笔记 First note for user A' })).toHaveCount(0);
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveAttribute('aria-selected', 'true');
+    // A conversation tab opens straight into a conversation, named by its first question.
+    await expect(tablist.getByRole('tab', { name: '会话 新对话' })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '新建标签页' }).click();
-    await expect(tablist.getByRole('tab', { name: '会话 新会话' })).toHaveAttribute('aria-selected', 'true');
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveCount(2);
+    await expect(tablist.getByRole('tab', { name: /^会话 / })).toHaveCount(2);
+    await expect(tablist.getByRole('tab', { name: /^会话 / }).last()).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveAttribute('aria-selected', 'true');
@@ -1200,7 +1185,7 @@ test.describe('Workspace mocked contract suite', () => {
     await tablist.getByRole('button', { name: '关闭标签 Second note for user A' }).click();
     await expect(tablist.getByRole('tab', { name: '笔记 新建笔记' })).toHaveCount(1);
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await expect(tablist.getByRole('tab', { name: '会话 新手向导' }).last()).toHaveAttribute('aria-selected', 'true');
+    await expect(tablist.getByRole('tab', { name: /^会话 / }).last()).toHaveAttribute('aria-selected', 'true');
   });
 
   test('keeps a failed Agent message draft and renders a successful reply as Markdown', async ({ page }) => {
@@ -1209,7 +1194,6 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await expect(composer).toBeEnabled();
     await composer.fill('请解释主动回忆');
@@ -1236,7 +1220,6 @@ test.describe('Workspace mocked contract suite', () => {
       JSON.stringify({ sessionId: session, id, digest: hash })), [sessionA.id, requestId, digest]);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await expect(composer).toBeEnabled();
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -1251,7 +1234,6 @@ test.describe('Workspace mocked contract suite', () => {
     expect(state.sentRequests[1].client_request_id).not.toBe(requestId);
     await page.reload();
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
@@ -1261,7 +1243,6 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await composer.fill('回顾今天');
     await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -1286,7 +1267,6 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
     await expect(composer).toBeEnabled();
     failReadback = true;
@@ -1311,7 +1291,6 @@ test.describe('Workspace mocked contract suite', () => {
 
     await page.reload();
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.locator('.chat-message.user').first()).toContainText('总结课程');
     await expect(page.locator('.chat-message.assistant').first()).toContainText('已收到');
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -1332,7 +1311,6 @@ test.describe('Workspace mocked contract suite', () => {
       JSON.stringify({ sessionId: session, id, digest: hash })), [sessionA.id, requestId, digest]);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('服务器记录与原消息不一致');
     expect(state.sentRequests).toHaveLength(0);
   });
@@ -1645,7 +1623,8 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toHaveCount(0);
     await expect(page.locator('.note-title')).toHaveCount(0);
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await expect(page.getByRole('button', { name: '新手向导', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
+    await expect(page.locator('.conversation-row')).toHaveCount(1);
   });
 
   test('discards a previous identity flashcard response that arrives after account switch', async ({ page }) => {
@@ -1997,7 +1976,6 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await expect(page.locator('.sidebar-library-button')).toContainText('我的知识库');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
     await expect(page.getByText('已保存 (draft)')).toHaveCount(0);
     await expect(page.getByText('执行记录与运行')).toHaveCount(0);
@@ -2009,7 +1987,6 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByText('走产品 NewAPI')).toHaveCount(0);
     await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
   });
@@ -2937,8 +2914,7 @@ test('Agent without a sandbox offers campus starters and shows which tools a rep
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await expect(page.getByPlaceholder('搜索 Agent…')).toBeVisible();
-  await page.getByText('新手向导').first().click();
+  await expect(page.getByPlaceholder('搜索会话…')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toHaveCount(0);
   const log = page.getByRole('log', { name: '会话记录' });
   await expect(log.getByText('校园服务', { exact: true })).toBeVisible();
@@ -2968,7 +2944,6 @@ test('Agent replies show original campus images through the API proxy only', asy
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await page.getByText('新手向导').first().click();
   await page.getByLabel('发送给 Agent 的消息').fill('找一下丢失校园卡的帖子');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   const log = page.getByRole('log', { name: '会话记录' });
@@ -3110,7 +3085,7 @@ test('mobile settings and graph stay inside the viewport', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test('starts a new Agent conversation and switches back through the history', async ({ page }) => {
+test('conversations are listed on their own and 新对话 starts one without picking an Agent', async ({ page }) => {
   const state = defaultState();
   const old = { ...sessionA, messages: [
     { role: 'user', content: '上次问的电路题', created_at: '2026-01-01T00:00:10.000Z' },
@@ -3120,41 +3095,38 @@ test('starts a new Agent conversation and switches back through the history', as
   state.sessionById[old.id] = old;
   let created = 0;
   await mockWorkspace(page, state);
-  await page.route(`**/api/entries/${guideA.id}/sessions`, route => {
+  await page.route('**/api/entries/*/sessions', route => {
     if (route.request().method() !== 'POST') return route.fallback();
+    const entryId = new URL(route.request().url()).pathname.split('/')[3];
     created += 1;
-    const fresh = { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' + created, entry_id: guideA.id, created_at: '2026-01-02T00:00:00.000Z', updated_at: '2026-01-02T00:00:00.000Z' };
-    state.sessionsByEntry[guideA.id] = [fresh, ...state.sessionsByEntry[guideA.id]];
+    const fresh = { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' + created, entry_id: entryId, created_at: `2026-01-0${created + 1}T00:00:00.000Z`, updated_at: `2026-01-0${created + 1}T00:00:00.000Z` };
+    state.sessionsByEntry[entryId] = [fresh, ...(state.sessionsByEntry[entryId] ?? [])];
     state.sessionById[fresh.id] = { ...fresh, messages: [] };
     return json(route, 201, { session: fresh });
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await page.getByRole('button', { name: '新手向导', exact: true }).click();
   const log = page.getByRole('log', { name: '会话记录' });
-  await expect(log).toContainText('上次的回答');
-  await page.getByRole('button', { name: '新会话', exact: true }).click();
+  const rows = page.locator('.conversation-row');
+  // Opening conversations starts a fresh one in a general Agent, not the guide.
   await expect.poll(() => created).toBe(1);
-  await expect(log).not.toContainText('上次的回答');
+  expect(state.entries.some(entry => entry.kind === 'agent' && entry.title === 'TJUClaw')).toBe(true);
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toHaveText('新对话');
+  await expect(page.getByRole('button', { name: '新手向导' })).toHaveCount(0);
   // An empty conversation is reused rather than piling up new ones.
-  await page.getByRole('button', { name: '新会话', exact: true }).click();
-  await expect(log).not.toContainText('上次的回答');
+  await page.getByLabel('工作区工具').getByRole('button', { name: '新对话' }).click();
   await page.waitForTimeout(500);
   expect(created).toBe(1);
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('新的问题');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(log).toContainText('已收到');
-  expect(state.sentRequests.at(-1)).toBeTruthy();
-  await page.getByRole('button', { name: '历史会话' }).click();
-  const menu = page.getByRole('menu', { name: '历史会话' });
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(2);
-  await menu.getByRole('menuitemradio', { name: /上次问的电路题/ }).click();
+  await expect(rows.first()).toHaveText('新的问题');
+  await rows.filter({ hasText: '上次问的电路题' }).click();
   await expect(log).toContainText('上次的回答');
   await expect(log).not.toContainText('新的问题');
-  // The sidebar's 新对话 opens the Agent picker, which starts a fresh conversation.
-  await page.getByRole('button', { name: '新对话' }).click();
-  await expect(page.getByRole('heading', { name: '和谁开始新的对话？' })).toBeVisible();
-  await page.getByRole('region', { name: '选择 Agent' }).getByRole('button', { name: /新手向导/ }).click();
+  await page.getByRole('button', { name: '新会话', exact: true }).click();
   await expect.poll(() => created).toBe(2);
   await expect(log).not.toContainText('上次的回答');
+  await expect(rows).toHaveCount(3);
 });
