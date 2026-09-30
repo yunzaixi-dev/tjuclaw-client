@@ -2,6 +2,7 @@ import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type Fo
 import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { loadMath, mathML, mathReady } from './components/markdown-extras';
 import { EditorView } from '@codemirror/view';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
@@ -275,11 +276,35 @@ function proxiedImage(node: Element) {
   }
 }
 
+// $…$ and $$…$$ render as MathML once KaTeX has loaded; until then, as code.
+const escapeHtml = (text: string) => text.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
+const mathHtml = (tex: string, display: boolean) => mathML(tex, display) ?? `<code>${escapeHtml(tex)}</code>`;
+marked.use({ extensions: [
+  {
+    name: 'blockMath', level: 'block',
+    start: (src: string) => src.indexOf('$$'),
+    tokenizer(src: string) {
+      const match = /^\$\$([\s\S]+?)\$\$[ \t]*(?:\n|$)/.exec(src);
+      return match ? { type: 'blockMath', raw: match[0], tex: match[1].trim() } : undefined;
+    },
+    renderer: token => `<div class="math-block">${mathHtml(token.tex as string, true)}</div>`,
+  },
+  {
+    name: 'inlineMath', level: 'inline',
+    start: (src: string) => src.indexOf('$'),
+    tokenizer(src: string) {
+      const match = /^\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![\w$])/.exec(src);
+      return match ? { type: 'inlineMath', raw: match[0], tex: match[1] } : undefined;
+    },
+    renderer: token => mathHtml(token.tex as string, false),
+  },
+] });
+
 function renderMarkdown(markdown: string) {
   const html = marked.parse(markdown, { gfm: true, breaks: true }) as string;
   DOMPurify.addHook('afterSanitizeAttributes', proxiedImage);
   try {
-    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true } });
   } finally {
     DOMPurify.removeHook('afterSanitizeAttributes');
   }
@@ -354,6 +379,12 @@ export default function Workspace() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [moveEntryId, setMoveEntryId] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<'edit' | 'preview'>('edit');
+  // Reading views render math once KaTeX has loaded; this redraws them then.
+  const [, setMathLoaded] = useState(mathReady());
+  const needsMath = !mathReady() && (editorMode === 'preview' || view === 'sessions') && /\$/.test(editorMode === 'preview' ? body : JSON.stringify(chat?.messages ?? []));
+  useEffect(() => {
+    if (needsMath) void loadMath().then(() => setMathLoaded(true));
+  }, [needsMath]);
   const [commandOpen, setCommandOpen] = useState(false);
   const [tabSheetOpen, setTabSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);

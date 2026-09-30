@@ -10,6 +10,7 @@ import { keymap } from '@codemirror/view';
 import { MoreHorizontal } from 'lucide-react';
 import { MarkdownContextMenu } from './markdown-context-menu';
 import { applyAction, toolbarActions } from './markdown-actions';
+import { FootnoteWidget, ImageWidget, INLINE_HTML, INLINE_MATH, MathWidget, mathLoaded, mathReady, SummaryWidget } from './markdown-extras';
 
 // Phones and tablets: CodeMirror's drawn cursor and selection hide the native
 // caret, selection handles and magnifier, so touch devices use the browser's
@@ -139,6 +140,26 @@ class TaskWidget extends WidgetType {
 
 type PreviewRanges = { decorations: DecorationSet; hidden: DecorationSet };
 
+/** Index of the ']' closing the '[' at start, allowing nested brackets. */
+function closingBracket(text: string, start: number, limit: number) {
+  let depth = 0;
+  for (let index = start; index < limit; index += 1) {
+    const char = text[index];
+    if (char === '\\') { index += 1; continue; }
+    if (char === '[') depth += 1;
+    else if (char === ']' && --depth === 0) return index;
+  }
+  return -1;
+}
+
+/** The URL of a link or image destination "(url "title")". */
+function destination(inner: string) {
+  const trimmed = inner.trim();
+  return trimmed.startsWith('<') ? trimmed.slice(1, trimmed.indexOf('>')) : trimmed.split(/\s+/)[0] ?? '';
+}
+
+const QUOTE_PREFIX = /^(?:[ \t]*>)+[ \t]?/;
+
 function livePreviewDecorations(view: EditorView): PreviewRanges {
   const doc = view.state.doc;
   const text = doc.toString();
@@ -185,15 +206,45 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         syntax(from, to, parent ? selected(parent.from, parent.to) : activeLine);
       }
       if (name === 'Link' || name === 'Image') {
-        // The Markdown parser sees the inner [target] of [[target]] as a normal link.
-        if (text[from - 1] === '[' && text[to] === ']') return;
-        const labelEnd = text.indexOf(']', from);
-        if (labelEnd < from || labelEnd >= to) return;
+        // The Markdown parser sees the inner [target] of [[target]] as a normal link
+        // (an image inside a link, [![alt](src)](href), is not that).
+        if (name === 'Link' && text[from - 1] === '[' && text[to] === ']') return;
+        // A footnote reference [^1] is drawn by the paragraph pass.
+        if (text.startsWith('[^', from)) return;
         const prefixEnd = from + (name === 'Image' ? 2 : 1);
+        const labelEnd = closingBracket(text, prefixEnd - 1, to);
+        if (labelEnd < from || labelEnd >= to) return;
         const reveal = selected(from, to);
+        if (name === 'Image' && !reveal && text[labelEnd + 1] === '(') {
+          // Away from the caret an image shows as the image (or where it lives).
+          const src = destination(text.slice(labelEnd + 2, to - 1));
+          const range = Decoration.replace({ widget: new ImageWidget(src, text.slice(prefixEnd, labelEnd)) }).range(from, to);
+          decorations.push(range);
+          atomic.push(range);
+          return false;
+        }
         syntax(from, prefixEnd, reveal);
         add(prefixEnd, labelEnd, mark(name === 'Image' ? 'cm-md-image-label' : 'cm-md-link-label'));
         syntax(labelEnd, to, reveal);
+      }
+      if (name === 'Autolink') {
+        const reveal = selected(from, to);
+        syntax(from, from + 1, reveal);
+        add(from + 1, to - 1, mark('cm-md-link-label'));
+        syntax(to - 1, to, reveal);
+      }
+      if (name === 'LinkReference') {
+        const footnote = /^\[\^([^\]\s]+)\]:[ \t]*/.exec(text.slice(from, to));
+        line(from, footnote ? 'cm-md-footnote-line' : 'cm-md-linkref-line');
+        if (footnote && !activeLine) {
+          const range = Decoration.replace({ widget: new FootnoteWidget(footnote[1], true) }).range(from, from + footnote[0].length);
+          decorations.push(range);
+          atomic.push(range);
+        }
+      }
+      if (name === 'Escape') {
+        syntax(from, from + 1, activeLine);
+        if (!activeLine) add(from + 1, to, mark('cm-md-escape'));
       }
       if (name === 'LinkMark' || name === 'URL') {
         if (parent?.name === 'Link' || parent?.name === 'Image') return;
@@ -233,13 +284,21 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         atomic.push(range);
       }
       if (name === 'QuoteMark') {
-        line(from, 'cm-md-quote-line');
+        const current = doc.lineAt(from);
+        // One line decoration per line, with its nesting depth.
+        if (from === current.from + current.text.indexOf('>')) {
+          const depth = (/^(?:[ \t]*>)+/.exec(current.text)?.[0].match(/>/g) ?? []).length;
+          line(from, `cm-md-quote-line cm-md-quote-d${Math.min(depth, 4)}`);
+        }
         syntax(from, withSeparator(to), activeLine);
       }
       if (name === 'FencedCode') {
         const first = doc.lineAt(from);
         const last = doc.lineAt(to);
-        const closed = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+        const closed = last.number > first.number && /^[\s>]*(```|~~~)/.test(last.text);
+        // Fences inside a blockquote keep their '>' marks for the quote pass.
+        const firstPrefix = /^[\s>]*/.exec(first.text)?.[0].length ?? 0;
+        const lastPrefix = /^[\s>]*/.exec(last.text)?.[0].length ?? 0;
         // Away from the cursor the fences give way to a language label.
         const reveal = selected(from, to);
         for (let pos = first.from; pos <= to; ) {
@@ -250,12 +309,12 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
           pos = current.to + 1;
         }
         if (!reveal) {
-          const language = first.text.replace(/^\s*(```|~~~)+/, '').trim().split(/\s+/)[0] ?? '';
-          const opening = Decoration.replace({ widget: new FenceWidget(language) }).range(first.from, first.to);
+          const language = first.text.slice(firstPrefix).replace(/^(```|~~~)+/, '').trim().split(/\s+/)[0] ?? '';
+          const opening = Decoration.replace({ widget: new FenceWidget(language) }).range(first.from + firstPrefix, first.to);
           decorations.push(opening);
           atomic.push(opening);
-          if (closed && last.from < last.to) {
-            const closing = hide.range(last.from, last.to);
+          if (closed && last.from + lastPrefix < last.to) {
+            const closing = hide.range(last.from + lastPrefix, last.to);
             decorations.push(closing);
             atomic.push(closing);
           }
@@ -263,10 +322,79 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
       }
       if ((name === 'CodeMark' || name === 'CodeInfo') && parent?.name === 'FencedCode' && selected(parent.from, parent.to)) add(from, to, mark('cm-md-fence'));
       if (name === 'HorizontalRule') {
-        if (!activeLine) add(from, to, mark('cm-md-rule'));
+        // Drawn as a rule; the ---, *** or ___ come back on the caret's line.
+        if (activeLine) add(from, to, mark('cm-md-rule'));
+        else {
+          line(from, 'cm-md-hr-line');
+          syntax(from, to, false);
+        }
+      }
+      if (name === 'HTMLBlock') {
+        for (let pos = from; pos <= to; ) {
+          const current = doc.lineAt(pos);
+          const lineText = current.text;
+          const editing = selected(current.from, current.to);
+          const image = /^\s*<img\b([^>]*)>\s*$/i.exec(lineText);
+          const summary = /^\s*<summary>(.*?)<\/summary>\s*$/i.exec(lineText);
+          if (!editing && image) {
+            const attribute = (key: string) => new RegExp(`\\b${key}\\s*=\\s*["']([^"']*)["']`, 'i').exec(image[1])?.[1] ?? '';
+            const range = Decoration.replace({ widget: new ImageWidget(attribute('src'), attribute('alt')) }).range(current.from, current.to);
+            decorations.push(range);
+            atomic.push(range);
+          } else if (!editing && summary) {
+            const range = Decoration.replace({ widget: new SummaryWidget(summary[1]) }).range(current.from, current.to);
+            decorations.push(range);
+            atomic.push(range);
+          } else if (!editing && /^\s*(<\/?[a-z][^<>]*>\s*)+$/i.test(lineText)) {
+            // Structural tags (div, details…) fold to a thin line.
+            line(current.from, 'cm-md-html-tag-line');
+            syntax(current.from, current.to, false);
+          }
+          if (current.to >= to || current.number === doc.lines) break;
+          pos = current.to + 1;
+        }
+        return false;
       }
       if (name === 'Paragraph') {
         const paragraph = text.slice(from, to);
+        const tree = syntaxTree(view.state);
+        const inCode = (pos: number) => /Code/.test(tree.resolveInner(pos, 1).name);
+        const replaceWith = (start: number, end: number, widget: WidgetType) => {
+          const range = Decoration.replace({ widget }).range(start, end);
+          decorations.push(range);
+          atomic.push(range);
+        };
+        // $$ blocks are drawn by the block field.
+        if (!/^\s*\$\$/.test(paragraph.replace(QUOTE_PREFIX, ''))) {
+          for (const match of paragraph.matchAll(INLINE_MATH)) {
+            const start = from + (match.index ?? 0);
+            const end = start + match[0].length;
+            if (inCode(start)) continue;
+            if (selected(start, end)) add(start, end, mark('cm-md-math-source'));
+            else replaceWith(start, end, new MathWidget(match[1], false, mathReady()));
+          }
+        }
+        for (const match of paragraph.matchAll(INLINE_HTML)) {
+          const start = from + (match.index ?? 0);
+          const end = start + match[0].length;
+          if (inCode(start)) continue;
+          const openEnd = start + match[0].indexOf('>') + 1;
+          const closeStart = end - (match[0].length - match[0].lastIndexOf('</'));
+          const reveal = selected(start, end);
+          const title = /\btitle\s*=\s*["']([^"']*)["']/i.exec(match[2] ?? '')?.[1];
+          syntax(start, openEnd, reveal);
+          add(openEnd, closeStart, Decoration.mark({ class: `cm-md-html cm-md-html-${match[1].toLowerCase()}`, ...(title ? { attributes: { title } } : {}) }));
+          syntax(closeStart, end, reveal);
+        }
+        for (const match of paragraph.matchAll(/<br\s*\/?>/gi)) {
+          const start = from + (match.index ?? 0);
+          if (!inCode(start)) syntax(start, start + match[0].length, activeLine);
+        }
+        for (const match of paragraph.matchAll(/\[\^([^\]\s]+)\](?!:)/g)) {
+          const start = from + (match.index ?? 0);
+          const end = start + match[0].length;
+          if (!inCode(start) && !selected(start, end)) replaceWith(start, end, new FootnoteWidget(match[1], false));
+        }
         for (const match of paragraph.matchAll(/!?\[\[([^\]\n]+)\]\]/g)) {
           const start = from + (match.index ?? 0);
           const end = start + match[0].length;
@@ -289,7 +417,8 @@ type TableCell = { text: string; pos: number };
 /** Splits one table row into cells, keeping each cell's document position. */
 function tableRow(line: string, lineFrom: number): TableCell[] {
   const cells: TableCell[] = [];
-  let start = 0;
+  // A table inside a blockquote keeps its '>' marks outside the cells.
+  let start = QUOTE_PREFIX.exec(line)?.[0].length ?? 0;
   let end = line.length;
   while (start < end && /\s/.test(line[start])) start += 1;
   if (line[start] === '|') start += 1;
@@ -378,28 +507,45 @@ const editorFocus = StateField.define<boolean>({
   update: (value, tr) => tr.effects.reduce((focused, effect) => effect.is(setEditorFocus) ? effect.value : focused, value),
 });
 
-function tableDecorations(state: EditorState): DecorationSet {
+/** Block previews (tables, $$ math, setext underlines) need a state field. */
+function blockDecorations(state: EditorState): DecorationSet {
   const focused = state.field(editorFocus, false) ?? false;
   const ranges: Range<Decoration>[] = [];
+  const editing = (from: number, to: number) => focused && state.selection.ranges.some(range => range.from <= to && range.to >= from);
   syntaxTree(state).iterate({
     enter(node) {
-      if (node.name !== 'Table') return;
-      const from = state.doc.lineAt(node.from).from;
-      const to = state.doc.lineAt(node.to).to;
-      const editing = focused && state.selection.ranges.some(range => range.from <= to && range.to >= from);
-      if (!editing) ranges.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to), from), block: true }).range(from, to));
-      return false;
+      if (node.name === 'Table') {
+        const from = state.doc.lineAt(node.from).from;
+        const to = state.doc.lineAt(node.to).to;
+        if (!editing(from, to)) ranges.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to), from), block: true }).range(from, to));
+        return false;
+      }
+      if (node.name === 'SetextHeading1' || node.name === 'SetextHeading2') {
+        // The ==== or ---- underline folds away until the heading is edited.
+        const first = state.doc.lineAt(node.from);
+        const last = state.doc.lineAt(node.to);
+        if (last.number > first.number && !editing(first.from, last.to)) ranges.push(Decoration.replace({}).range(first.to, last.to));
+        return false;
+      }
+      if (node.name === 'Paragraph') {
+        const from = state.doc.lineAt(node.from).from;
+        const to = state.doc.lineAt(node.to).to;
+        const source = state.doc.sliceString(from, to).split('\n').map(line => line.replace(QUOTE_PREFIX, '')).join('\n').trim();
+        const math = /^\$\$([\s\S]+?)\$\$$/.exec(source);
+        if (math && !editing(from, to)) ranges.push(Decoration.replace({ widget: new MathWidget(math[1].trim(), true, mathReady()), block: true }).range(from, to));
+        return false;
+      }
     },
   });
-  return Decoration.set(ranges);
+  return Decoration.set(ranges, true);
 }
 
 /** Tables render as tables until the caret enters them (block widgets need a state field). */
 const tablePreview = StateField.define<DecorationSet>({
-  create: tableDecorations,
+  create: blockDecorations,
   update(value, tr) {
     const syntaxChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    if (tr.docChanged || tr.selection || syntaxChanged || tr.effects.some(effect => effect.is(setEditorFocus))) return tableDecorations(tr.state);
+    if (tr.docChanged || tr.selection || syntaxChanged || tr.effects.some(effect => effect.is(setEditorFocus) || effect.is(mathLoaded))) return blockDecorations(tr.state);
     return value;
   },
   provide: field => EditorView.decorations.from(field),
@@ -409,7 +555,8 @@ class LivePreviewPlugin {
   preview: PreviewRanges;
   constructor(view: EditorView) { this.preview = livePreviewDecorations(view); }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged || update.selectionSet || update.focusChanged) this.preview = livePreviewDecorations(update.view);
+    if (update.docChanged || update.viewportChanged || update.selectionSet || update.focusChanged
+      || update.transactions.some(tr => tr.effects.some(effect => effect.is(mathLoaded)))) this.preview = livePreviewDecorations(update.view);
   }
 }
 

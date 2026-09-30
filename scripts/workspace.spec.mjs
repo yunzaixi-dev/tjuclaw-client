@@ -3158,3 +3158,39 @@ test('the composer sends the chosen thinking strength', async ({ page }) => {
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
   await expect(page.getByRole('combobox', { name: '思考强度' })).toHaveValue('high');
 });
+
+test('live preview draws rules, inline HTML, math, footnotes, images and quoted blocks', async ({ page }) => {
+  const state = defaultState();
+  const body = [
+    '标题一', '======', '', '---', '',
+    '<mark>高亮</mark> 与 H<sub>2</sub>O 与 <kbd>Ctrl</kbd>', '',
+    '行内 $E = mc^2$ 公式', '', '$$', '\\sum_{i=1}^{n} i', '$$', '',
+    '脚注句子。[^1]', '', '[^1]: 脚注内容。', '',
+    '[![可点击](https://picsum.photos/300/120)](https://example.com)', '',
+    '<https://example.com>', '', '\\*不是斜体\\*', '',
+    '> 外层', '>', '>> 内层', '', '> ```js', '> const a = 1;', '> ```', '',
+    '> | A | B |', '> |---|---|', '> | 1 | 2 |', '', '<details>', '<summary>展开</summary>', '', '内容', '', '</details>',
+  ].join('\n');
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const editor = page.locator('.codemirror-editor');
+  await expect(editor.locator('.cm-md-hr-line')).toHaveCount(1);
+  await expect(editor).not.toContainText('======');
+  await expect(editor.locator('.cm-md-html-mark')).toHaveText('高亮');
+  await expect(editor.locator('.cm-md-html-kbd')).toHaveText('Ctrl');
+  await expect(editor).not.toContainText('<mark>');
+  await expect(editor.locator('.cm-md-math math')).toHaveCount(2);
+  await expect(editor.locator('.cm-md-math-block')).toHaveCount(1);
+  await expect(editor.locator('.cm-md-footnote-ref')).toHaveText('1');
+  await expect(editor.locator('.cm-md-footnote-label')).toHaveText('1.');
+  await expect(editor.locator('.cm-md-image-card')).toContainText('可点击');
+  await expect(editor).not.toContainText('<https://');
+  await expect(editor).toContainText('*不是斜体*');
+  await expect(editor.locator('.cm-md-quote-d2')).toHaveCount(1);
+  await expect(editor.locator('.cm-md-code-label')).toHaveText('js');
+  await expect(editor.locator('.cm-md-table th')).toHaveText(['A', 'B']);
+  await expect(editor.locator('.cm-md-summary')).toHaveText('展开');
+  await expect(editor).not.toContainText('<details>');
+});

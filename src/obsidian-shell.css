@@ -2411,3 +2411,46 @@
 .obsidian-app .conversation-row .session-tree-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-settings .campus-accounts form h3 { margin-top: 20px; }
 .workspace-settings .campus-accounts-forget { margin-top: 20px; }
+
+/* Live preview, what-you-see: rules, nested quotes, inline HTML, images,
+   footnotes, math and folded HTML structure. */
+.codemirror-editor .cm-md-hr-line { position: relative; height: 1.75em; }
+.codemirror-editor .cm-md-hr-line::after { content: ''; position: absolute; top: 50%; right: 0; left: 0; border-top: 1px solid var(--border); }
+.codemirror-editor .cm-md-quote-line.cm-md-quote-d2 { padding-left: 26px; border-left: 0; background: linear-gradient(to right, var(--border) 0 2px, transparent 2px 14px, var(--border) 14px 16px, transparent 16px) no-repeat; }
+.codemirror-editor .cm-md-quote-line.cm-md-quote-d3 { padding-left: 40px; border-left: 0; background: linear-gradient(to right, var(--border) 0 2px, transparent 2px 14px, var(--border) 14px 16px, transparent 16px 28px, var(--border) 28px 30px, transparent 30px) no-repeat; }
+.codemirror-editor .cm-md-quote-line.cm-md-quote-d4 { padding-left: 54px; border-left: 0; background: linear-gradient(to right, var(--border) 0 2px, transparent 2px 14px, var(--border) 14px 16px, transparent 16px 28px, var(--border) 28px 30px, transparent 30px 42px, var(--border) 42px 44px, transparent 44px) no-repeat; }
+.codemirror-editor .cm-md-html-u, .codemirror-editor .cm-md-html-ins { text-decoration: underline; text-underline-offset: .18em; }
+.codemirror-editor .cm-md-html-mark { border-radius: 3px; background: color-mix(in oklch, oklch(88% .14 95) 70%, transparent); color: inherit; }
+.codemirror-editor .cm-md-html-sub { vertical-align: sub; font-size: .75em; }
+.codemirror-editor .cm-md-html-sup { vertical-align: super; font-size: .75em; }
+.codemirror-editor .cm-md-html-small { font-size: .85em; }
+.codemirror-editor .cm-md-html-del, .codemirror-editor .cm-md-html-s { text-decoration: line-through; }
+.codemirror-editor .cm-md-html-b, .codemirror-editor .cm-md-html-strong { font-weight: 700; }
+.codemirror-editor .cm-md-html-i, .codemirror-editor .cm-md-html-em { font-style: italic; }
+.codemirror-editor .cm-md-html-abbr { text-decoration: underline dotted; cursor: help; }
+.codemirror-editor .cm-md-html-code { padding: .1em .35em; border-radius: 4px; background: var(--muted); font-family: var(--font-code); font-size: .88em; }
+.codemirror-editor .cm-md-html-kbd {
+  padding: .05em .4em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--surface); font-family: var(--font-code); font-size: .82em;
+}
+.codemirror-editor .cm-md-html-tag-line { height: 8px; overflow: hidden; line-height: 8px; }
+.codemirror-editor .cm-md-summary { font-weight: 600; cursor: default; }
+.codemirror-editor .cm-md-summary::before { content: '▸'; display: inline-block; width: 1.1em; color: var(--muted-foreground); font-size: .85em; }
+.codemirror-editor .cm-md-image { display: block; max-width: 100%; margin: .35em 0; border-radius: 4px; }
+.codemirror-editor .cm-md-image-card {
+  display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; margin: .2em 0; padding: 6px 12px;
+  border: 1px dashed var(--border); border-radius: 6px; color: var(--foreground); font-size: 14px;
+}
+.codemirror-editor .cm-md-image-card strong { font-weight: 500; }
+.codemirror-editor .cm-md-image-card small { color: var(--muted-foreground); font-size: 12px; }
+.codemirror-editor .cm-md-footnote-ref { color: var(--primary); font-size: .72em; line-height: 0; }
+.codemirror-editor .cm-md-footnote-line, .codemirror-editor .cm-md-linkref-line { color: var(--muted-foreground); font-size: 14px; }
+.codemirror-editor .cm-md-footnote-label { margin-right: .4em; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.codemirror-editor .cm-md-math { font-family: 'Latin Modern Math', 'STIX Two Math', 'Cambria Math', serif; }
+.codemirror-editor .cm-md-math math { font-size: 1.08em; }
+.codemirror-editor .cm-md-math-block { margin: .4em 0; overflow-x: auto; text-align: center; }
+.codemirror-editor .cm-md-math-block math { font-size: 1.2em; }
+.codemirror-editor .cm-md-math-source { font-family: var(--font-code); font-size: .9em; }
+/* Escaped characters and reference definitions read as plain text. */
+.codemirror-editor .cm-md-escape, .codemirror-editor .cm-md-escape * { color: inherit !important; }
+.codemirror-editor :is(.cm-md-linkref-line, .cm-md-footnote-line) span { color: inherit !important; }
