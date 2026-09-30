@@ -67,6 +67,22 @@ function pretty(value: string | undefined, envelope = false) {
   return out.length > 4000 ? `${out.slice(0, 4000)}\n…` : out;
 }
 
+/** A tool call's state: a turning ring while it runs, a check drawn in when done. */
+export function StepStatus({ status }: { status: 'running' | 'done' | 'failed' }) {
+  return <span className={`agent-step-status is-${status}`} role="img" aria-label={status === 'running' ? '进行中' : status === 'done' ? '已完成' : '失败'}>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <circle className="ring" cx="8" cy="8" r="6.25" />
+      {status === 'done' ? <path className="mark" d="M5 8.3 7.1 10.3 11 6" /> : null}
+      {status === 'failed' ? <path className="mark" d="M5.8 5.8 10.2 10.2M10.2 5.8 5.8 10.2" /> : null}
+    </svg>
+  </span>;
+}
+
+/** How a tool call reads, for rows outside this module (the running turn). */
+export function toolView(step: TurnStep) {
+  return describe(step);
+}
+
 function ToolRow({ step }: { step: TurnStep }) {
   const [open, setOpen] = useState(false);
   const view = describe(step);
@@ -79,6 +95,7 @@ function ToolRow({ step }: { step: TurnStep }) {
       {view.detail ? <span className={`agent-step-detail${view.code ? ' is-code' : ''}`}>{view.detail}</span> : null}
       {step.failed ? <span className="agent-step-flag">失败</span> : null}
       {hasDetail ? <ChevronRight size={13} className="agent-step-chevron" aria-hidden="true" /> : null}
+      <StepStatus status={step.failed ? 'failed' : 'done'} />
     </button>
     {open ? <div className="agent-step-body">
       {step.input ? <><h4>{step.name === 'bash' ? '命令' : '参数'}</h4><pre>{step.name === 'bash' ? step.input : pretty(step.input)}</pre></> : null}

@@ -64,6 +64,16 @@ export interface TurnStep {
   failed?: boolean;
 }
 
+/** A tool call of the turn that is still running. */
+export interface LiveStep { name: string; input?: string; status: 'running' | 'done' | 'failed' }
+
+export async function getLiveSteps(sessionId: string, signal?: AbortSignal): Promise<LiveStep[]> {
+  const data = await authRequest<{ steps: unknown }>(`/api/sessions/${sessionId}/live`, { signal });
+  if (!Array.isArray(data.steps)) return [];
+  return data.steps.filter((step): step is LiveStep => Boolean(step) && typeof step === 'object'
+    && typeof (step as LiveStep).name === 'string' && ['running', 'done', 'failed'].includes((step as LiveStep).status));
+}
+
 function isStep(value: unknown): value is TurnStep {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;

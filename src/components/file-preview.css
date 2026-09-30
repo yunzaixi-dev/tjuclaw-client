@@ -12,3 +12,4 @@
 .file-preview-pane > audio { display: block; width: min(100%, 500px); margin: 45px auto; }
 .file-preview-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; min-height: 36vh; color: var(--muted-foreground); text-align: center; }
 .file-preview-message { padding: 12px; color: var(--muted-foreground); font-size: 13px; }
+.file-preview-pane.is-book { display: flex; height: 100%; min-height: 0; flex-direction: column; padding: 0; }

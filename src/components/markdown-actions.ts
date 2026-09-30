@@ -5,7 +5,7 @@ import { EditorView } from '@codemirror/view';
 import {
   Bold, CheckSquare2, Clipboard, ClipboardPaste, Code2, Copy, Heading,
   Highlighter, Image, IndentDecrease, IndentIncrease, Italic, Link2,
-  List, ListOrdered, Minus, Quote, Redo2, Scissors, Strikethrough,
+  List, ListOrdered, Minus, Quote, Redo2, Scissors, Sigma, Strikethrough,
   Table2, Tag, Undo2, type LucideIcon,
 } from 'lucide-react';
 
@@ -38,6 +38,7 @@ export const actions: Action[] = [
   { label: '标签', icon: Tag, group: '插入', kind: 'insert', text: '#标签' },
   { label: '图片', icon: Image, group: '插入', kind: 'wrap', prefix: '![', suffix: '](url)' },
   { label: '代码块', icon: Code2, group: '插入', kind: 'wrap', prefix: '```\n', suffix: '\n```' },
+  { label: '公式块', icon: Sigma, group: '插入', kind: 'wrap', prefix: '$$\n', suffix: '\n$$' },
   { label: '表格', icon: Table2, group: '插入', kind: 'insert', text: '| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |' },
   { label: '分隔线', icon: Minus, group: '插入', kind: 'insert', text: '\n---\n' },
   { label: '撤销', icon: Undo2, group: '编辑', kind: 'history', text: 'undo' },

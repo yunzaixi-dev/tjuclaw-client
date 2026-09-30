@@ -67,3 +67,33 @@
 .agent-step-thought { padding: 2px 0 2px 12px; border-left: 2px solid var(--border); }
 .agent-step.is-more > button { color: var(--muted-foreground); }
 .agent-step.is-more > button > svg:first-child { box-shadow: none; background: transparent; }
+
+/* Status of each tool call: a ring turns while it runs, then a check draws
+   itself in (or a cross, on failure). */
+.agent-step-status { display: inline-grid; flex: none; margin-left: auto; place-items: center; }
+.agent-step-status svg { overflow: visible; }
+.agent-step-status .ring { fill: none; stroke: color-mix(in oklch, var(--foreground) 18%, transparent); stroke-width: 1.5; }
+.agent-step-status .mark { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 12; stroke-dashoffset: 0; animation: agent-step-draw 420ms var(--ease-out, ease-out) both; }
+.agent-step-status.is-running .ring { stroke: var(--foreground); stroke-dasharray: 10 30; transform-origin: 8px 8px; animation: agent-step-spin 900ms linear infinite; }
+.agent-step-status.is-done { color: oklch(58% .13 150); }
+.agent-step-status.is-done .ring { stroke: color-mix(in oklch, oklch(58% .13 150) 45%, transparent); animation: agent-step-settle 420ms var(--ease-out, ease-out) both; }
+.agent-step-status.is-failed { color: var(--destructive); }
+.agent-step-status.is-failed .ring { stroke: color-mix(in oklch, var(--destructive) 45%, transparent); }
+@keyframes agent-step-spin { to { transform: rotate(360deg); } }
+@keyframes agent-step-draw { from { stroke-dashoffset: 12; } to { stroke-dashoffset: 0; } }
+@keyframes agent-step-settle { from { transform: scale(.7); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+.agent-step-status .ring { transform-box: fill-box; }
+.agent-step-status.is-done .ring { transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-step-status .mark, .agent-step-status .ring { animation: none !important; }
+  .agent-step-status.is-running .ring { stroke-dasharray: none; }
+}
+/* The running turn: one row per call, appearing as each call starts. */
+.agent-live-steps { margin: 10px 0 0; }
+.agent-step.is-live .agent-step-line { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 6px; color: var(--foreground); font-size: 13.5px; }
+.agent-step.is-live .agent-step-line > svg:first-child { flex: none; color: var(--muted-foreground); }
+.agent-step.is-live { animation: agent-step-in 220ms var(--ease-out, ease-out) both; }
+.agent-step.is-live.is-running .agent-step-label { color: var(--foreground); }
+.agent-step.is-live.is-done .agent-step-label { color: var(--muted-foreground); }
+@keyframes agent-step-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.agent-step-chevron + .agent-step-status { margin-left: 6px; }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowUp, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
-import { AgentSteps } from './agent-steps';
-import { agentEffort, chooseProductModel, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { AgentSteps, StepStatus, toolView } from './agent-steps';
+import { LifeBackground } from './life-background';
+import { agentEffort, chooseProductModel, getLiveSteps, type LiveStep, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
 
@@ -25,33 +26,89 @@ function agentStarters(tools: string[]) {
 }
 
 /** The Agent at work, with elapsed seconds so a long task never looks stuck. */
-function Working({ name }: { name: string }) {
+function Working({ name, sessionId }: { name: string; sessionId?: string }) {
   // Mounted when sending starts, so the first render marks the start.
   const [since] = useState(() => Date.now());
   const [now, setNow] = useState(since);
+  const [steps, setSteps] = useState<LiveStep[]>([]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  // Each tool call appears as it starts and settles when it finishes.
+  useEffect(() => {
+    if (!sessionId) return;
+    const controller = new AbortController();
+    let timer = 0;
+    const poll = () => {
+      getLiveSteps(sessionId, controller.signal).then(setSteps).catch(() => undefined)
+        .finally(() => { if (!controller.signal.aborted) timer = window.setTimeout(poll, 1200); });
+    };
+    timer = window.setTimeout(poll, 600);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [sessionId]);
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  const running = steps.some(step => step.status === 'running');
   // Honest wording: the Agent may think, call tools and write in this time.
-  const phase = seconds < 6 ? '正在理解你的问题' : '正在处理，可能会查询资料、读写笔记';
+  const phase = running ? '正在调用工具' : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考';
   return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
     <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span><span className="agent-working-time">{seconds} 秒</span></div>
+    {steps.length ? <ol className="agent-steps-list agent-live-steps" aria-label="正在进行的工具调用">
+      {steps.map((step, index) => {
+        const view = toolView({ kind: 'tool', name: step.name, input: step.input });
+        const Icon = view.icon;
+        return <li key={index} className={`agent-step is-tool is-live is-${step.status}`}>
+          <div className="agent-step-line"><Icon size={14} aria-hidden="true" /><span className="agent-step-label">{view.label}</span><StepStatus status={step.status} /></div>
+        </li>;
+      })}
+    </ol> : null}
   </div>;
+}
+
+/** Closes a chip menu on an outside press or Escape. */
+function useMenuDismiss(open: boolean, close: () => void, ref: { current: HTMLElement | null }) {
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [open, close, ref]);
+}
+
+const EFFORTS: { value: AgentEffort; label: string; hint: string }[] = [
+  { value: '', label: '自动', hint: '由模型决定思考多久' },
+  { value: 'low', label: '快速', hint: '少想一点，更快回答' },
+  { value: 'high', label: '深入', hint: '多想一会儿，推理更仔细' },
+];
+
+/** One option in a composer menu: check on the left, name and a hint. */
+function MenuOption({ selected, label, hint, onSelect }: { selected: boolean; label: string; hint?: string; onSelect: () => void }) {
+  return <button type="button" role="menuitemradio" aria-checked={selected} className="agent-menu-option" onClick={onSelect}>
+    <span className="agent-menu-check" aria-hidden="true">{selected ? <Check size={14} /> : null}</span>
+    <span className="agent-menu-text"><strong>{label}</strong>{hint ? <small>{hint}</small> : null}</span>
+  </button>;
 }
 
 /** Thinking strength for the next turns, remembered on this device. */
 function EffortPicker() {
   const [effort, setEffort] = useState<AgentEffort>(() => agentEffort());
-  return <label className="agent-chip agent-effort" title="思考强度：深入会更慢、更仔细；快速更快给出答案">
-    <Brain size={12} aria-hidden="true" />
-    <select aria-label="思考强度" value={effort} onChange={event => { const next = event.target.value as AgentEffort; setEffort(next); setAgentEffort(next); }}>
-      <option value="">思考 · 自动</option>
-      <option value="low">思考 · 快速</option>
-      <option value="high">思考 · 深入</option>
-    </select>
-  </label>;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, close, ref);
+  const current = EFFORTS.find(item => item.value === effort) ?? EFFORTS[0];
+  return <div className="agent-model" ref={ref}>
+    <button type="button" className="agent-chip is-button" aria-haspopup="menu" aria-expanded={open} aria-label={`思考强度：${current.label}`} onClick={() => setOpen(value => !value)}>
+      <Brain size={12} aria-hidden="true" /><span>{current.value ? `${current.label}思考` : '思考'}</span><ChevronDown size={12} aria-hidden="true" />
+    </button>
+    {open ? <div className="agent-model-menu" role="menu" aria-label="思考强度">
+      <p className="agent-menu-title">思考强度</p>
+      {EFFORTS.map(item => <MenuOption key={item.value || 'auto'} selected={item.value === effort} label={item.label} hint={item.hint}
+        onSelect={() => { setEffort(item.value); setAgentEffort(item.value); setOpen(false); }} />)}
+    </div> : null}
+  </div>;
 }
 
 function ModelPill({ onManage }: { onManage: () => void }) {
@@ -65,14 +122,8 @@ function ModelPill({ onManage }: { onManage: () => void }) {
     getModel(controller.signal).then(setStatus).catch(() => { if (!controller.signal.aborted) setStatus({ configured: false, source: 'none', name: '', quota: { limit: 0, used: 0, remaining: 0 } }); });
     return () => controller.abort();
   }, []);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, close, ref);
   // Hold the chip's place while the status loads, so the bar does not shift.
   if (!status) return <span className="agent-chip is-loading" aria-hidden="true"><Sparkles size={12} /><span>模型</span></span>;
   const missing = status.source === 'none';
@@ -88,27 +139,20 @@ function ModelPill({ onManage }: { onManage: () => void }) {
         {busy ? <Loader2 className="animate-spin" size={12} aria-hidden="true" /> : <Sparkles size={12} aria-hidden="true" />}<span>{label}</span><ChevronDown size={12} aria-hidden="true" />
       </button>
       {open ? <div className="agent-model-menu" role="menu" aria-label="选择模型">
+        <p className="agent-menu-title">模型</p>
         {missing ? <p>服务器还没有接入产品模型。你可以先填写自己的 OpenAI 兼容上游。</p> : null}
         {choices.map(name => {
           const selected = name === status.name;
-          return <button key={name} type="button" role="menuitemradio" aria-checked={selected} onClick={() => {
+          return <MenuOption key={name} selected={selected} label={modelDisplayName({ source: 'product', name })} hint="TJUClaw 提供" onSelect={() => {
             setOpen(false);
             if (selected) return;
             setBusy(true);
             chooseProductModel(name).then(setStatus).catch(() => undefined).finally(() => setBusy(false));
-          }}><span>{modelDisplayName({ source: 'product', name })}</span>{selected ? <Check size={14} aria-hidden="true" /> : null}</button>;
+          }} />;
         })}
-        {status.source === 'custom' ? <button type="button" role="menuitemradio" aria-checked="true" onClick={() => setOpen(false)}><span>{label}</span><Check size={14} aria-hidden="true" /></button> : null}
-        {windows.length && choices.length ? <hr /> : null}
-        {windows.length ? <div className="agent-model-usage" aria-label="AI 额度">
-          {windows.map(window => <div key={window.id} className={window.remaining <= 0 ? 'is-empty' : ''}>
-            <span>{quotaWindowName(window.id)}内</span>
-            <meter min={0} max={window.limit} value={Math.min(window.used, window.limit)} aria-label={`${quotaWindowName(window.id)}内已用 ${window.used} / ${window.limit}`} />
-            <small>{window.used} / {window.limit}{window.used && window.resets_at ? ` · ${formatQuotaReset(window.resets_at)} 起恢复` : ''}</small>
-          </div>)}
-        </div> : null}
-        {choices.length || windows.length || status.source === 'custom' ? <hr /> : null}
-        <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><Settings2 size={14} aria-hidden="true" /><span>{missing ? '配置模型…' : '管理模型…'}</span></button>
+        {status.source === 'custom' ? <MenuOption selected label={label} hint="你自己的模型服务" onSelect={() => setOpen(false)} /> : null}
+        {choices.length || status.source === 'custom' ? <hr /> : null}
+        <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><span className="agent-menu-check" aria-hidden="true"><Settings2 size={14} /></span><span>{missing ? '配置模型…' : '模型与额度设置…'}</span></button>
       </div> : null}
     </div>
   );
@@ -212,11 +256,12 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working name={title} /> : null}
+      {sending ? <Working name={title} sessionId={chat?.id} /> : null}
     </div>;
   }
 
   return <section className={`agent-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
+    <LifeBackground />
     <div className="agent-scroll" ref={scrollRef} role="log" aria-label="会话记录">
       {body}
     </div>

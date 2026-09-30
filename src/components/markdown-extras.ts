@@ -42,7 +42,7 @@ export class MathWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-/** Only images the client may load (CSP img-src 'self' data:) are drawn. */
+/** The URL an image loads from: same-origin, data:, campus images through the proxy, other HTTPS images directly. */
 export function loadableImage(src: string): string | null {
   const url = src.trim();
   if (/^data:image\//i.test(url)) return url;
@@ -50,6 +50,7 @@ export function loadableImage(src: string): string | null {
     const parsed = new URL(url, location.origin);
     if (parsed.origin === location.origin) return parsed.pathname + parsed.search;
     if (parsed.protocol === 'https:' && parsed.hostname === 'qnhdpic.twt.edu.cn') return `/api/media/image?url=${encodeURIComponent(parsed.href)}`;
+    if (parsed.protocol === 'https:') return parsed.href;
   } catch { /* not a URL */ }
   return null;
 }
@@ -64,15 +65,21 @@ export class ImageWidget extends WidgetType {
       image.className = 'cm-md-image';
       image.src = loadable;
       image.alt = this.alt;
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      // An image that fails to load shows as its card instead.
+      image.addEventListener('error', () => image.replaceWith(this.card()));
       return image;
     }
-    // External images cannot load here; show what and where instead.
+    return this.card();
+  }
+  card() {
     const card = document.createElement('span');
     card.className = 'cm-md-image-card';
     const label = document.createElement('strong');
     label.textContent = this.alt || '图片';
     const host = document.createElement('small');
-    try { host.textContent = `外部图片 · ${new URL(this.src).hostname}`; } catch { host.textContent = '图片'; }
+    try { host.textContent = `图片未能加载 · ${new URL(this.src).hostname}`; } catch { host.textContent = '图片未能加载'; }
     card.append(label, host);
     card.title = this.src;
     return card;
@@ -106,3 +113,40 @@ export const INLINE_HTML = /<(u|mark|sub|sup|kbd|small|del|ins|abbr|s|b|i|em|str
 
 /** Inline math: $…$ without a space inside the dollars (so prices stay text). */
 export const INLINE_MATH = /(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![\w$])/g;
+
+/** A Mermaid diagram in place of its fenced source. */
+export class MermaidWidget extends WidgetType {
+  constructor(readonly source: string) { super(); }
+  eq(other: MermaidWidget) { return this.source === other.source; }
+  toDOM() {
+    const block = document.createElement('div');
+    block.className = 'cm-md-mermaid';
+    block.textContent = '正在绘制图表…';
+    void import('../lib/mermaid-render').then(({ renderMermaid }) => renderMermaid(this.source)).then(svg => { block.innerHTML = svg; })
+      .catch(() => { block.textContent = 'Mermaid 图表有语法错误，点击查看源码。'; block.classList.add('is-error'); });
+    return block;
+  }
+}
+
+/** A raw HTML block, sanitized, drawn as the HTML it describes. */
+export class HtmlBlockWidget extends WidgetType {
+  constructor(readonly html: string) { super(); }
+  eq(other: HtmlBlockWidget) { return this.html === other.html; }
+  toDOM() {
+    const block = document.createElement('div');
+    block.className = 'cm-md-html-block';
+    void import('dompurify').then(({ default: DOMPurify }) => {
+      block.innerHTML = DOMPurify.sanitize(this.html, { USE_PROFILES: { html: true } });
+      block.querySelectorAll('img').forEach(image => { image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; });
+    });
+    return block;
+  }
+}
+
+const TAG_ONLY = /^\s*(<\/?[a-z][^<>]*>\s*)+$/i;
+const SUMMARY = /^\s*<summary>.*<\/summary>\s*$/i;
+/** Whether an HTML block draws as HTML (not only structural tag lines). */
+export function htmlBlockRenders(source: string) {
+  return source.split('\n').some(line => line.trim() && !TAG_ONLY.test(line) && !SUMMARY.test(line))
+    || /^\s*<(img|table|p|figure|picture|video|audio|hr|br)\b/i.test(source);
+}

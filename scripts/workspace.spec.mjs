@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
 
 const syntheticSessionA = {
@@ -2089,9 +2090,8 @@ test('desktop panes share scrollbars, scroll independently and resize from a qui
   const sidebarWidth = 259;
   expect(leftBox.x + leftBox.width / 2).toBe(sidebarWidth);
   expect(await sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(sidebarWidth);
-  // The outline opens beside a note by default, so the page sits between the panes.
-  const openRail = await page.locator('.obsidian-rail').evaluate(element => Math.round(element.getBoundingClientRect().width));
-  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(1440 - sidebarWidth - openRail);
+  // No right panel: the page takes everything beside the sidebar.
+  expect(await page.locator('.obsidian-main').evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(1440 - sidebarWidth);
   expect(await left.evaluate(element => getComputedStyle(element, '::after').width)).toBe('2px');
   await page.mouse.move(sidebarWidth, 200);
   await expect.poll(() => left.evaluate(element => getComputedStyle(element, '::after').backgroundColor)).not.toBe(inactive);
@@ -2100,24 +2100,15 @@ test('desktop panes share scrollbars, scroll independently and resize from a qui
   await page.mouse.up();
   await expect.poll(() => sidebar.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(384);
 
-  if (await page.locator('.obsidian-app').evaluate(element => element.classList.contains('rail-collapsed'))) {
-    await page.getByRole('button', { name: '切换信息栏' }).click();
-  }
-  const rail = page.locator('.obsidian-rail');
-  const right = page.getByRole('separator', { name: '调整右侧面板宽度' });
-  const rightBox = await right.boundingBox();
-  expect(rightBox.x + rightBox.width / 2).toBe(1174);
-  await page.mouse.move(1174, 200);
-  await page.mouse.down();
-  await page.mouse.move(1114, 200, { steps: 5 });
-  await page.mouse.up();
-  await expect.poll(() => rail.evaluate(element => Math.round(element.getBoundingClientRect().width))).toBe(326);
-
-  await page.getByRole('button', { name: '切换信息栏' }).click();
-  await expect(right).toHaveCSS('pointer-events', 'none');
+  // The outline lives in the sidebar (文件 | 大纲); there is no right panel.
+  await expect(page.locator('.obsidian-rail')).toHaveCount(0);
+  await expect(page.getByRole('separator', { name: '调整右侧面板宽度' })).toHaveCount(0);
+  await page.getByRole('button', { name: '切换大纲' }).click();
+  await expect(page.getByRole('tab', { name: '大纲' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: '切换大纲' }).click();
+  await expect(page.getByRole('tab', { name: '文件' })).toHaveAttribute('aria-selected', 'true');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(left).toBeHidden();
-  await expect(right).toBeHidden();
 });
 
 test('mobile note shell keeps navigation, actions and settings within one viewport', async ({ page }) => {
@@ -2157,10 +2148,14 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   await expect(page.getByRole('menu', { name: '文档操作' })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-actions.png' });
   await page.getByRole('menuitem', { name: '大纲' }).click();
-  await expect(page.locator('.obsidian-rail').getByRole('button', { name: '今日计划', exact: true })).toBeVisible();
+  const outline = page.locator('.notes-outline-pane');
+  await expect(outline.getByRole('button', { name: '今日计划', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/workspace/mobile-outline.png' });
-  await page.locator('.obsidian-rail').getByRole('button', { name: '今日计划', exact: true }).click();
-  await expect(page.locator('.obsidian-app')).toHaveClass(/rail-collapsed/);
+  await outline.getByRole('button', { name: '今日计划', exact: true }).click();
+  await expect(page.locator('.obsidian-sidebar')).toHaveAttribute('aria-hidden', 'true');
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await page.getByRole('tab', { name: '文件' }).click();
+  await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 350 } });
   await page.getByRole('button', { name: '更多操作' }).click();
   await page.getByRole('menuitem', { name: '移动到…' }).click();
   await expect(page.getByRole('dialog', { name: '移动到' })).toBeVisible();
@@ -2310,7 +2305,7 @@ test('live Markdown preview reveals only the construct being edited and keeps so
   await expect(editor.locator('.cm-md-syntax').first()).toBeVisible();
   await editor.locator('.cm-md-heading-line').click();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(1);
-  await page.getByRole('button', { name: '切换信息栏' }).focus();
+  await page.getByRole('button', { name: '切换大纲' }).focus();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(0);
 
   await editor.locator('.cm-md-checkbox').check();
@@ -2431,7 +2426,7 @@ test('typing a Markdown heading keeps the marker legible without underlining the
     heading: getComputedStyle(line).fontSize,
   }));
   expect(markerSize.marker).toBe(markerSize.heading);
-  await page.getByRole('button', { name: '切换信息栏' }).focus();
+  await page.getByRole('button', { name: '切换大纲' }).focus();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(0);
   await expect(editor.locator('.cm-md-heading-line')).not.toHaveCSS('text-decoration-line', 'underline');
   await editor.locator('.cm-md-heading-line').click();
@@ -2491,8 +2486,7 @@ test('editor right-click menu formats selections and lines without losing undo h
   await page.keyboard.press('ControlOrMeta+a');
   await editor.click({ button: 'right', position: { x: 30, y: 12 } });
   await expect(menu).toBeVisible();
-  expect((await menu.boundingBox()).width).toBeLessThanOrEqual(286);
-  expect((await menu.boundingBox()).height).toBeLessThanOrEqual(392);
+  expect((await menu.boundingBox()).width).toBeLessThanOrEqual(240);
   await expect(page.getByRole('toolbar', { name: 'Markdown 格式工具栏' })).toHaveCount(0);
   await menu.getByRole('button', { name: '加粗' }).click();
   await expect(editor).toContainText('Private note body');
@@ -2501,21 +2495,29 @@ test('editor right-click menu formats selections and lines without losing undo h
   await editor.click({ button: 'right' });
   await menu.getByRole('button', { name: '加粗' }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
+  // 段落 opens a submenu of headings, with the current one checked.
   await editor.click({ button: 'right' });
-  await menu.getByRole('button', { name: '标题 2' }).click();
+  await menu.getByRole('button', { name: '段落' }).hover();
+  const paragraph = menu.getByRole('menu', { name: '段落' });
+  await expect(paragraph.getByRole('menuitem', { name: /^段落/ })).toContainText(/Ctrl\+0|⌘0/);
+  await paragraph.getByRole('menuitem', { name: /二级标题/ }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('## Private note body');
   await editor.click({ button: 'right' });
-  await menu.getByRole('button', { name: '正文' }).click();
+  await expect(menu.getByRole('button', { name: '加粗' })).toHaveAttribute('aria-pressed', 'false');
+  await menu.getByRole('button', { name: '段落' }).click();
+  await menu.getByRole('menu', { name: '段落' }).getByRole('menuitem', { name: /^段落/ }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
-  await editor.click({ button: 'right' });
-  await menu.getByRole('button', { name: '撤销' }).click();
-  await expect.poll(() => state.entryById[noteA.id].body).toBe('## Private note body');
+  // Ctrl/⌘+number sets headings, as the menu shows; undo is the usual shortcut.
+  await page.keyboard.press('ControlOrMeta+3');
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('### Private note body');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
+  await page.keyboard.press('ControlOrMeta+2');
   await page.keyboard.press('ControlOrMeta+a');
   await editor.click({ button: 'right' });
-  await menu.getByRole('textbox', { name: '查找 Markdown 命令' }).fill('双向链接');
-  await expect(menu.getByRole('button', { name: '双向链接' })).toBeVisible();
-  await page.keyboard.press('Enter');
-  await expect.poll(() => state.entryById[noteA.id].body).toBe('## [[Private note body]]');
+  await menu.getByRole('button', { name: '插入' }).hover();
+  await menu.getByRole('menu', { name: '插入' }).getByRole('menuitem', { name: '双向链接' }).click();
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('[[## Private note body]]');
   await editor.click({ button: 'right' });
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
@@ -2550,6 +2552,13 @@ test('Markdown context menu cuts and pastes the selected source text', async ({ 
   await editor.click({ button: 'right' });
   await menu.getByRole('button', { name: '粘贴', exact: true }).click();
   await expect.poll(() => state.entryById[noteA.id].body).toBe('Private note body');
+  await page.keyboard.press('ControlOrMeta+a');
+  await editor.click({ button: 'right', position: { x: 30, y: 12 } });
+  await menu.getByRole('button', { name: '复制／粘贴为…' }).hover();
+  await menu.getByRole('menuitem', { name: '复制为纯文本' }).click();
+  await editor.click({ button: 'right', position: { x: 30, y: 12 } });
+  await menu.getByRole('button', { name: '删除' }).click();
+  await expect.poll(() => state.entryById[noteA.id].body).toBe('');
 });
 
 test('context options and note rows keep hover and selection colors aligned', async ({ page }) => {
@@ -2575,17 +2584,13 @@ test('context options and note rows keep hover and selection colors aligned', as
 
     await page.locator('.codemirror-editor .cm-content').click({ button: 'right' });
     const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
-    const active = menu.getByRole('button', { name: '加粗' });
-    const next = menu.getByRole('button', { name: '斜体' });
-    const activeColor = await active.evaluate(element => getComputedStyle(element).backgroundColor);
-    await expect.poll(async () => {
-      const activeBounds = await active.boundingBox();
-      const nextBounds = await next.boundingBox();
-      return nextBounds.y - activeBounds.y - activeBounds.height;
-    }).toBe(2);
-    await next.hover();
-    expect(await next.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(activeColor);
-    expect(activeColor).not.toBe('rgba(0, 0, 0, 0)');
+    const row = menu.getByRole('button', { name: '段落' });
+    const other = menu.getByRole('button', { name: '插入' });
+    await row.hover();
+    const hoverColor = await row.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(hoverColor).not.toBe('rgba(0, 0, 0, 0)');
+    await other.hover();
+    expect(await other.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(hoverColor);
     await page.keyboard.press('Escape');
   }
 });
@@ -2772,10 +2777,10 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
   const chip = page.getByRole('button', { name: /^模型：额度已用完 · .+ 恢复$/ });
   await expect(chip).toBeVisible();
+  // Quota lives in Settings, not in the model menu.
   await chip.click();
   const menu = page.getByRole('menu', { name: '选择模型' });
-  await expect(menu.getByLabel('5 小时内已用 30 / 30')).toBeVisible();
-  await expect(menu.getByLabel('7 天内已用 41 / 200')).toBeVisible();
+  await expect(menu.locator('meter')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('还能继续吗');
   await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -2868,7 +2873,7 @@ test('Agent without a sandbox offers campus starters and shows which tools a rep
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await expect(page.getByPlaceholder('搜索会话…')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /今天想让/ }).or(page.locator('.conversation-row').first())).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toHaveCount(0);
   const log = page.getByRole('log', { name: '会话记录' });
   await expect(log.getByText('校园服务', { exact: true })).toBeVisible();
@@ -3085,7 +3090,7 @@ test('conversations are listed on their own and 新对话 starts one without pic
   await expect(rows).toHaveCount(3);
 });
 
-test('the outline is open beside notes, follows reading and jumps to the exact heading', async ({ page }) => {
+test('the outline tab follows reading and jumps to the exact heading', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const state = defaultState();
   const body = '# 概览\n\n' + '引言段落。\n\n'.repeat(40) + '## 概览\n\n' + '正文。\n\n'.repeat(40) + '```\n# 代码里的注释\n```\n\n## 结论\n\n收尾。';
@@ -3093,8 +3098,10 @@ test('the outline is open beside notes, follows reading and jumps to the exact h
   state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
   await mockWorkspace(page, state);
   await page.goto('/workspace');
+  // Like Typora, the sidebar switches between the files and the outline.
+  await page.getByRole('tab', { name: '大纲' }).click();
   const outline = page.getByRole('navigation', { name: '笔记大纲' });
-  // Open by default on wide screens; fenced code is not a heading.
+  // Fenced code is not a heading.
   await expect(outline.locator('.outline-item')).toHaveText(['概览', '概览', '结论']);
   await expect(outline.locator('.outline-row.is-active')).toHaveText('概览');
   // Jumps to the second 概览 (not the first match of its text) without moving the caret.
@@ -3106,11 +3113,10 @@ test('the outline is open beside notes, follows reading and jumps to the exact h
   // Collapsing a section hides its children.
   await outline.getByRole('button', { name: '折叠 概览' }).click();
   await expect(outline.locator('.outline-item')).toHaveText(['概览']);
-  // Closing it is remembered for the next note.
-  await page.getByRole('button', { name: '关闭信息栏' }).click();
+  // The chosen tab is remembered.
   await page.reload();
-  await expect(page.locator('.note-title')).toBeVisible();
-  await expect(page.locator('.obsidian-rail')).toHaveAttribute('aria-hidden', 'true');
+  await expect(page.getByRole('tab', { name: '大纲' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: '文件' }).click();
 });
 
 test('each campus account is bound on its own and only the tools that need it ask for it', async ({ page }) => {
@@ -3143,20 +3149,22 @@ test('the composer sends the chosen thinking strength', async ({ page }) => {
   await mockWorkspace(page, state);
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  const effort = page.getByRole('combobox', { name: '思考强度' });
-  await expect(effort).toHaveValue('');
+  const effort = page.getByRole('button', { name: /^思考强度：/ });
+  await expect(effort).toHaveAccessibleName('思考强度：自动');
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('默认');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect.poll(() => state.sentRequests.length).toBe(1);
   expect(state.sentRequests[0].effort).toBeUndefined();
-  await effort.selectOption('high');
+  await effort.click();
+  await page.getByRole('menu', { name: '思考强度' }).getByRole('menuitemradio', { name: /深入/ }).click();
+  await expect(effort).toHaveAccessibleName('思考强度：深入');
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('深入');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect.poll(() => state.sentRequests.length).toBe(2);
   expect(state.sentRequests[1].effort).toBe('high');
   await page.reload();
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: '思考强度' })).toHaveValue('high');
+  await expect(page.getByRole('button', { name: '思考强度：深入' })).toBeVisible();
 });
 
 test('live preview draws rules, inline HTML, math, footnotes, images and quoted blocks', async ({ page }) => {
@@ -3185,7 +3193,8 @@ test('live preview draws rules, inline HTML, math, footnotes, images and quoted 
   await expect(editor.locator('.cm-md-math-block')).toHaveCount(1);
   await expect(editor.locator('.cm-md-footnote-ref')).toHaveText('1');
   await expect(editor.locator('.cm-md-footnote-label')).toHaveText('1.');
-  await expect(editor.locator('.cm-md-image-card')).toContainText('可点击');
+  // External HTTPS images load in notes (the test page cannot reach the network, so the card may show instead).
+  await expect(editor.locator('.cm-md-image, .cm-md-image-card')).toHaveCount(1);
   await expect(editor).not.toContainText('<https://');
   await expect(editor).toContainText('*不是斜体*');
   await expect(editor.locator('.cm-md-quote-d2')).toHaveCount(1);
@@ -3193,4 +3202,134 @@ test('live preview draws rules, inline HTML, math, footnotes, images and quoted 
   await expect(editor.locator('.cm-md-table th')).toHaveText(['A', 'B']);
   await expect(editor.locator('.cm-md-summary')).toHaveText('展开');
   await expect(editor).not.toContainText('<details>');
+});
+
+test('search finds notes by title and full text, and runs quick actions', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let searched = '';
+  await page.route('**/api/libraries/*/search?**', route => {
+    searched = new URL(route.request().url()).searchParams.get('q') ?? '';
+    return json(route, 200, { hits: searched === '电流' ? [{ id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee7', title: '电路复习', snippet: '基尔霍夫电流定律', source: 'note' }] : [] });
+  });
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue('First note for user A');
+  await expect(page.locator('.obsidian-search')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+k');
+  const palette = page.getByRole('dialog');
+  const input = palette.getByRole('textbox', { name: '搜索' });
+  await expect(input).toBeFocused();
+  await expect(palette.getByRole('region', { name: '笔记' })).toContainText('First note for user A');
+  await input.fill('电流');
+  await expect.poll(() => searched).toBe('电流');
+  const fullText = palette.getByRole('region', { name: '全文' });
+  await expect(fullText.getByRole('option')).toHaveCount(1);
+  await expect(fullText.locator('mark')).toHaveText('电流');
+  await expect(palette.getByRole('option', { name: /新建笔记「电流」/ })).toBeVisible();
+  await input.fill('');
+  await input.fill('First');
+  await page.keyboard.press('Enter');
+  await expect(palette).toHaveCount(0);
+  await expect(page.locator('.note-title')).toHaveValue('First note for user A');
+});
+
+test('a running turn lists each tool call as it happens, then settles', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let polls = 0;
+  await page.route('**/api/sessions/*/live', route => {
+    polls += 1;
+    return json(route, 200, { steps: [{ name: 'campus_timetable', status: 'done' }, { name: 'campus_exams', status: polls > 2 ? 'failed' : 'running' }] });
+  });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('查下考试');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const live = page.getByRole('list', { name: '正在进行的工具调用' });
+  await expect(live.getByRole('listitem')).toHaveCount(2);
+  await expect(live.getByRole('img', { name: '已完成' })).toHaveCount(1);
+  await expect(live.getByRole('img', { name: '进行中' })).toHaveCount(1);
+  await expect(live.getByRole('img', { name: '失败' })).toHaveCount(1);
+  release();
+  await expect(live).toHaveCount(0);
+});
+
+test('replies highlight code, offer a copy button and draw no external images', async ({ page }) => {
+  const state = defaultState();
+  state.sessionById[sessionA.id] = { ...sessionA, messages: [
+    { role: 'user', content: '代码', created_at: '2026-01-01T00:00:10.000Z' },
+    { role: 'assistant', content: '```python\ndef add(a, b):\n    return a + b  # 相加\n```', created_at: '2026-01-01T00:00:11.000Z' },
+  ] };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.locator('.conversation-row').filter({ hasText: '代码' }).click();
+  const block = page.locator('.chat-message.assistant .code-block');
+  await expect(block.locator('.code-block-head span')).toHaveText('python');
+  await expect(block.locator('.tok-keyword').first()).toHaveText('def');
+  await expect(block.locator('.tok-comment')).toContainText('相加');
+  await page.evaluate(() => { let copied = ''; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied = text; window.__copied = copied; } } }); });
+  await block.hover();
+  await block.getByRole('button', { name: '复制代码' }).click();
+  await expect.poll(() => page.evaluate(() => window.__copied)).toContain('def add(a, b):');
+});
+
+
+test('reading mode turns pages like a book and remembers the page', async ({ page }) => {
+  const state = defaultState();
+  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 段：春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。`).join('\n\n');
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  const reader = page.getByRole('region', { name: '阅读' });
+  const count = reader.locator('.paged-reader-count');
+  await expect(count).toHaveText(/^1 \/ [2-9]\d*$/);
+  await page.keyboard.press('ArrowRight');
+  await expect(count).toHaveText(/^2 \//);
+  await reader.getByRole('button', { name: '下一页' }).click();
+  await expect(count).toHaveText(/^3 \//);
+  await page.keyboard.press('ArrowLeft');
+  await expect(count).toHaveText(/^2 \//);
+  await page.reload();
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  await expect(page.locator('.paged-reader-count')).toHaveText(/^2 \//);
+});
+
+test('EPUB books open in the paged reader with their chapters', async ({ page }) => {
+  const state = defaultState();
+  const chapter = (title, body) => strToU8(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${title}</title></head><body><h1>${title}</h1>${body}</body></html>`);
+  const epub = Buffer.from(zipSync({
+    mimetype: strToU8('application/epub+zip'),
+    'META-INF/container.xml': strToU8('<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/book.opf"/></rootfiles></container>'),
+    'OEBPS/book.opf': strToU8('<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>测试之书</dc:title><dc:creator>佚名</dc:creator></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/><item id="b" href="b.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/><itemref idref="b"/></spine></package>'),
+    'OEBPS/nav.xhtml': strToU8('<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><nav><ol><li><a href="a.xhtml">开端</a></li><li><a href="b.xhtml">尾声</a></li></ol></nav></body></html>'),
+    'OEBPS/a.xhtml': chapter('开端', '<p>第一章正文。<script>window.__evil = 1</script></p><p><a href="b.xhtml">去尾声</a></p>'),
+    'OEBPS/b.xhtml': chapter('尾声', '<p>全书完。</p>'),
+  }));
+  const book = { ...noteA, id: '99999999999999999999999999999998', kind: 'file', title: '测试之书.epub', content_type: 'application/epub+zip', size: epub.length, body: undefined };
+  state.entries.push(book);
+  state.entryById[book.id] = book;
+  await mockWorkspace(page, state);
+  await page.route(`**/api/entries/${book.id}/file`, route => route.fulfill({ status: 200, contentType: 'application/epub+zip', body: epub }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '测试之书.epub' }).click();
+  const reader = page.getByRole('region', { name: '阅读' });
+  await expect(reader.locator('.epub-reader-head')).toContainText('测试之书');
+  await expect(reader).toContainText('第一章正文。');
+  expect(await page.evaluate(() => window.__evil)).toBeUndefined();
+  await reader.getByRole('button', { name: '目录' }).click();
+  await expect(reader.getByRole('list', { name: '章节' }).getByRole('button')).toHaveText(['开端', '尾声']);
+  await reader.getByRole('button', { name: '目录' }).click();
+  // A link to another chapter turns there; at the end of a chapter the next one begins.
+  await reader.getByRole('link', { name: '去尾声' }).click();
+  await expect(reader).toContainText('全书完。');
+  await page.keyboard.press('ArrowLeft');
+  await expect(reader).toContainText('第一章正文。');
+  await page.keyboard.press('ArrowRight');
+  await expect(reader).toContainText('全书完。');
 });

@@ -9,8 +9,10 @@ import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from
 import { keymap } from '@codemirror/view';
 import { MoreHorizontal } from 'lucide-react';
 import { MarkdownContextMenu } from './markdown-context-menu';
-import { applyAction, toolbarActions } from './markdown-actions';
-import { FootnoteWidget, ImageWidget, INLINE_HTML, INLINE_MATH, MathWidget, mathLoaded, mathReady, SummaryWidget } from './markdown-extras';
+import { actions, applyAction, toolbarActions } from './markdown-actions';
+import { FootnoteWidget, HtmlBlockWidget, htmlBlockRenders, ImageWidget, INLINE_HTML, INLINE_MATH, MathWidget, mathLoaded, mathReady, MermaidWidget, SummaryWidget } from './markdown-extras';
+import { classHighlighter } from '@lezer/highlight';
+import { codeLanguages } from '../lib/code-highlight';
 
 // Phones and tablets: CodeMirror's drawn cursor and selection hide the native
 // caret, selection handles and magnifier, so touch devices use the browser's
@@ -187,6 +189,18 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
     return to + (/^[ \t]+/.exec(remainder)?.[0].length ?? 0);
   };
 
+  let alignStart: number | null = null;
+  // Blank lines between blocks fold to a small gap, as in reading mode;
+  // the caret's line keeps its full height.
+  for (const { from: start, to: end } of view.visibleRanges) {
+    for (let pos = start; pos <= end; ) {
+      const current = doc.lineAt(pos);
+      if (/^[\s>]*$/.test(current.text) && !selected(current.from, current.to)
+        && !/Code/.test(syntaxTree(view.state).resolveInner(current.from, 1).name)) line(current.from, 'cm-md-blank');
+      if (current.to >= end || current.number === doc.lines) break;
+      pos = current.to + 1;
+    }
+  }
   syntaxTree(view.state).iterate({
     enter(node) {
       const { from, to, name } = node;
@@ -292,6 +306,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         }
         syntax(from, withSeparator(to), activeLine);
       }
+      if (name === 'FencedCode' && /^\s*(```|~~~)\s*mermaid\b/i.test(doc.lineAt(from).text) && !selected(from, to)) return false;
       if (name === 'FencedCode') {
         const first = doc.lineAt(from);
         const last = doc.lineAt(to);
@@ -330,6 +345,14 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         }
       }
       if (name === 'HTMLBlock') {
+        const source = text.slice(from, to);
+        // <div align="center"> … </div> centres the Markdown between them.
+        if (/^\s*<(div|p)\b[^>]*\balign\s*=\s*["']?center/i.test(source) || /^\s*<center>\s*$/i.test(source)) alignStart = doc.lineAt(to).to + 1;
+        else if (alignStart !== null && /^\s*<\/(div|p|center)>\s*$/i.test(source)) {
+          for (let pos = alignStart; pos < from; pos = doc.lineAt(pos).to + 1) line(pos, 'cm-md-align-center');
+          alignStart = null;
+        }
+        if (htmlBlockRenders(source) && !selected(from, to)) return false;
         for (let pos = from; pos <= to; ) {
           const current = doc.lineAt(pos);
           const lineText = current.text;
@@ -520,6 +543,22 @@ function blockDecorations(state: EditorState): DecorationSet {
         if (!editing(from, to)) ranges.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to), from), block: true }).range(from, to));
         return false;
       }
+      if (node.name === 'FencedCode') {
+        const from = state.doc.lineAt(node.from).from;
+        const to = state.doc.lineAt(node.to).to;
+        const lines = state.doc.sliceString(from, to).split('\n');
+        if (/^\s*(```|~~~)\s*mermaid\b/i.test(lines[0] ?? '') && lines.length > 2 && !editing(from, to)) {
+          ranges.push(Decoration.replace({ widget: new MermaidWidget(lines.slice(1, /^\s*(```|~~~)/.test(lines.at(-1) ?? '') ? -1 : undefined).join('\n')), block: true }).range(from, to));
+        }
+        return false;
+      }
+      if (node.name === 'HTMLBlock') {
+        const from = state.doc.lineAt(node.from).from;
+        const to = state.doc.lineAt(node.to).to;
+        const source = state.doc.sliceString(from, to);
+        if (htmlBlockRenders(source) && !editing(from, to)) ranges.push(Decoration.replace({ widget: new HtmlBlockWidget(source), block: true }).range(from, to));
+        return false;
+      }
       if (node.name === 'SetextHeading1' || node.name === 'SetextHeading2') {
         // The ==== or ---- underline folds away until the heading is edited.
         const first = state.doc.lineAt(node.from);
@@ -587,9 +626,20 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           coarsePointer ? touchSetup : basicSetup,
           ...(coarsePointer ? [EditorView.scrollMargins.of(() => ({ bottom: TOOLBAR_HEIGHT + 16 }))] : []),
           history(),
+          // Ctrl/⌘+1…6 set a heading, Ctrl/⌘+0 a plain paragraph (as in Typora).
+          keymap.of(Array.from({ length: 7 }, (_, level) => ({
+            key: `Mod-${level}`,
+            run: (target: EditorView) => {
+              const action = actions.find(item => item.label === (level ? `标题 ${level}` : '正文'));
+              if (action) void applyAction(target, action);
+              return Boolean(action);
+            },
+          }))),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          markdown({ base: markdownLanguage }),
+          markdown({ base: markdownLanguage, codeLanguages }),
           syntaxHighlighting(noteHighlight),
+          // Code inside fences gets the same tok-* colours as rendered Markdown.
+          syntaxHighlighting(classHighlighter),
           livePreview,
           previewAtomicRanges,
           editorFocus,

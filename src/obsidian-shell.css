@@ -2454,3 +2454,218 @@
 /* Escaped characters and reference definitions read as plain text. */
 .codemirror-editor .cm-md-escape, .codemirror-editor .cm-md-escape * { color: inherit !important; }
 .codemirror-editor :is(.cm-md-linkref-line, .cm-md-footnote-line) span { color: inherit !important; }
+
+/* Note context menu, after Typora: edit buttons, a format grid, rows that
+   open 段落 / 插入 submenus to the side. */
+.markdown-context-menu.md-menu { width: 232px; max-height: none; overflow: visible; padding: 6px 0; }
+.md-menu hr { height: 1px; margin: 6px 0; border: 0; background: var(--border); }
+.md-menu-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 4px 10px; }
+.md-menu-icon {
+  display: grid; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px;
+  background: color-mix(in oklch, var(--foreground) 2%, var(--surface-raised)); color: var(--foreground); cursor: pointer;
+  font-family: var(--font-page); font-size: 15px; transition: background-color 100ms, border-color 100ms;
+}
+.md-menu-icon b { font-weight: 600; }
+.md-menu-icon i { font-family: Georgia, 'Times New Roman', serif; font-size: 16px; }
+.md-menu-icon:hover:not(:disabled) { background: var(--hover-wash); }
+.md-menu-icon[aria-pressed="true"] { border-color: color-mix(in oklch, var(--foreground) 28%, transparent); background: var(--selected, var(--hover-wash)); }
+.md-menu-icon:disabled { cursor: default; opacity: .35; }
+.md-menu-branch { position: relative; }
+.md-menu-row, .md-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 14px 0 16px; border: 0;
+  background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.md-menu-row span, .md-menu-item span:not(.md-menu-check) { flex: 1; }
+.md-menu-row svg { color: var(--muted-foreground); }
+.md-menu-row:hover, .md-menu-branch.is-open > .md-menu-row, .md-menu-item:hover:not(:disabled) { background: var(--hover-wash); }
+.md-menu-item:disabled { cursor: default; opacity: .4; }
+.md-menu-item { padding-left: 10px; }
+.md-menu-check { display: inline-grid; flex: none; width: 16px; place-items: center; }
+.md-menu-item kbd { color: var(--muted-foreground); font-family: inherit; font-size: 12px; }
+.md-menu-sub {
+  position: absolute; top: -6px; left: calc(100% + 4px); z-index: 1; width: 236px; padding: 6px 0;
+  border-radius: 10px; background: var(--surface-raised); box-shadow: var(--shadow-popover);
+  animation: markdown-menu-enter .12s ease-out both;
+}
+.md-menu-sub hr { margin: 6px 0; }
+/* Near the right edge the submenu opens to the left. */
+.md-menu.opens-left .md-menu-sub { right: calc(100% + 4px); left: auto; }
+/* Phones: a bottom sheet; submenus open inline under their row. */
+.md-menu.is-compact { width: 100%; max-height: min(64dvh, 560px); overflow-y: auto; }
+.md-menu.is-compact .md-menu-icon { height: 42px; }
+.md-menu.is-compact .md-menu-row, .md-menu.is-compact .md-menu-item { height: 44px; }
+.md-menu.is-compact .md-menu-sub { position: static; width: auto; padding: 0 0 4px 12px; border-radius: 0; box-shadow: none; animation: none; }
+.md-menu.is-compact .md-menu-branch.is-open > .md-menu-row svg { transform: rotate(90deg); }
+.markdown-context-menu.md-menu:focus { outline: none; }
+
+/* Code colours (tok-* from Lezer), shared by the editor and rendered
+   Markdown; quiet, GitHub-like, with a dark variant. */
+:root {
+  --code-keyword: #cf222e; --code-string: #0a3069; --code-number: #0550ae; --code-comment: #6e7781;
+  --code-function: #8250df; --code-type: #953800; --code-property: #0550ae; --code-operator: #57606a;
+  --code-atom: #0550ae; --code-meta: #6e7781; --code-tag: #116329; --code-attr: #0550ae; --code-inserted: #116329; --code-deleted: #82071e;
+}
+:root[data-theme="dark"] {
+  --code-keyword: #ff7b72; --code-string: #a5d6ff; --code-number: #79c0ff; --code-comment: #8b949e;
+  --code-function: #d2a8ff; --code-type: #ffa657; --code-property: #79c0ff; --code-operator: #c9d1d9;
+  --code-atom: #79c0ff; --code-meta: #8b949e; --code-tag: #7ee787; --code-attr: #79c0ff; --code-inserted: #7ee787; --code-deleted: #ffa198;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --code-keyword: #ff7b72; --code-string: #a5d6ff; --code-number: #79c0ff; --code-comment: #8b949e;
+    --code-function: #d2a8ff; --code-type: #ffa657; --code-property: #79c0ff; --code-operator: #c9d1d9;
+    --code-atom: #79c0ff; --code-meta: #8b949e; --code-tag: #7ee787; --code-attr: #79c0ff; --code-inserted: #7ee787; --code-deleted: #ffa198;
+  }
+}
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-keyword, .tok-controlKeyword, .tok-modifier) { color: var(--code-keyword) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-string, .tok-string2, .tok-regexp, .tok-character) { color: var(--code-string) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-number, .tok-bool, .tok-atom, .tok-null) { color: var(--code-number) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-comment, .tok-lineComment, .tok-blockComment, .tok-docComment) { color: var(--code-comment) !important; font-style: italic; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-variableName.tok-definition, .tok-function) { color: var(--code-function) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-typeName, .tok-className, .tok-namespace) { color: var(--code-type) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-propertyName, .tok-labelName) { color: var(--code-property) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-operator, .tok-punctuation) { color: var(--code-operator) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-meta, .tok-processingInstruction) { color: var(--code-meta) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) :is(.tok-tagName, .tok-heading) { color: var(--code-tag) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) .tok-attributeName { color: var(--code-attr) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) .tok-inserted { color: var(--code-inserted) !important; }
+:is(.codemirror-editor .cm-md-code-line, .code-block pre) .tok-deleted { color: var(--code-deleted) !important; }
+
+/* Rendered code blocks: language on the left, copy on the right. */
+.code-block { margin: .8em 0; overflow: hidden; border-radius: 8px; background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); }
+.code-block-head { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 8px 0 14px; color: var(--muted-foreground); font-size: 12px; }
+.code-copy { height: 22px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.code-block:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
+.code-copy:hover { background: var(--hover-wash); color: var(--foreground); }
+.code-block pre { margin: 0 !important; padding: 2px 14px 12px !important; overflow-x: auto; border: 0 !important; border-radius: 0 !important; background: transparent !important; font-family: var(--font-code); font-size: 13.5px; line-height: 1.6; }
+.code-block pre code { padding: 0 !important; background: none !important; font-size: inherit; }
+@media (hover: none) { .code-copy { opacity: 1; } }
+
+/* Diagrams and HTML drawn in place. */
+.mermaid-block, .codemirror-editor .cm-md-mermaid { display: flex; justify-content: center; margin: .8em 0; overflow-x: auto; }
+.mermaid-block svg, .codemirror-editor .cm-md-mermaid svg { max-width: 100%; height: auto; }
+.mermaid-block:not([data-rendered="true"]) { justify-content: flex-start; }
+.codemirror-editor .cm-md-mermaid { min-height: 40px; color: var(--muted-foreground); font-size: 13px; cursor: text; }
+.codemirror-editor .cm-md-mermaid.is-error { color: var(--destructive); }
+.codemirror-editor .cm-md-html-block { margin: .3em 0; cursor: text; }
+.codemirror-editor .cm-md-html-block img { max-width: 100%; }
+.codemirror-editor .cm-md-align-center { text-align: center; }
+
+/* The notes sidebar shows the files or the outline, as in Typora. */
+.obsidian-app .notes-pane-tabs { display: grid; grid-template-columns: 1fr 1fr; margin: 4px 8px 8px; border-bottom: 1px solid var(--border); }
+.obsidian-app .notes-pane-tabs button {
+  position: relative; height: 34px; padding: 0; border: 0; background: none; color: var(--muted-foreground);
+  font: inherit; font-size: 14px; cursor: pointer;
+}
+.obsidian-app .notes-pane-tabs button[aria-selected="true"] { color: var(--foreground); font-weight: 600; }
+.obsidian-app .notes-pane-tabs button[aria-selected="true"]::after { content: ''; position: absolute; right: 22%; bottom: -1px; left: 22%; height: 2px; border-radius: 2px; background: var(--foreground); }
+.obsidian-app .notes-pane-tabs button:hover { color: var(--foreground); }
+.obsidian-app .notes-outline-pane { flex: 1; min-height: 60px; overflow: auto; padding: 0 8px; }
+.obsidian-app .notes-outline-pane .outline-item { font-size: 14px; }
+.obsidian-app .notes-outline-pane .outline-item.level-1 { font-weight: 600; }
+
+/* Documents read like Typora (GitHub theme): roomy text, headings with a
+   hairline under H1/H2, underlined links, boxed inline code, a 4px quote bar. */
+.obsidian-app :is(.codemirror-editor .cm-content, .markdown-preview) { font-size: 16px; }
+.obsidian-app .codemirror-editor .cm-line { line-height: 1.75; }
+.obsidian-app .codemirror-editor .cm-md-heading-line { font-weight: 700; letter-spacing: 0; line-height: 1.4; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-1 { padding: .6em 0 .3em !important; border-bottom: 1px solid var(--border); font-size: 2.1em; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-2 { padding: .55em 0 .3em !important; border-bottom: 1px solid var(--border); font-size: 1.65em; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-3 { padding: .5em 0 .2em !important; font-size: 1.4em; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-4 { padding: .45em 0 .15em !important; font-size: 1.2em; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-5 { padding: .4em 0 .1em !important; font-size: 1.05em; }
+.obsidian-app .codemirror-editor .cm-md-heading-line-6 { padding: .4em 0 .1em !important; color: var(--muted-foreground); font-size: 1em; }
+.obsidian-app .markdown-preview :is(h1, h2) { padding-bottom: .3em; border-bottom: 1px solid var(--border); }
+.obsidian-app .markdown-preview h1 { font-size: 2.1em; }
+.obsidian-app .markdown-preview h2 { font-size: 1.65em; }
+.obsidian-app .markdown-preview h3 { font-size: 1.4em; }
+.obsidian-app .markdown-preview h4 { font-size: 1.2em; }
+.obsidian-app .markdown-preview :is(h1, h2, h3, h4, h5, h6) { margin: 1em 0 .5em; font-weight: 700; line-height: 1.4; }
+:root { --doc-link: #4183c4; }
+:root[data-theme="dark"] { --doc-link: #6aa9ea; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --doc-link: #6aa9ea; } }
+.obsidian-app :is(.markdown-preview a, .codemirror-editor .cm-md-link-label, .codemirror-editor .cm-md-wikilink) {
+  color: var(--doc-link) !important; text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--doc-link) 55%, transparent); text-underline-offset: .2em;
+}
+.obsidian-app :is(.codemirror-editor .cm-md-inline-code, .markdown-preview :not(pre) > code) {
+  padding: .05em .3em; border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent); border-radius: 3px;
+  background: color-mix(in oklch, var(--foreground) 5%, var(--surface)); font-family: var(--font-code); font-size: .88em;
+}
+.obsidian-app .codemirror-editor .cm-md-quote-line { padding-left: 16px; border-left-width: 4px; border-left-color: color-mix(in oklch, var(--foreground) 14%, transparent); color: var(--muted-foreground); }
+.obsidian-app .markdown-preview blockquote { margin: .8em 0; padding: 0 16px; border-left: 4px solid color-mix(in oklch, var(--foreground) 14%, transparent); color: var(--muted-foreground); }
+.obsidian-app .codemirror-editor .cm-md-hr-line::after, .obsidian-app .markdown-preview hr { border-top: 2px solid var(--border); }
+.obsidian-app .markdown-preview hr { height: 0; margin: 1.2em 0; border-width: 2px 0 0; }
+.obsidian-app .markdown-preview p { margin: .8em 0; line-height: 1.75; }
+.obsidian-app .markdown-preview :is(ul, ol) { padding-left: 1.8em; line-height: 1.75; }
+/* Edit mode as compact as reading mode: blank lines are small gaps. */
+.obsidian-app .codemirror-editor .cm-line.cm-md-blank { height: .55em; line-height: .55em; }
+.obsidian-app .notion-workspace-mark { background: none; color: var(--foreground); }
+/* Nested quotes: one 4px bar per level, Typora's grey. */
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d2,
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d3,
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d4 { --bar: color-mix(in oklch, var(--foreground) 14%, transparent); border-left: 0; }
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d2 { padding-left: 36px; background: linear-gradient(to right, var(--bar) 0 4px, transparent 4px 20px, var(--bar) 20px 24px, transparent 24px) no-repeat; }
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d3 { padding-left: 56px; background: linear-gradient(to right, var(--bar) 0 4px, transparent 4px 20px, var(--bar) 20px 24px, transparent 24px 40px, var(--bar) 40px 44px, transparent 44px) no-repeat; }
+.obsidian-app .codemirror-editor .cm-md-quote-line.cm-md-quote-d4 { padding-left: 76px; background: linear-gradient(to right, var(--bar) 0 4px, transparent 4px 20px, var(--bar) 20px 24px, transparent 24px 40px, var(--bar) 40px 44px, transparent 44px 60px, var(--bar) 60px 64px, transparent 64px) no-repeat; }
+
+/* The page is only the document: navigation and edit/read live in the top
+   bar, and the margins around the text are tighter. */
+.obsidian-app .note-topbar-controls { display: flex; align-items: center; gap: 6px; }
+.obsidian-app .note-topbar-controls .note-history { position: static; display: flex; gap: 2px; }
+.obsidian-app .note-topbar-controls button {
+  display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted-foreground); cursor: pointer;
+}
+.obsidian-app .note-topbar-controls button:hover:not(:disabled) { background: var(--hover-wash); color: var(--foreground); }
+.obsidian-app .note-topbar-controls button:disabled { opacity: .35; cursor: default; }
+.obsidian-app .note-topbar-controls .mode-switch { display: flex; gap: 0; padding: 2px; border-radius: 7px; background: color-mix(in oklch, var(--foreground) 6%, transparent); }
+.obsidian-app .note-topbar-controls .mode-switch button { width: 26px; height: 24px; border-radius: 5px; }
+.obsidian-app .note-topbar-controls .mode-switch button.is-active { background: var(--surface); color: var(--foreground); box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent); }
+@media (min-width: 721px) {
+  .obsidian-app .note-editor { padding: 28px max(28px, calc((100% - 780px) / 2)) 80px; }
+  .obsidian-app .note-title { margin-bottom: 12px; }
+  .obsidian-app .anki-content { padding: 28px max(28px, calc((100% - 780px) / 2)) 80px; }
+}
+/* Page margins in the golden ratio: side = top × 1.618 (the top is smaller). */
+@media (min-width: 721px) {
+  .obsidian-app .note-editor, .obsidian-app .anki-content {
+    --side: max(32px, calc((100% - 780px) / 2));
+    padding: max(20px, calc((100% - 780px) / 2 / 1.618)) var(--side) 80px;
+  }
+}
+
+/* Search, after Notion: one field, grouped results, keyboard first. */
+.search-palette.search-palette {
+  top: 14vh; width: min(640px, calc(100vw - 32px)); max-width: none; padding: 0; overflow: hidden; transform: translateX(-50%);
+  border: 0; border-radius: 12px; background: var(--surface-raised, var(--surface)); box-shadow: var(--shadow-popover), 0 24px 64px rgba(15, 15, 15, .18);
+}
+.search-palette-field { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); }
+.search-palette-field input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--foreground); font: inherit; font-size: 16px; }
+.search-palette-field input::placeholder { color: var(--muted-foreground); }
+.search-palette-busy { width: 14px; height: 14px; border: 1.5px solid var(--border); border-top-color: var(--foreground); border-radius: 50%; animation: agent-step-spin 800ms linear infinite; }
+.search-palette-results { max-height: min(56vh, 460px); overflow-y: auto; padding: 6px 0; }
+.search-palette-results h3 { margin: 8px 16px 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.search-palette-results button {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 6px 16px; border: 0;
+  background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.search-palette-results button > svg:first-child { flex: none; color: var(--muted-foreground); }
+.search-palette-results button[data-active="true"] { background: var(--hover-wash); }
+.search-palette-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.search-palette-text strong { overflow: hidden; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.search-palette-text small { display: -webkit-box; overflow: hidden; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.search-palette-results mark { border-radius: 2px; background: color-mix(in oklch, oklch(88% .14 95) 65%, transparent); color: inherit; }
+.search-palette-enter { flex: none; color: var(--muted-foreground); }
+.search-palette-empty { margin: 14px 16px; color: var(--muted-foreground); font-size: 13px; }
+.search-palette-foot { display: flex; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 12px; }
+.search-palette-foot kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 11px; }
+@media (max-width: 720px) { .search-palette.search-palette { top: 8px; } .search-palette-foot { display: none; } }
+/* Tighter page: side margin 6% (28–72px), top = side ÷ 1.618. */
+@media (min-width: 721px) {
+  .obsidian-app .note-editor, .obsidian-app .anki-content {
+    padding: clamp(18px, calc(6% / 1.618), 45px) clamp(28px, 6%, 72px) 72px;
+  }
+}
+/* Reading mode is a book page: title on top, the text turned page by page. */
+.obsidian-app .note-editor.is-reading { display: flex; height: 100%; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
+.obsidian-app .note-editor.is-reading .note-title { flex: none; }
