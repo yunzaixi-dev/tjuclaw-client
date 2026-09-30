@@ -9,7 +9,7 @@
 .agent-steps-summary svg { transition: transform 160ms var(--ease-out); }
 .agent-steps-block.is-open > .agent-steps-summary svg { transform: rotate(90deg); }
 
-.agent-steps-list { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 0 6px; padding: 2px 0 2px 2px; list-style: none; animation: agent-steps-in 180ms var(--ease-out) both; }
+.agent-steps-list { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 0 4px -4px; padding: 2px 0; list-style: none; animation: agent-steps-in 180ms var(--ease-out) both; }
 .agent-steps-list::before { position: absolute; top: 14px; bottom: 14px; left: 12px; width: 1px; background: var(--border); content: ""; }
 
 .agent-step > button {
@@ -59,3 +59,11 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-steps-list, .agent-thinking.is-step > svg, .agent-skeleton span { animation: none; }
 }
+
+/* Thinking reads as a quiet aside; tool calls as the work that was done. */
+.agent-step.is-thinking > button { color: var(--muted-foreground); }
+.agent-step.is-thinking > button > svg:first-child { box-shadow: none; background: transparent; }
+.agent-step.is-thinking .agent-step-detail { font-style: italic; opacity: .8; }
+.agent-step-thought { padding: 2px 0 2px 12px; border-left: 2px solid var(--border); }
+.agent-step.is-more > button { color: var(--muted-foreground); }
+.agent-step.is-more > button > svg:first-child { box-shadow: none; background: transparent; }

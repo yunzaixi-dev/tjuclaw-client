@@ -89,44 +89,43 @@ function ToolRow({ step }: { step: TurnStep }) {
 
 function ThinkingRow({ step }: { step: TurnStep }) {
   const [open, setOpen] = useState(false);
+  const thought = (step.text ?? '').trim();
   return <li className={`agent-step is-thinking${open ? ' is-open' : ''}`}>
     <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
       <Brain size={14} aria-hidden="true" />
-      <span className="agent-step-label">思考</span>
-      {!open ? <span className="agent-step-detail">{(step.text ?? '').replace(/\s+/g, ' ')}</span> : null}
+      <span className="agent-step-label">思考过程</span>
+      {!open ? <span className="agent-step-detail">{thought.replace(/\s+/g, ' ')}</span> : null}
       <ChevronRight size={13} className="agent-step-chevron" aria-hidden="true" />
     </button>
-    {open ? <p className="agent-step-thought">{step.text}</p> : null}
+    {open ? <p className="agent-step-thought">{thought}</p> : null}
   </li>;
 }
 
-const SHORT: Record<string, string> = {
-  campus_semester: '学期', campus_timetable: '课表', campus_exams: '考试安排', campus_study_rooms: '自习室',
-  campus_forum_posts: '校园论坛', search_course_materials: '课程资料', read_image: '看图', list_tree: '笔记目录',
-  read_entry: '读笔记', create_entry: '新建笔记', update_entry: '修改笔记', delete_entry: '删除笔记',
-  bash: '命令', tools_list: '工具列表',
-};
+const VISIBLE_TOOLS = 5;
 
-/** A reply's chain of thought and tool calls, collapsed to one summary line. */
+/**
+ * A reply's work, in order: thinking stays thinking (a quiet block that
+ * opens on demand) and every tool call is its own visible row. Long runs of
+ * tool calls show the first few and fold the rest behind one toggle.
+ */
 export function AgentSteps({ steps, tools }: { steps?: TurnStep[]; tools?: string[] }) {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const list = steps?.length ? steps : (tools ?? []).map(name => ({ kind: 'tool', name }) as TurnStep);
   if (!list.length) return null;
-  const toolCount = list.filter(step => step.kind === 'tool').length;
-  const thought = list.some(step => step.kind === 'thinking');
-  const failed = list.some(step => step.failed);
-  const names = [...new Set(list.filter(step => step.kind === 'tool').map(step => SHORT[step.name ?? ''] ?? step.name ?? '工具'))];
-  const used = names.length && names.length <= 3 ? `使用了 ${names.join(' · ')}` : toolCount ? `调用了 ${toolCount} 次工具` : '';
-  const summary = [thought ? '已思考' : '', used].filter(Boolean).join(' · ');
-  return <div className={`agent-steps-block${open ? ' is-open' : ''}`}>
-    <button type="button" className="agent-steps-summary" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-      <span>{summary}{failed ? ' · 有步骤失败' : ''}</span>
-      <ChevronRight size={13} aria-hidden="true" />
-    </button>
-    {open ? <ol className="agent-steps-list" aria-label="思考与工具调用">
-      {list.map((step, index) => step.kind === 'thinking'
-        ? <ThinkingRow key={index} step={step} />
-        : <ToolRow key={index} step={step} />)}
-    </ol> : null}
-  </div>;
+  const toolIndexes = list.map((step, index) => step.kind === 'tool' ? index : -1).filter(index => index >= 0);
+  const hidden = expanded || toolIndexes.length <= VISIBLE_TOOLS + 1 ? new Set<number>() : new Set(toolIndexes.slice(VISIBLE_TOOLS));
+  // Thinking after the fold belongs to the folded part too.
+  const cut = hidden.size ? Math.min(...hidden) : Infinity;
+  const shown = list.map((step, index) => ({ step, index })).filter(({ index }) => index < cut);
+  return <ol className="agent-steps-list" aria-label="思考与工具调用">
+    {shown.map(({ step, index }) => step.kind === 'thinking'
+      ? <ThinkingRow key={index} step={step} />
+      : <ToolRow key={index} step={step} />)}
+    {hidden.size ? <li className="agent-step is-more">
+      <button type="button" onClick={() => setExpanded(true)}>
+        <ListChecks size={14} aria-hidden="true" />
+        <span className="agent-step-label">显示其余 {list.length - shown.length} 步</span>
+      </button>
+    </li> : null}
+  </ol>;
 }

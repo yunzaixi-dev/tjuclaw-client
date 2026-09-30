@@ -950,10 +950,6 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await expect(page.getByRole('menuitemradio', { name: '手动排序' })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('menuitemradio', { name: '手动排序' }).click();
-    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
-    await page.getByRole('button', { name: '侧栏排序' }).click();
-    await expect(page.getByRole('menuitemradio', { name: '最近修改' })).toHaveCount(0);
-    await page.getByRole('menuitemradio', { name: '手动排序' }).click();
     await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await page.getByRole('menuitemradio', { name: '手动排序' }).click();
@@ -1103,6 +1099,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect.poll(() => agentNames.allTextContents()).toEqual(['新手向导', '课程助手']);
     await page.locator('.obsidian-tree .sidebar-sort-row').nth(1).dragTo(page.locator('.obsidian-tree .sidebar-sort-row').nth(0), { targetPosition: { x: 20, y: 2 } });
     await expect.poll(() => agentNames.allTextContents()).toEqual(['课程助手', '新手向导']);
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await page.getByRole('button', { name: '加载 4 张示例卡片' }).click();
     const cardNames = page.locator('.obsidian-tree .sidebar-sort-row .session-tree-item span');
@@ -1182,6 +1179,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(tablist.getByRole('tab', { name: '会话 新会话' })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '会话 新手向导' })).toHaveCount(2);
+    await page.getByRole('button', { name: '主页', exact: true }).click();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await expect(tablist.getByRole('tab', { name: '闪卡 记忆闪卡' })).toHaveAttribute('aria-selected', 'true');
     await page.getByRole('button', { name: '新建标签页' }).click();
@@ -1416,6 +1414,7 @@ test.describe('Workspace mocked contract suite', () => {
     expect(cards).toHaveLength(4);
     await page.reload();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-row')).toHaveCount(4);
     await expect(page.locator('.anki-browser-front strong').first()).toHaveText('编辑后的问题');
   });
@@ -1449,6 +1448,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.locator('.anki-workspace input[type=file]').setInputFiles({
       name: '考前复习.tsv', mimeType: 'text/tab-separated-values', buffer: Buffer.from('问题\t答案\t期末 重点\n'),
     });
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-front strong')).toHaveText('问题');
     await expect(page.locator('.anki-title-block p')).toHaveText('考前复习');
     expect(imports).toBe(1);
@@ -1476,6 +1476,7 @@ test.describe('Workspace mocked contract suite', () => {
       name: '错误.tsv', mimeType: 'text/tab-separated-values', buffer: Buffer.from('问题\t答案\n'),
     });
     await expect(page.getByText('导入闪卡失败，原有牌组未更改；请检查文件格式后重试。')).toBeVisible();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-front strong')).toHaveText('现有卡片');
     await expect(page.locator('.anki-sidebar-deck')).toHaveCount(1);
   });
@@ -1534,6 +1535,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect.poll(() => cards[0]?.back).toBe('测试答案');
     await page.reload();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-front strong')).toHaveText('<img src=x onerror=alert(1)>');
     await page.locator('.anki-sidebar-deck').click();
     await page.locator('.anki-review-card').click();
@@ -1543,8 +1545,9 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByText('还没有学习记录')).toHaveCount(0);
     await page.reload();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-row .is-review')).toHaveCount(1);
-    await page.getByRole('button', { name: '查看学习概览' }).click();
+    await page.getByRole('button', { name: '学习概览' }).click();
     await expect(page.locator('.anki-panel-note')).toContainText('上次学习于');
     expect(cards[0].reps).toBe(1);
     await page.getByRole('button', { name: '浏览卡片' }).click();
@@ -1575,7 +1578,6 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.goto('/workspace');
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
-    await page.getByRole('button', { name: '查看学习概览' }).click();
     await expect(page.locator('.anki-panel-note')).toContainText('上次学习于');
     await page.locator('.anki-sidebar-deck').filter({ hasText: '英语' }).click();
     await page.getByRole('button', { name: '退出学习' }).click();
@@ -1758,6 +1760,7 @@ test.describe('Workspace mocked contract suite', () => {
       : route.fallback());
     await page.goto('/workspace');
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await page.locator('.anki-browser-front').click();
     await page.getByRole('textbox', { name: '正面' }).fill('尚未确认的修改');
     await expect(page.getByRole('region', { name: '闪卡服务不可用' })).toBeVisible();
@@ -1768,6 +1771,7 @@ test.describe('Workspace mocked contract suite', () => {
     expect(await readFile(await saved.path(), 'utf8')).toContain('尚未确认的修改');
     expect(card.front).toBe('服务端原文');
     await page.getByRole('button', { name: '重试连接' }).click();
+    await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-front strong')).toHaveText('服务端原文');
   });
 
@@ -2889,7 +2893,7 @@ test('a CDN timeout keeps waiting for the reply the server saved under the reque
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('整理提纲');
   await page.getByRole('button', { name: '发送', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '正在思考' })).toBeVisible();
+  await expect(page.getByRole('status', { name: /正在处理/ })).toBeVisible();
   await expect(page.locator('.chat-message.assistant')).toContainText('沙箱已经整理好提纲', { timeout: 15000 });
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toHaveValue('');
@@ -2923,17 +2927,15 @@ test('a reply shows its thinking and each tool call with its own view, and sendi
   // Optimistic: the message is in the transcript and the composer is clear at once.
   await expect(page.getByRole('article', { name: '正在发送' })).toContainText('电路笔记讲什么');
   await expect(composer).toHaveValue('');
-  await expect(page.getByRole('status').filter({ hasText: '正在思考' })).toBeVisible();
+  await expect(page.getByRole('status', { name: /正在处理/ })).toBeVisible();
   release();
   const reply = page.locator('.chat-message.assistant').last();
   await expect(reply).toContainText('电路笔记讲的是');
-  const summary = reply.getByRole('button', { name: /已思考 · 使用了 读笔记 · 命令 · 考试安排 · 有步骤失败/ });
-  await summary.click();
   const steps = reply.getByRole('list', { name: '思考与工具调用' });
   await expect(steps.getByRole('button', { name: /阅读《电路》/ })).toBeVisible();
   await expect(steps.getByRole('button', { name: /运行命令.*ls -la notes/ })).toBeVisible();
   await expect(steps.getByRole('button', { name: /查询考试安排.*失败/ })).toBeVisible();
-  await steps.getByRole('button', { name: /思考/ }).first().click();
+  await steps.getByRole('button', { name: /思考过程/ }).click();
   await expect(steps).toContainText('先读一下用户的电路笔记');
   await steps.getByRole('button', { name: /阅读《电路》/ }).click();
   await expect(steps.locator('pre').first()).toContainText('"id": "n1"');
@@ -2963,7 +2965,9 @@ test('Agent without a sandbox offers campus starters and shows which tools a rep
   await expect(page.getByLabel('发送给 Agent 的消息')).toHaveValue('看看我明天下午什么时候有空');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(log.getByText('明天 14:00 以后没有课。')).toBeVisible();
-  await expect(log.getByText('使用了 学期 · 课表')).toBeVisible();
+  const used = log.getByRole('list', { name: '思考与工具调用' });
+  await expect(used.getByText('查询学期与教学周')).toBeVisible();
+  await expect(used.getByText('读取课表')).toBeVisible();
 });
 
 test('Agent replies show original campus images through the API proxy only', async ({ page }) => {
@@ -2986,7 +2990,8 @@ test('Agent replies show original campus images through the API proxy only', asy
   await page.getByLabel('发送给 Agent 的消息').fill('找一下丢失校园卡的帖子');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   const log = page.getByRole('log', { name: '会话记录' });
-  await expect(log.getByText('使用了 课程资料 · 看图')).toBeVisible();
+  const used = log.getByRole('list', { name: '思考与工具调用' });
+  await expect(used.getByText('识别图片')).toBeVisible();
   const image = log.getByRole('img', { name: '校园卡' });
   await expect(image).toHaveAttribute('src', '/api/media/image?url=' + encodeURIComponent('https://qnhdpic.twt.edu.cn/download/origin/a.jpg'));
   await expect.poll(() => image.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);

@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { ArrowLeft, BarChart3, BookOpen, Check, ChevronRight, Download, FileUp, Layers3, MoreHorizontal, Pause, Pencil, Play, Plus, Search, Settings2, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, BookOpen, Check, Download, FileUp, Layers3, MoreHorizontal, Pencil, Play, Plus, Search, Settings2, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import './anki-workspace.css';
 
 export type AnkiCard = { id: string; front: string; back: string; tags: string };
 export type AnkiSchedule = { due: string; interval: number; ease: number; reps: number; lapses: number };
@@ -48,7 +49,7 @@ function downloadText(filename: string, content: string, type = 'text/plain;char
 }
 
 export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]; identity: string; deckName?: string; schedules?: Record<string, AnkiSchedule>; lastStudyAt?: number | null; onCreateCard?: () => Promise<AnkiCard | null>; onReviewCard?: (id: string, rating: 1 | 2 | 3 | 4) => Promise<void>; onImportFile?: (file: File) => Promise<void>; onCardsChange: (cards: AnkiCard[]) => void; onExport: () => void; onAddSampleCards?: () => Promise<void>; openCardId?: string | null; onOpenCardHandled?: () => void }>(function AnkiWorkspace({ cards, identity, deckName, schedules, lastStudyAt, onCreateCard, onReviewCard, onImportFile, onCardsChange, onExport, onAddSampleCards, openCardId, onOpenCardHandled }, ref) {
-  const [mode, setMode] = useState<AnkiMode>(() => cards.length ? 'browse' : 'overview');
+  const [mode, setMode] = useState<AnkiMode>('overview');
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
@@ -112,6 +113,22 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
     setShowAnswer(false);
     setMode('study');
   }, [dueCards]);
+
+  // Space or Enter reveals the answer; 1–4 rate it, as in Anki.
+  const answerRef = useRef<(rating: 'again' | 'hard' | 'good' | 'easy') => void>(() => undefined);
+  useEffect(() => { answerRef.current = rating => void answerCard(rating); });
+  useEffect(() => {
+    if (mode !== 'study') return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      if ((event.key === ' ' || event.key === 'Enter') && !showAnswer) { event.preventDefault(); setShowAnswer(true); return; }
+      const rating = ({ 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' } as const)[event.key as '1' | '2' | '3' | '4'];
+      if (rating && showAnswer) { event.preventDefault(); answerRef.current(rating); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, showAnswer]);
 
   useImperativeHandle(ref, () => ({
     startStudy: beginStudy,
@@ -236,25 +253,38 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
     <div className="anki-workspace-body">
       <div className="anki-content">
         {mode === 'overview' ? <div className="anki-overview">
-          <div className="anki-overview-lead"><div><span className="anki-eyebrow">今天</span><h2>把记忆变成长期能力</h2><p>按照间隔复习节奏处理到期卡片。</p></div><div className="anki-overview-actions"><button type="button" className="anki-sample-button" onClick={() => setMode('browse')}>浏览卡片</button><button type="button" className="anki-study-button" onClick={beginStudy} disabled={!dueCards.length}><Play size={15} /> 开始学习</button></div></div>
+          <section className="anki-hero">
+            <div className="anki-hero-copy">
+              <span className="anki-eyebrow">今天 · {new Date(now).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</span>
+              <h2>{dueCards.length ? <><em>{dueCards.length}</em> 张卡片等你复习</> : cards.length ? '今天的复习都完成了' : '做第一组记忆闪卡'}</h2>
+              <p className="anki-panel-note">{displayedLastStudyAt ? `上次学习于 ${new Date(displayedLastStudyAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '还没有学习记录'}</p>
+              <div className="anki-overview-actions">
+                <button type="button" className="anki-study-button" onClick={beginStudy} disabled={!dueCards.length}><Play size={15} /> 开始学习</button>
+                <button type="button" className="anki-sample-button" onClick={() => setMode('browse')}>浏览卡片</button>
+              </div>
+            </div>
+            <div className="anki-hero-ring" role="img" aria-label={cards.length ? `今天已完成 ${cards.length - dueCards.length} / ${cards.length}` : '还没有卡片'}>
+              <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" className="anki-ring-track" /><circle cx="60" cy="60" r="50" className="anki-ring-value" pathLength={100} strokeDasharray={`${cards.length ? Math.round(((cards.length - dueCards.length) / cards.length) * 100) : 0} 100`} /></svg>
+              <span><strong>{cards.length ? Math.round(((cards.length - dueCards.length) / cards.length) * 100) : 0}%</strong><small>今日进度</small></span>
+            </div>
+          </section>
           <div className="anki-count-grid"><button type="button" onClick={beginStudy} className={`anki-count-card is-new${newCount ? '' : ' is-empty'}`}><small>新卡</small><strong>{newCount}</strong><span>等待第一次学习</span></button><button type="button" onClick={beginStudy} className={`anki-count-card is-learning${learningCount ? '' : ' is-empty'}`}><small>学习中</small><strong>{learningCount}</strong><span>短期记忆步骤</span></button><button type="button" onClick={beginStudy} className={`anki-count-card is-review${reviewCount ? '' : ' is-empty'}`}><small>待复习</small><strong>{reviewCount}</strong><span>今天需要巩固</span></button></div>
-          <div className="anki-overview-columns"><section className="anki-panel"><div className="anki-panel-heading"><div><span className="anki-eyebrow">牌组</span><h3>{displayDeckName}</h3></div><button type="button" onClick={() => setMode('templates')} aria-label="牌组设置"><Settings2 size={15} /></button></div><div className="anki-deck-row"><Layers3 size={18} /><div><strong>{cards.length ? displayDeckName : '等待添加卡片'}</strong><small>{cards.length ? `${dueCards.length} 张卡片今天到期` : '从添加或导入开始'}</small></div><ChevronRight size={15} /></div></section><section className="anki-panel anki-activity-panel"><div className="anki-panel-heading"><div><span className="anki-eyebrow">学习状态</span><h3>最近进度</h3></div><BarChart3 size={15} /></div><div className="anki-mini-bars"><i style={{ height: `${Math.max(8, Math.min(100, newCount * 14))}%` }} /><i style={{ height: `${Math.max(8, Math.min(100, learningCount * 18))}%` }} /><i style={{ height: `${Math.max(8, Math.min(100, reviewCount * 12))}%` }} /><i style={{ height: `${Math.max(8, Math.min(100, (displayedLastStudyAt ? 62 : 12)))}%` }} /><i style={{ height: `${Math.max(8, Math.min(100, (cards.length ? 44 : 12)))}%` }} /></div><small className="anki-panel-note">{displayedLastStudyAt ? `上次学习于 ${new Date(displayedLastStudyAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '还没有学习记录'}</small></section></div>
           {!cards.length ? <div className="anki-empty"><Sparkles size={20} /><h3>还没有记忆闪卡</h3><p>导入 Anki TSV，或加载一组示例卡片开始体验。</p><button type="button" className="anki-sample-button" onClick={() => { if (onAddSampleCards) void onAddSampleCards().then(() => setMode('browse')); else { updateCards([{ id: crypto.randomUUID(), front: '什么是主动回忆？', back: '不看答案，先尝试从记忆中提取知识，再核对并修正。', tags: '学习方法 示例' }, { id: crypto.randomUUID(), front: '间隔复习的核心做法是什么？', back: '在遗忘前后分散复习，而不是集中在一天反复阅读。', tags: '学习方法 示例' }, { id: crypto.randomUUID(), front: 'Markdown 中 [[笔记名]] 通常表示什么？', back: '指向另一篇笔记的内部链接，可以用来建立知识关联。', tags: 'Markdown 示例' }, { id: crypto.randomUUID(), front: '导数 f′(x) 的几何意义是什么？', back: '函数曲线在 x 处切线的斜率。', tags: '数学 示例' }]); setMode('browse'); } }}>加载 4 张示例卡片</button></div> : null}
         </div> : null}
         {mode === 'study' ? <div className="anki-study">
-          <div className="anki-study-top"><button type="button" onClick={() => setMode('overview')}><ArrowLeft size={15} /> 退出学习</button><span>{dueCards.length ? `${Math.max(0, cards.length - dueCards.length)} / ${cards.length}` : '今日已完成'}</span><button type="button" aria-label="暂停当前卡片"><Pause size={15} /></button></div>
+          <div className="anki-study-top"><button type="button" onClick={() => setMode('overview')}><ArrowLeft size={15} /> 退出学习</button><div className="anki-study-progress" role="progressbar" aria-label="今日进度" aria-valuemin={0} aria-valuemax={cards.length} aria-valuenow={Math.max(0, cards.length - dueCards.length)}><i style={{ width: `${cards.length ? ((cards.length - dueCards.length) / cards.length) * 100 : 100}%` }} /></div><span>{dueCards.length ? `还剩 ${dueCards.length} 张` : '今日已完成'}</span></div>
           {activeStudy ? <div className="anki-review-stage">
             <div className="anki-review-meta"><span>{displayDeckName}</span><span>{parseTags(activeStudy.card.tags).map(tag => `#${tag}`).join(' ')}</span></div>
             <button type="button" className={`anki-review-card${showAnswer ? ' is-answer' : ''}`} onClick={() => setShowAnswer(value => !value)}>
               <span className="anki-card-side">{showAnswer ? '答案' : '问题'}</span>
               <div style={{ whiteSpace: 'pre-wrap' }}>{showAnswer ? activeStudy.card.back : activeStudy.card.front}</div>
-              {!showAnswer ? <small>点击显示答案</small> : null}
+              {!showAnswer ? <small>点击或按空格显示答案</small> : null}
             </button>
             {showAnswer ? <div className="anki-answer-actions">
-              <button type="button" disabled={reviewing} onClick={() => void answerCard('again')}><strong>重来</strong><small>1 分钟</small></button>
-              <button type="button" disabled={reviewing} onClick={() => void answerCard('hard')}><strong>困难</strong><small>{onReviewCard && !activeStudy.meta.reps ? '10 分钟' : formatInterval(Math.max(1, activeStudy.meta.interval))}</small></button>
-              <button type="button" disabled={reviewing} onClick={() => void answerCard('good')}><strong>良好</strong><small>{formatInterval(onReviewCard ? Math.max(1, activeStudy.meta.interval * 2) : Math.max(1, activeStudy.meta.interval * activeStudy.meta.ease || 1))}</small></button>
-              <button type="button" disabled={reviewing} onClick={() => void answerCard('easy')}><strong>简单</strong><small>{formatInterval(onReviewCard ? Math.max(4, activeStudy.meta.interval * 3) : Math.max(4, activeStudy.meta.interval * activeStudy.meta.ease * 1.3 || 4))}</small></button>
+              <button type="button" className="is-again" disabled={reviewing} onClick={() => void answerCard('again')}><kbd>1</kbd><strong>重来</strong><small>1 分钟</small></button>
+              <button type="button" className="is-hard" disabled={reviewing} onClick={() => void answerCard('hard')}><kbd>2</kbd><strong>困难</strong><small>{onReviewCard && !activeStudy.meta.reps ? '10 分钟' : formatInterval(Math.max(1, activeStudy.meta.interval))}</small></button>
+              <button type="button" className="is-good" disabled={reviewing} onClick={() => void answerCard('good')}><kbd>3</kbd><strong>良好</strong><small>{formatInterval(onReviewCard ? Math.max(1, activeStudy.meta.interval * 2) : Math.max(1, activeStudy.meta.interval * activeStudy.meta.ease || 1))}</small></button>
+              <button type="button" className="is-easy" disabled={reviewing} onClick={() => void answerCard('easy')}><kbd>4</kbd><strong>简单</strong><small>{formatInterval(onReviewCard ? Math.max(4, activeStudy.meta.interval * 3) : Math.max(4, activeStudy.meta.interval * activeStudy.meta.ease * 1.3 || 4))}</small></button>
             </div> : null}
           </div> : <div className="anki-empty"><Check size={21} /><h3>今天完成了</h3><p>没有更多到期卡片。可以浏览卡片或添加新的内容。</p><button type="button" className="anki-sample-button" onClick={() => setMode('browse')}>浏览全部卡片</button></div>}
         </div> : null}

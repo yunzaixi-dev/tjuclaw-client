@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, History, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, MousePointer2, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, Blocks, BookOpen, Brain, Check, CheckSquare, History, Layers3, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, MousePointer2, Network, PanelLeft, Plus, Search, SquarePen, House, MessageCircle, Settings, Trash2, X, Eye, Pencil, Link2, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { EditorView } from '@codemirror/view';
@@ -349,6 +349,8 @@ export default function Workspace() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [entering] = useState(() => ({ fade: false }));
   const opened = !loading && Boolean(session);
+  // The flashcards page keeps the notes sidebar: decks are listed with the notes.
+  const sideView: SidebarView = view === 'anki' ? 'notes' : view;
   useEffect(() => {
     if (!opened) return;
     let stopped = false;
@@ -624,7 +626,7 @@ export default function Workspace() {
     window.addEventListener('pointerup', stop, { once: true });
   }
 
-  const visible = useMemo(() => entries.filter(entry => (view === 'notes' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
+  const visible = useMemo(() => entries.filter(entry => (view === 'notes' || view === 'anki' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
   const roots = visible.filter(entry => !entry.parent_id && !placements[entry.id]);
   const folderRoots = folders.filter(folder => !folder.parentId);
   const headings = useMemo(() => parseHeadings(body), [body]);
@@ -660,7 +662,7 @@ export default function Workspace() {
   }
 
   function changeSort(mode: SortMode) {
-    const next = { ...sidebarSort, [view]: mode };
+    const next = { ...sidebarSort, [sideView]: mode };
     setSidebarSort(next);
     if (identityRef.current) localStorage.setItem(`tjuclaw.sidebar.sort.v1.${identityRef.current}`, JSON.stringify(next));
     setSortMenuOpen(false);
@@ -1937,20 +1939,19 @@ export default function Workspace() {
         <button type="button" className="notion-side-collapse" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button>
       </div>
       <div className="notion-nav" aria-label="工作区导航">
-        <button type="button" className={`notion-nav-home${view === 'notes' ? ' is-active' : ''}`} aria-current={view === 'notes' ? 'page' : undefined} onClick={() => switchView('notes')}><House size={16} /><span>主页</span></button>
+        <button type="button" className={`notion-nav-home${sideView === 'notes' ? ' is-active' : ''}`} aria-current={sideView === 'notes' ? 'page' : undefined} onClick={() => switchView('notes')}><House size={16} /><span>主页</span></button>
         <button type="button" className={view === 'sessions' ? 'is-active' : ''} aria-label="Agent" title="Agent" aria-current={view === 'sessions' ? 'page' : undefined} onClick={() => switchView('sessions')}><MessageCircle size={16} /></button>
         <button type="button" className="notion-nav-search" aria-label="搜索" title="搜索" onClick={() => setCommandOpen(true)}><Search size={16} /></button>
       </div>
       <div className="sidebar-pane">
-      {view !== 'plugins' && view !== 'tools' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={view === 'sessions' ? '搜索 Agent…' : view === 'anki' ? '搜索闪卡…' : '搜索笔记…'} aria-label={view === 'sessions' ? '搜索 Agent' : view === 'anki' ? '搜索闪卡' : '搜索笔记'} /></label> : null}
-      <div className="tree-heading"><span>{view === 'notes' ? '私人' : view === 'sessions' ? 'Agent' : view === 'anki' ? '记忆卡片' : view === 'tools' ? '校园与专注' : '内置能力'}</span>
+      {sideView !== 'plugins' && sideView !== 'tools' ? <label className="obsidian-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={sideView === 'sessions' ? '搜索 Agent…' : '搜索笔记…'} aria-label={sideView === 'sessions' ? '搜索 Agent' : '搜索笔记'} /></label> : null}
+      <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'sessions' ? 'Agent' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
-          {view === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
-          {view === 'anki' ? <><button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => void createAnkiDeck()} aria-label="新建牌组" title="新建牌组"><FolderPlus size={15} /></button><button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => void addAnkiCard().then(card => { if (card) ankiWorkspaceRef.current?.openCard(card.id); })} aria-label="新建卡片"><Plus size={15} /></button></> : null}
+          {sideView === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
           <div className="sidebar-sort-anchor" ref={sortMenuRef}>
-            <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[view]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
+            <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[sideView]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
             {sortMenuOpen ? <div className="sidebar-sort-menu" role="menu" aria-label="侧栏排序方式">
-              {(view === 'notes' || view === 'sessions' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[view] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[view] === mode ? <Check size={14} /> : null}</button>)}
+              {(sideView === 'notes' || sideView === 'sessions' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[sideView] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[sideView] === mode ? <Check size={14} /> : null}</button>)}
               <small>拖动或在项目操作中上移/下移，可改为手动排序</small>
             </div> : null}
           </div>
@@ -1958,17 +1959,27 @@ export default function Workspace() {
       </div>
       <input ref={uploadRef} type="file" multiple hidden aria-label="上传课程资料" onChange={event => { void handleFileUpload(event.target.files); event.target.value = ''; }} />
       <nav className="obsidian-tree">
-        {view === 'tools' ? <div className="campus-sidebar-list">{toolRows}</div> : view === 'plugins' ? <>
+        {sideView === 'tools' ? <div className="campus-sidebar-list">{toolRows}</div> : sideView === 'plugins' ? <>
           {orderedItems(siblings('plugins'), sidebarSort.plugins, sidebarOrder.plugins).map(item => { const plugin = builtInPlugins.find(candidate => `plugin:${candidate.id}` === item.id)!; const Icon = plugin.Icon; return sidebarRow(item.id, 'plugins', plugin.name, <Icon size={15} />, () => { setActivePluginId(plugin.id); if (isMobile) setSidebarOpen(false); }, activePluginId === plugin.id); })}
           <p className="plugin-sidebar-note">更多插件即将上线</p>
-        </> : view === 'anki' ? <div className="anki-sidebar-list">
-          {ankiDecks.map(deck => <div key={deck.id} className="anki-sidebar-deck-row"><button type="button" disabled={ankiDeckBusy} className={`anki-sidebar-deck${ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => void selectAnkiDeck(deck)}><Brain size={16} /><span><strong>{deck.name}</strong><small>{ankiDeckId === deck.id ? `${ankiCards.length} 张卡片` : '牌组'}</small></span><ArrowRight size={14} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy} onClick={() => void renameAnkiDeckAction(deck)} aria-label={`重命名牌组 ${deck.name}`} title="重命名牌组"><Pencil size={13} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy || ankiDecks.length <= 1} onClick={() => void removeAnkiDeck(deck)} aria-label={`删除牌组 ${deck.name}`} title={ankiDecks.length <= 1 ? '请至少保留一个牌组' : '删除牌组及全部卡片'}><Trash2 size={13} /></button></div>)}
-          {ankiDeckId ? orderedItems(siblings('anki'), sidebarSort.anki, sidebarOrder.anki).map((item, index) => { const card = ankiCards.find(candidate => `card:${candidate.id}` === item.id)!; return sidebarRow(item.id, 'anki', card.front || `新卡片 ${index + 1}`, <Brain size={15} />, () => openAnkiCard(card.id), false, 'anki-card'); }) : null}
-        </div> : view === 'notes' ? <>
+        </> : sideView === 'notes' ? <>
           {orderedItems([
             ...folderRoots.map(folder => ({ id: `folder:${folder.id}`, title: folder.name })),
             ...roots.map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at })),
           ], sidebarSort.notes, sidebarOrder['notes:root']).map(rootItem)}
+          <div className="notes-flashcards">
+            <div className="tree-heading notes-flashcards-heading">
+              <button type="button" className={`notes-flashcards-title${view === 'anki' ? ' is-active' : ''}`} aria-current={view === 'anki' ? 'page' : undefined} onClick={() => switchView('anki')}><Layers3 size={14} /><span>记忆闪卡</span></button>
+              <div className="tree-heading-actions">
+                <button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => { if (view !== 'anki') switchView('anki'); void createAnkiDeck(); }} aria-label="新建牌组" title="新建牌组"><FolderPlus size={15} /></button>
+                <button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => { if (view !== 'anki') switchView('anki'); void addAnkiCard().then(card => { if (card) ankiWorkspaceRef.current?.openCard(card.id); }); }} aria-label="新建卡片"><Plus size={15} /></button>
+              </div>
+            </div>
+            <div className="anki-sidebar-list">
+          {ankiDecks.map(deck => <div key={deck.id} className="anki-sidebar-deck-row"><button type="button" disabled={ankiDeckBusy} className={`anki-sidebar-deck${view === 'anki' && ankiDeckId === deck.id ? ' is-active' : ''}`} onClick={() => { if (view !== 'anki') switchView('anki'); void selectAnkiDeck(deck); }}><Layers3 size={15} /><span><strong>{deck.name}</strong><small>{ankiDeckId === deck.id ? `${ankiCards.length} 张卡片` : '牌组'}</small></span><ArrowRight size={14} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy} onClick={() => void renameAnkiDeckAction(deck)} aria-label={`重命名牌组 ${deck.name}`} title="重命名牌组"><Pencil size={13} /></button><button type="button" className="anki-deck-action" disabled={ankiDeckBusy || ankiDecks.length <= 1} onClick={() => void removeAnkiDeck(deck)} aria-label={`删除牌组 ${deck.name}`} title={ankiDecks.length <= 1 ? '请至少保留一个牌组' : '删除牌组及全部卡片'}><Trash2 size={13} /></button></div>)}
+          {view === 'anki' && ankiDeckId ? orderedItems(siblings('anki'), sidebarSort.anki, sidebarOrder.anki).map((item, index) => { const card = ankiCards.find(candidate => `card:${candidate.id}` === item.id)!; return sidebarRow(item.id, 'anki', card.front || `新卡片 ${index + 1}`, <Brain size={15} />, () => openAnkiCard(card.id), false, 'anki-card'); }) : null}
+        </div>
+          </div>
         </> : orderedItems(roots.map(entry => ({ id: `entry:${entry.id}`, title: entry.title, updated_at: entry.updated_at })), sidebarSort.sessions, sidebarOrder.sessions).map(item => {
           const entry = roots.find(candidate => `entry:${candidate.id}` === item.id)!;
           return <div key={item.id} className={`sidebar-sort-row${selectedId === entry.id ? ' is-active' : ''}`} {...dragProps(item.id, 'sessions')} onContextMenu={event => openContextMenu(event, 'sidebar', item.id, 'sessions')}>
@@ -1980,7 +1991,6 @@ export default function Workspace() {
       <div className="notion-side-section notion-apps" aria-label="应用">
         <div className="tree-heading"><span>应用</span></div>
         {([
-          { id: 'anki', label: '记忆闪卡', Icon: Brain },
           { id: 'tools', label: '小工具', Icon: Wrench },
           { id: 'plugins', label: '插件', Icon: Blocks },
         ] as const).map(({ id, label, Icon }) => <button key={id} type="button" className={`notion-side-row${view === id ? ' is-active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => switchView(id)}><Icon size={15} /><span>{label}</span></button>)}

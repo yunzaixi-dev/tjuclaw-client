@@ -6,8 +6,6 @@
 .agent-view .session-transcript { display: grid; gap: 24px; width: min(720px, 100%); margin: 0 auto; }
 
 /* Header of a running thread. */
-.agent-thread-head { position: sticky; top: -28px; z-index: 2; display: grid; justify-items: center; gap: 6px; padding: 4px 0 12px; background: linear-gradient(var(--surface) 72%, transparent); color: var(--foreground); font-size: 14px; font-weight: 600; }
-.agent-thread-avatar { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 2px 6px rgba(15, 15, 15, .05); }
 
 /* Messages. */
 .agent-view .chat-message { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -16,8 +14,11 @@
   background: var(--selected); animation: agent-in 240ms var(--ease-out) both;
 }
 .agent-view .chat-message.user p { margin: 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.agent-view .chat-message.assistant { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; animation: agent-in 300ms var(--ease-out) both; }
-.agent-view .agent-reply-head { display: none; }
+.agent-view .chat-message.assistant { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; animation: agent-in 300ms var(--ease-out) both; }
+.agent-reply-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.agent-view .agent-reply-head { display: flex; align-items: baseline; gap: 8px; min-height: 28px; padding-top: 3px; }
+.agent-reply-name { color: var(--foreground); font-size: 14px; font-weight: 600; }
+.agent-reply-head time { color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
 .agent-view .chat-message-content { min-height: 0; font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
 .agent-view .chat-message-content > :first-child { margin-top: 0; }
 .agent-view .chat-message-content > :last-child { margin-bottom: 0; }
@@ -175,3 +176,18 @@
 .agent-model-usage .is-empty meter::-webkit-meter-optimum-value { background: oklch(58% .15 60); }
 .agent-model-usage small { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
 .agent-composer .agent-chip.is-loading { opacity: .55; }
+
+/* While the Agent works: its name, what it is doing, and time. */
+.agent-working { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; animation: agent-in 240ms var(--ease-out) both; }
+.agent-working > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; font-size: 13px; }
+.agent-working-name { color: var(--foreground); font-size: 14px; font-weight: 600; }
+.agent-working-text {
+  background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%, var(--muted-foreground) 70%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: agent-shimmer 1.8s linear infinite;
+}
+.agent-working-time { color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-working-text { animation: none; }
+  .agent-working-text { color: var(--muted-foreground); }
+}

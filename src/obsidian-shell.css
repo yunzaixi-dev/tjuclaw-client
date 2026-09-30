@@ -2360,3 +2360,29 @@
 @media (max-width: 720px) {
   .obsidian-app .outline-item { min-height: 42px; padding-top: 11px; padding-bottom: 11px; font-size: 15px; }
 }
+
+/* Flashcards live in the notes sidebar, as a section under the notes. */
+.obsidian-app .notes-flashcards { margin-top: 14px; }
+.obsidian-app .notes-flashcards-heading { padding: 0 2px 2px 6px; position: static; z-index: auto; }
+.obsidian-app .notes-flashcards-title { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.obsidian-app .notes-flashcards-title:hover, .obsidian-app .notes-flashcards-title.is-active { background: var(--hover-wash); color: var(--foreground); }
+.obsidian-app .notes-flashcards .anki-sidebar-list { display: grid; gap: 1px; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck-row { position: relative; display: flex; align-items: center; border-radius: 6px; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck-row:hover { background: var(--hover-wash); }
+.obsidian-app .notes-flashcards .anki-sidebar-deck {
+  display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 30px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left;
+}
+.obsidian-app .notes-flashcards .anki-sidebar-deck.is-active { background: var(--selected); }
+.obsidian-app .notes-flashcards .anki-sidebar-deck > svg:first-child { flex: none; color: var(--muted-foreground); }
+.obsidian-app .notes-flashcards .anki-sidebar-deck > span { display: flex; flex: 1; align-items: baseline; gap: 6px; min-width: 0; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck strong { overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck small { flex: none; color: var(--muted-foreground); font-size: 12px; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck > svg:last-child { display: none; }
+.obsidian-app .notes-flashcards .anki-deck-action { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); opacity: 0; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck-row:hover .anki-deck-action, .obsidian-app .notes-flashcards .anki-deck-action:focus-visible { opacity: 1; }
+.obsidian-app .notes-flashcards .anki-deck-action:hover { background: var(--hover-wash); color: var(--foreground); }
+@media (hover: none) { .obsidian-app .notes-flashcards .anki-deck-action { opacity: 1; } }
+.obsidian-app .notes-flashcards-heading .notes-flashcards-title { width: auto; min-width: 0; white-space: nowrap; }
+.obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row { padding-left: 14px; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck-row { border: 0; }

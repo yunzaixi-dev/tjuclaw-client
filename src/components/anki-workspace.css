@@ -1,0 +1,142 @@
+/* Flashcards: a calm "today" hero, tiles for browsing, a focused study card.
+   Scoped under the shell so it replaces the older table-first styling. */
+.obsidian-app .anki-workspace { background: var(--surface); }
+.obsidian-app .anki-workspace-header { padding: 14px 28px; border-bottom: 1px solid var(--border); }
+.obsidian-app .anki-title-mark { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 0; background: none; color: var(--foreground); box-shadow: none; }
+.obsidian-app .anki-title-block h1 { font-size: 15px; font-weight: 600; }
+.obsidian-app .anki-title-block p { color: var(--muted-foreground); font-size: 12px; }
+.obsidian-app .anki-header-actions button { width: 32px; height: 32px; border-radius: 8px; }
+.obsidian-app .anki-content { width: min(860px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 80px; }
+
+/* Today */
+.obsidian-app .anki-overview { display: grid; gap: 16px; }
+.anki-hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 32px; padding: 8px 0 28px;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none;
+}
+.anki-hero-copy { display: grid; gap: 10px; }
+.anki-hero .anki-eyebrow { color: var(--muted-foreground); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.anki-hero h2 { margin: 0; color: var(--foreground); font-size: 28px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; }
+.anki-hero h2 em { font-style: normal; }
+.anki-hero .anki-panel-note { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.obsidian-app .anki-overview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.obsidian-app .anki-study-button {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: var(--foreground); color: var(--surface); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 15, 15, .15); transition: transform 120ms var(--ease-out), opacity 120ms;
+}
+.obsidian-app .anki-study-button:active:not(:disabled) { transform: scale(.97); }
+.obsidian-app .anki-study-button:disabled { opacity: .35; cursor: default; }
+.obsidian-app .anki-overview-actions .anki-sample-button, .obsidian-app .anki-empty .anki-sample-button {
+  height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+  color: var(--foreground); font: inherit; font-size: 14px; font-weight: 500;
+}
+.obsidian-app .anki-overview-actions .anki-sample-button:hover { background: var(--hover-wash); }
+.anki-hero-ring { position: relative; display: grid; width: 132px; height: 132px; place-items: center; }
+.anki-hero-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.anki-ring-track { fill: none; stroke: color-mix(in oklch, var(--foreground) 8%, transparent); stroke-width: 6; }
+.anki-ring-value[stroke-dasharray^="0 "] { opacity: 0; }
+.anki-ring-value { fill: none; stroke: var(--foreground); stroke-width: 6; stroke-linecap: round; transition: stroke-dasharray 500ms var(--ease-out); }
+.anki-hero-ring span { display: grid; justify-items: center; }
+.anki-hero-ring strong { color: var(--foreground); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.anki-hero-ring small { color: var(--muted-foreground); font-size: 12px; }
+
+.obsidian-app .anki-count-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.obsidian-app .anki-workspace .anki-count-card {
+  height: auto; min-height: 0; align-content: start;
+  display: grid; justify-items: start; gap: 2px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--foreground); font: inherit; text-align: left; cursor: pointer; box-shadow: none;
+  transition: background-color 120ms, border-color 120ms;
+}
+.obsidian-app .anki-count-card:hover { background: var(--hover-wash); }
+.obsidian-app .anki-count-card small { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 12.5px; }
+.obsidian-app .anki-count-card small::before { width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ""; }
+.obsidian-app .anki-count-card.is-new small::before { background: oklch(62% .14 250); }
+.obsidian-app .anki-count-card.is-learning small::before { background: oklch(72% .15 70); }
+.obsidian-app .anki-count-card.is-review small::before { background: oklch(62% .15 158); }
+.obsidian-app .anki-count-card strong { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.obsidian-app .anki-count-card span { color: var(--muted-foreground); font-size: 12px; }
+.obsidian-app .anki-count-card.is-empty strong { color: var(--muted-foreground); }
+
+/* Browse: tiles instead of a spreadsheet */
+.obsidian-app .anki-page-heading { align-items: end; margin-bottom: 18px; padding-bottom: 0; border: 0; }
+.obsidian-app .anki-page-heading h2 { font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
+.obsidian-app .anki-browser-table { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; border: 0; }
+.obsidian-app .anki-browser-head { display: none; }
+.obsidian-app .anki-browser-row {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: 1fr auto; align-items: center;
+  gap: 10px 8px; min-height: 124px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, .04); transition: background-color 120ms;
+}
+.obsidian-app .anki-browser-row:hover { background: var(--hover-wash); }
+.obsidian-app .anki-browser-front { grid-column: 1 / -1; align-self: start; display: grid; gap: 6px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.obsidian-app .anki-browser-front strong { color: var(--foreground); font-size: 15px; font-weight: 600; line-height: 1.45; }
+.obsidian-app .anki-browser-front small { display: -webkit-box; overflow: hidden; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.obsidian-app .anki-browser-row > .anki-browser-cell:not(.anki-browser-front):not(.anki-tags) { display: none; }
+.obsidian-app .anki-browser-row .anki-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.obsidian-app .anki-browser-row .anki-tags i { padding: 1px 7px; border-radius: 999px; background: var(--selected); color: var(--muted-foreground); font-size: 11.5px; font-style: normal; }
+.obsidian-app .anki-state-dot { display: inline-flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; }
+.obsidian-app .anki-state-dot::before { width: 6px; height: 6px; border-radius: 50%; background: oklch(62% .15 158); content: ""; }
+.obsidian-app .anki-state-dot.is-new::before { background: oklch(62% .14 250); }
+.obsidian-app .anki-state-dot.is-learning::before { background: oklch(72% .15 70); }
+.obsidian-app .anki-state-dot.is-suspended::before { background: var(--muted-foreground); }
+.obsidian-app .anki-browser-row > button[aria-label^="删除"] { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); opacity: 0; transition: opacity 120ms; }
+.obsidian-app .anki-browser-row:hover > button[aria-label^="删除"], .obsidian-app .anki-browser-row > button[aria-label^="删除"]:focus-visible { opacity: 1; }
+.obsidian-app .anki-browser-row > button[aria-label^="删除"]:hover { background: var(--hover-wash); color: oklch(55% .18 25); }
+@media (hover: none) { .obsidian-app .anki-browser-row > button[aria-label^="删除"] { opacity: 1; } }
+
+/* Study: one card in focus, clear rating colours and keys */
+.obsidian-app .anki-study { display: grid; gap: 24px; }
+.obsidian-app .anki-study-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+.obsidian-app .anki-study-top > button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; }
+.obsidian-app .anki-study-top > button:hover { background: var(--hover-wash); color: var(--foreground); }
+.obsidian-app .anki-study-top > span { color: var(--muted-foreground); font-size: 13px; font-variant-numeric: tabular-nums; }
+.anki-study-progress { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in oklch, var(--foreground) 8%, transparent); }
+.anki-study-progress i { display: block; height: 100%; border-radius: inherit; background: var(--foreground); transition: width 400ms var(--ease-out); }
+.obsidian-app .anki-review-stage { display: grid; gap: 16px; width: min(640px, 100%); margin: 0 auto; }
+.obsidian-app .anki-review-meta { display: flex; justify-content: space-between; color: var(--muted-foreground); font-size: 12.5px; }
+.obsidian-app .anki-review-card {
+  display: grid; align-content: center; justify-items: center; gap: 14px; min-height: 300px; padding: 40px 32px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--foreground);
+  font: inherit; font-size: 22px; font-weight: 600; line-height: 1.5; text-align: center; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15, 15, 15, .06);
+}
+.obsidian-app .anki-review-card.is-answer { font-weight: 500; }
+.obsidian-app .anki-card-side { padding: 2px 10px; border-radius: 999px; background: var(--selected); color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.obsidian-app .anki-review-card small { color: var(--muted-foreground); font-size: 12.5px; font-weight: 400; }
+.obsidian-app .anki-workspace .anki-answer-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.obsidian-app .anki-workspace .anki-answer-actions button {
+  --tone: oklch(62% .15 158); position: relative; display: grid; justify-items: center; gap: 2px; padding: 10px 8px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--foreground); font: inherit; cursor: pointer;
+  transition: background-color 120ms, transform 120ms var(--ease-out);
+}
+.obsidian-app .anki-workspace .anki-answer-actions button:hover:not(:disabled) { background: var(--hover-wash); }
+.obsidian-app .anki-workspace .anki-answer-actions strong { display: inline-flex; align-items: center; gap: 6px; }
+.obsidian-app .anki-workspace .anki-answer-actions strong::before { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); content: ""; }
+.obsidian-app .anki-workspace .anki-answer-actions button:active:not(:disabled) { transform: scale(.97); }
+.obsidian-app .anki-workspace .anki-answer-actions .is-again { --tone: oklch(58% .18 25); }
+.obsidian-app .anki-workspace .anki-answer-actions .is-hard { --tone: oklch(70% .15 65); }
+.obsidian-app .anki-workspace .anki-answer-actions .is-good { --tone: oklch(62% .15 158); }
+.obsidian-app .anki-workspace .anki-answer-actions .is-easy { --tone: oklch(60% .14 250); }
+.obsidian-app .anki-workspace .anki-answer-actions strong { font-size: 14px; font-weight: 600; }
+.obsidian-app .anki-workspace .anki-answer-actions small { color: var(--muted-foreground); font-size: 12px; }
+.obsidian-app .anki-workspace .anki-answer-actions kbd { position: absolute; top: 6px; left: 8px; color: var(--muted-foreground); font: 11px var(--font-mono, ui-monospace, monospace); opacity: .7; }
+
+.obsidian-app .anki-empty { padding: 48px 24px; border: 0; border-radius: 4px; background: var(--muted); }
+
+@media (max-width: 720px) {
+  .obsidian-app .anki-content { width: calc(100% - 32px); padding-top: 20px; }
+  .anki-hero { grid-template-columns: 1fr; gap: 20px; padding: 24px 20px; }
+  .anki-hero h2 { font-size: 22px; }
+  .anki-hero-ring { justify-self: start; width: 104px; height: 104px; }
+  .obsidian-app .anki-count-grid { gap: 8px; }
+  .obsidian-app .anki-workspace .anki-count-card {
+  height: auto; min-height: 0; align-content: start; padding: 12px; }
+  .obsidian-app .anki-workspace .anki-answer-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .obsidian-app .anki-review-card { min-height: 240px; font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) { .anki-ring-value, .anki-study-progress i { transition: none; } }
+.obsidian-app .anki-workspace .anki-count-grid { align-items: start; grid-auto-rows: auto; }
+.obsidian-app .anki-workspace .anki-count-card { min-height: 0; }
+.obsidian-app .anki-workspace .anki-count-card strong { color: var(--foreground); }
+.obsidian-app .anki-workspace .anki-count-card.is-empty strong { color: var(--muted-foreground); }

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowUp, BookOpen, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
 import { AgentSteps } from './agent-steps';
-import { BrandIcon } from './brand-icon';
 import { chooseProductModel, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import './agent-thread.css';
 
@@ -25,8 +24,8 @@ function agentStarters(tools: string[]) {
   return ['帮我整理这篇笔记的重点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
 }
 
-/** Elapsed seconds while the Agent works, so a long answer never looks stuck. */
-function Thinking() {
+/** The Agent at work, with elapsed seconds so a long task never looks stuck. */
+function Working({ name }: { name: string }) {
   // Mounted when sending starts, so the first render marks the start.
   const [since] = useState(() => Date.now());
   const [now, setNow] = useState(since);
@@ -35,7 +34,11 @@ function Thinking() {
     return () => window.clearInterval(timer);
   }, []);
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
-  return <div className="agent-thinking is-step" role="status"><Brain size={14} aria-hidden="true" /><span className="agent-thinking-text">正在思考</span><span>{seconds} 秒</span></div>;
+  // Honest wording: the Agent may think, call tools and write in this time.
+  const phase = seconds < 6 ? '正在理解你的问题' : '正在处理，可能会查询资料、读写笔记';
+  return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
+    <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span><span className="agent-working-time">{seconds} 秒</span></div>
+  </div>;
 }
 
 function ModelPill({ onManage }: { onManage: () => void }) {
@@ -163,7 +166,6 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   } else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
   else if (!messages.length && !sending && !pending) {
     body = <div className="agent-empty">
-      <span className="agent-empty-mark"><BrandIcon size={40} /></span>
       <h2>今天想让{title}做什么？</h2>
       {composer}
       {notice}
@@ -177,26 +179,27 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     </div>;
   } else {
     body = <div className="session-transcript">
-      <header className="agent-thread-head"><span className="agent-thread-avatar"><BrandIcon size={22} /></span><span>{title}</span></header>
       {messages.map((message, index) => message.role === 'user'
         ? <article key={`${message.created_at}-${index}`} className="chat-message user"><p>{message.content}</p></article>
         : <article key={`${message.created_at}-${index}`} className="chat-message assistant">
-          <header className="agent-reply-head">
-            <span className="agent-avatar"><BrandIcon size={16} /></span><span className="agent-reply-name">{title}</span>
-            <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
-          </header>
-          <AgentSteps steps={message.steps} tools={message.tools} />
-          <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
-          <div className="agent-reply-actions">
-            <button type="button" aria-label="复制回复" title="复制回复" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopiedIndex(index); window.setTimeout(() => setCopiedIndex(current => current === index ? null : current), 1200); }}>
-              {copiedIndex === index ? <Check size={13} /> : <Copy size={13} />}<span>{copiedIndex === index ? '已复制' : '复制'}</span>
-            </button>
+          <div className="agent-reply-body">
+            <header className="agent-reply-head">
+              <span className="agent-reply-name">{title}</span>
+              <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
+            </header>
+            <AgentSteps steps={message.steps} tools={message.tools} />
+            <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+            <div className="agent-reply-actions">
+              <button type="button" aria-label="复制回复" title="复制回复" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopiedIndex(index); window.setTimeout(() => setCopiedIndex(current => current === index ? null : current), 1200); }}>
+                {copiedIndex === index ? <Check size={13} /> : <Copy size={13} />}<span>{copiedIndex === index ? '已复制' : '复制'}</span>
+              </button>
+            </div>
           </div>
         </article>)}
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Thinking /> : null}
+      {sending ? <Working name={title} /> : null}
     </div>;
   }
 
