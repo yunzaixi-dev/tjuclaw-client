@@ -1,0 +1,4 @@
+/* LXGW WenKai: ~210 KB of @font-face rules, loaded off the critical path
+   (appearance.ts) so the first paint never waits for it. */
+@import "lxgw-wenkai-webfont/lxgwwenkai-regular.css";
+@import "lxgw-wenkai-webfont/lxgwwenkai-bold.css";

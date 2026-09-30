@@ -30,17 +30,27 @@ function resolve(preferences: Preferences) {
 }
 let snapshot = resolve(readPreferences());
 const listeners = new Set<() => void>();
+// Declared before the first apply().
+let wenkai: Promise<unknown> | null = null;
+function loadWenkai() { wenkai ??= import('../wenkai.css'); }
 function apply() {
   const root = document.documentElement;
   root.dataset.theme = snapshot.resolved;
   root.dataset.accent = snapshot.accent;
   root.dataset.font = snapshot.font;
+  if (snapshot.font !== 'sans') loadWenkai();
   root.style.colorScheme = snapshot.resolved;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', snapshot.resolved === 'dark' ? '#191919' : '#ffffff');
   listeners.forEach(listener => listener());
 }
 // Runs before the product's first render; no inline script or native CSP exception.
 apply();
+
+// WenKai (the serif/mono page font and the chalk notes) is ~210 KB of
+// @font-face CSS: apply() fetches it at once when the page font needs it,
+// otherwise it waits until the first screen is idle.
+if ('requestIdleCallback' in window) window.requestIdleCallback(loadWenkai, { timeout: 4000 });
+else setTimeout(loadWenkai, 2500);
 
 function subscribe(listener: () => void) {
   listeners.add(listener);

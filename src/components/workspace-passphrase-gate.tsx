@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, m, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
   Check,
@@ -199,7 +199,7 @@ export function WorkspacePassphraseGate({
   return (
     <main className="workspace-vault-screen blueprint-surface">
       <BlueprintBackdrop />
-      <motion.section
+      <m.section
         className="workspace-vault-card"
         aria-labelledby="workspace-vault-title"
         initial={{ opacity: 0, y: reduceMotion ? 0 : 14, scale: reduceMotion ? 1 : 0.985 }}
@@ -208,7 +208,7 @@ export function WorkspacePassphraseGate({
       >
         <AnimatePresence initial={false} mode="wait">
           {stage === 'backup' ? (
-            <motion.div
+            <m.div
               key="backup"
               className="workspace-vault-stage"
               initial={{ opacity: 0, x: reduceMotion ? 0 : 12 }}
@@ -225,7 +225,7 @@ export function WorkspacePassphraseGate({
                 <span>备份文件包含明文口令，请保存到安全位置。</span>
               </div>
               <div className="workspace-vault-actions">
-                <motion.button
+                <m.button
                   type="button"
                   className="workspace-vault-submit"
                   whileHover={reduceMotion ? undefined : { y: -1 }}
@@ -235,8 +235,8 @@ export function WorkspacePassphraseGate({
                 >
                   <Download size={16} />
                   {downloaded ? '再次下载口令备份' : '下载口令备份'}
-                </motion.button>
-                <motion.button
+                </m.button>
+                <m.button
                   type="button"
                   className="workspace-vault-secondary"
                   whileHover={reduceMotion ? undefined : { y: -1 }}
@@ -247,11 +247,11 @@ export function WorkspacePassphraseGate({
                 >
                   <Check size={16} />
                   {busy ? '正在进入…' : '我已安全备份，进入工作区'}
-                </motion.button>
+                </m.button>
               </div>
-            </motion.div>
+            </m.div>
           ) : (
-            <motion.div
+            <m.div
               key="form"
               className="workspace-vault-stage"
               initial={{ opacity: 0, x: reduceMotion ? 0 : -12 }}
@@ -344,7 +344,7 @@ export function WorkspacePassphraseGate({
                 ) : null}
                 <AnimatePresence initial={false}>
                   {error ? (
-                    <motion.p
+                    <m.p
                       className="workspace-vault-error"
                       role="alert"
                       initial={{ opacity: 0, y: reduceMotion ? 0 : -4 }}
@@ -353,10 +353,10 @@ export function WorkspacePassphraseGate({
                       transition={transition}
                     >
                       {error}
-                    </motion.p>
+                    </m.p>
                   ) : null}
                 </AnimatePresence>
-                <motion.button
+                <m.button
                   type="submit"
                   className="workspace-vault-submit"
                   disabled={busy || !passphrase || (firstWorkspace && !workspaceNameInput.trim()) || (isSetup && (!confirmation || !acknowledged))}
@@ -366,12 +366,12 @@ export function WorkspacePassphraseGate({
                 >
                   <KeyRound size={16} />
                   {busy ? '正在处理…' : firstWorkspace || isSetup ? '创建并下载备份' : mode === 'migrate' ? '迁移口令并进入工作区' : '解锁进入工作区'}
-                </motion.button>
+                </m.button>
               </form>
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
-      </motion.section>
+      </m.section>
       <div className="workspace-vault-account">
         {accountEmail ? <span className="workspace-vault-account-email" title={accountEmail}>当前账号 <strong>{accountEmail}</strong></span> : null}
         <button type="button" disabled={signingOut || busy} onClick={signOut}>
