@@ -201,6 +201,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   // Cached history shows at once; the server copy replaces it quietly.
   const empty = Boolean(chat) && !messages.length && !sending && !pending && !(loading && !chat?.messages);
   const composer = (
+      <>
       <form className="agent-composer" onSubmit={onSubmit}>
         <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
         <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
@@ -218,6 +219,8 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
           </button>
         </div>
       </form>
+      <p className="agent-disclaimer">以上内容由智能体生成，仅供参考</p>
+      </>
   );
   const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span>{error.includes('未确认') ? <button type="button" onClick={onRetry}>确认发送结果</button> : null}</div> : null;
   let body: ReactNode;
