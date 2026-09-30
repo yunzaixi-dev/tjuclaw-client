@@ -2361,28 +2361,53 @@
   .obsidian-app .outline-item { min-height: 42px; padding-top: 11px; padding-bottom: 11px; font-size: 15px; }
 }
 
-/* Flashcards live in the notes sidebar, as a section under the notes. */
+/* Flashcards live in the notes sidebar, as a section under the notes, on
+   the same grid as note rows: label at the section edge, icon at 26px and
+   text at 48px inside the tree, cards nested one level under their deck. */
 .obsidian-app .notes-flashcards { margin-top: 14px; }
-.obsidian-app .notes-flashcards-heading { padding: 0 2px 2px 6px; position: static; z-index: auto; }
-.obsidian-app .notes-flashcards-title { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
-.obsidian-app .notes-flashcards-title:hover, .obsidian-app .notes-flashcards-title.is-active { background: var(--hover-wash); color: var(--foreground); }
-.obsidian-app .notes-flashcards .anki-sidebar-list { display: grid; gap: 1px; }
-.obsidian-app .notes-flashcards .anki-sidebar-deck-row { position: relative; display: flex; align-items: center; border-radius: 6px; }
-.obsidian-app .notes-flashcards .anki-sidebar-deck-row:hover { background: var(--hover-wash); }
+.obsidian-app .notes-flashcards-heading { position: static; z-index: auto; }
+.obsidian-app .obsidian-sidebar .notes-flashcards-heading { padding: 12px 2px 4px 10px; }
+.obsidian-app .notes-flashcards-heading .notes-flashcards-title {
+  width: auto; min-width: 0; height: 18px; padding: 0; margin: 0; border: 0; border-radius: 0; background: none;
+  color: var(--muted-foreground); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.obsidian-app .notes-flashcards-heading .notes-flashcards-title:hover,
+.obsidian-app .notes-flashcards-heading .notes-flashcards-title.is-active { background: none; color: var(--foreground); }
+.obsidian-app .notes-flashcards .anki-sidebar-list { display: grid; gap: 0; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck-row { position: relative; display: block; border: 0; border-radius: 6px; }
 .obsidian-app .notes-flashcards .anki-sidebar-deck {
-  display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 30px; padding: 0 8px;
+  display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; height: 29px; min-height: 29px; padding: 0 56px 0 26px;
   border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left;
 }
+.obsidian-app .notes-flashcards .anki-sidebar-deck:hover { background: var(--hover-wash); }
 .obsidian-app .notes-flashcards .anki-sidebar-deck.is-active { background: var(--selected); }
-.obsidian-app .notes-flashcards .anki-sidebar-deck > svg:first-child { flex: none; color: var(--muted-foreground); }
+.obsidian-app .notes-flashcards .anki-sidebar-deck > svg { flex: none; color: var(--muted-foreground); }
 .obsidian-app .notes-flashcards .anki-sidebar-deck > span { display: flex; flex: 1; align-items: baseline; gap: 6px; min-width: 0; }
-.obsidian-app .notes-flashcards .anki-sidebar-deck strong { overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.obsidian-app .notes-flashcards .anki-sidebar-deck strong { overflow: hidden; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .obsidian-app .notes-flashcards .anki-sidebar-deck small { flex: none; color: var(--muted-foreground); font-size: 12px; }
-.obsidian-app .notes-flashcards .anki-sidebar-deck > svg:last-child { display: none; }
-.obsidian-app .notes-flashcards .anki-deck-action { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); opacity: 0; }
+.obsidian-app .notes-flashcards .anki-deck-actions { position: absolute; top: 50%; right: 4px; display: flex; gap: 1px; transform: translateY(-50%); }
+.obsidian-app .notes-flashcards .anki-deck-action { display: grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted-foreground); opacity: 0; }
 .obsidian-app .notes-flashcards .anki-sidebar-deck-row:hover .anki-deck-action, .obsidian-app .notes-flashcards .anki-deck-action:focus-visible { opacity: 1; }
 .obsidian-app .notes-flashcards .anki-deck-action:hover { background: var(--hover-wash); color: var(--foreground); }
 @media (hover: none) { .obsidian-app .notes-flashcards .anki-deck-action { opacity: 1; } }
-.obsidian-app .notes-flashcards-heading .notes-flashcards-title { width: auto; min-width: 0; white-space: nowrap; }
-.obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row { padding-left: 14px; }
-.obsidian-app .notes-flashcards .anki-sidebar-deck-row { border: 0; }
+.obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row { padding-left: 0; }
+.obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row .session-tree-item { height: 29px; min-height: 29px; padding: 0 28px 0 48px; gap: 7px; color: var(--foreground); font-size: 14px; }
+.obsidian-app .notes-flashcards .anki-sidebar-list > .sidebar-sort-row .session-tree-item > svg { color: var(--muted-foreground); }
+
+/* Agent conversation history, from the top bar. */
+.session-history-anchor { position: relative; display: inline-flex; }
+.session-history-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  width: 280px; max-height: min(420px, 70vh); overflow: auto; padding: 5px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--shell-panel); box-shadow: var(--shadow-popover); color: var(--foreground);
+}
+.session-history-menu p { margin: 0; padding: 8px 10px; color: var(--muted); font-size: 13px; }
+.session-history-menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px;
+  border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; cursor: pointer;
+}
+.session-history-menu button:hover { background: var(--hover-wash); }
+.session-history-menu button > span { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.session-history-menu strong { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.session-history-menu small { color: var(--muted); font-size: 12px; }

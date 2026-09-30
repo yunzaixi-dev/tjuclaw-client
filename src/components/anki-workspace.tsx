@@ -239,19 +239,19 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
 
   return <section className="anki-workspace" aria-label="Anki 记忆闪卡">
     <input ref={importRef} type="file" accept=".txt,.tsv" hidden onChange={importFile} />
-    <header className="anki-workspace-header">
-        <div className="anki-title-block">
-        <div className="anki-title-mark"><Layers3 size={18} /></div>
-        <div><h1>记忆闪卡</h1><p>{displayDeckName}</p></div>
-      </div>
-      <div className="anki-header-actions">
-        <button type="button" aria-label="导入卡片" title="导入 TSV" disabled={importing} onClick={() => importRef.current?.click()}><Upload size={15} /></button>
-        <button type="button" aria-label="导出 JSON" title="导出 JSON" onClick={exportJson} disabled={!cards.length}><Download size={15} /></button>
-        <button type="button" aria-label="导出 Anki" title="导出 TSV" onClick={onExport} disabled={!cards.length}><FileUp size={15} /></button>
-      </div>
-    </header>
     <div className="anki-workspace-body">
       <div className="anki-content">
+        <header className="anki-workspace-header">
+          <div className="anki-title-block">
+            <p className="anki-crumb"><Layers3 size={14} />记忆闪卡</p>
+            <h1>{displayDeckName}</h1>
+          </div>
+          <div className="anki-header-actions">
+            <button type="button" aria-label="导入卡片" title="导入 TSV" disabled={importing} onClick={() => importRef.current?.click()}><Upload size={15} /></button>
+            <button type="button" aria-label="导出 JSON" title="导出 JSON" onClick={exportJson} disabled={!cards.length}><Download size={15} /></button>
+            <button type="button" aria-label="导出 Anki" title="导出 TSV" onClick={onExport} disabled={!cards.length}><FileUp size={15} /></button>
+          </div>
+        </header>
         {mode === 'overview' ? <div className="anki-overview">
           <section className="anki-hero">
             <div className="anki-hero-copy">
@@ -274,7 +274,7 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
         {mode === 'study' ? <div className="anki-study">
           <div className="anki-study-top"><button type="button" onClick={() => setMode('overview')}><ArrowLeft size={15} /> 退出学习</button><div className="anki-study-progress" role="progressbar" aria-label="今日进度" aria-valuemin={0} aria-valuemax={cards.length} aria-valuenow={Math.max(0, cards.length - dueCards.length)}><i style={{ width: `${cards.length ? ((cards.length - dueCards.length) / cards.length) * 100 : 100}%` }} /></div><span>{dueCards.length ? `还剩 ${dueCards.length} 张` : '今日已完成'}</span></div>
           {activeStudy ? <div className="anki-review-stage">
-            <div className="anki-review-meta"><span>{displayDeckName}</span><span>{parseTags(activeStudy.card.tags).map(tag => `#${tag}`).join(' ')}</span></div>
+            {activeStudy.card.tags.trim() ? <div className="anki-review-meta"><span>{parseTags(activeStudy.card.tags).map(tag => `#${tag}`).join(' ')}</span></div> : null}
             <button type="button" className={`anki-review-card${showAnswer ? ' is-answer' : ''}`} onClick={() => setShowAnswer(value => !value)}>
               <span className="anki-card-side">{showAnswer ? '答案' : '问题'}</span>
               <div style={{ whiteSpace: 'pre-wrap' }}>{showAnswer ? activeStudy.card.back : activeStudy.card.front}</div>

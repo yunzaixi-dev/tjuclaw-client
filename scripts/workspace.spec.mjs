@@ -1450,14 +1450,14 @@ test.describe('Workspace mocked contract suite', () => {
     });
     await page.getByRole('button', { name: '浏览卡片' }).click();
     await expect(page.locator('.anki-browser-front strong')).toHaveText('问题');
-    await expect(page.locator('.anki-title-block p')).toHaveText('考前复习');
+    await expect(page.locator('.anki-title-block h1')).toHaveText('考前复习');
     expect(imports).toBe(1);
     expect(individualCreates).toBe(0);
     await page.reload();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await page.locator('.anki-sidebar-deck').filter({ hasText: '考前复习' }).click();
     await expect(page.locator('.anki-review-card')).toContainText('问题');
-    await expect(page.locator('.anki-title-block p')).toHaveText('考前复习');
+    await expect(page.locator('.anki-title-block h1')).toHaveText('考前复习');
   });
 
   test('failed server TSV import keeps the current flashcard deck unchanged', async ({ page }) => {
@@ -1598,7 +1598,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('button', { name: `删除牌组 ${defaultDeck.name}` })).toBeDisabled();
     page.once('dialog', dialog => dialog.accept('考前复习'));
     await page.getByRole('button', { name: '新建牌组' }).click();
-    await expect(page.locator('.anki-title-block p')).toHaveText('考前复习');
+    await expect(page.locator('.anki-title-block h1')).toHaveText('考前复习');
     const created = owner.decks.find(deck => deck.id !== defaultDeck.id);
     expect(created?.name).toBe('考前复习');
     await page.getByRole('button', { name: '新建卡片' }).click();
@@ -1606,7 +1606,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect.poll(() => owner.cards.find(card => card.deck_id === created.id)?.front).toBe('第二牌组的卡片');
     page.once('dialog', dialog => dialog.accept('期末复习'));
     await page.getByRole('button', { name: '重命名牌组 考前复习' }).click();
-    await expect(page.locator('.anki-title-block p')).toHaveText('期末复习');
+    await expect(page.locator('.anki-title-block h1')).toHaveText('期末复习');
     await page.reload();
     await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
     await page.locator('.anki-sidebar-deck').filter({ hasText: '期末复习' }).click();
@@ -1616,7 +1616,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.anki-browser-front strong')).toHaveText('第二牌组的卡片');
     page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: '删除牌组 期末复习' }).click();
-    await expect(page.locator('.anki-title-block p')).toHaveText(defaultDeck.name);
+    await expect(page.locator('.anki-title-block h1')).toHaveText(defaultDeck.name);
     expect(owner.cards).toHaveLength(0);
     expect(owner.decks).toEqual([defaultDeck]);
     await expect(page.getByRole('button', { name: `删除牌组 ${defaultDeck.name}` })).toBeDisabled();
@@ -2299,7 +2299,7 @@ test('plugin directory opens real built-in features without claiming external in
   await page.keyboard.press('Escape');
   await page.locator('.obsidian-tree').getByRole('button', { name: '记忆闪卡' }).click();
   await page.getByRole('button', { name: '打开记忆闪卡' }).click();
-  await expect(page.getByRole('heading', { name: '记忆闪卡', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Anki 记忆闪卡' }).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(activity.getByRole('button', { name: '记忆闪卡' })).toHaveAttribute('aria-current', 'page');
 });
 
@@ -3126,4 +3126,47 @@ test('mobile settings and graph stay inside the viewport', async ({ page }) => {
   await page.getByRole('button', { name: '知识图谱' }).click();
   await expect(page.getByRole('dialog').getByRole('heading', { name: '知识图谱' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+});
+
+test('starts a new Agent conversation and switches back through the history', async ({ page }) => {
+  const state = defaultState();
+  const old = { ...sessionA, messages: [
+    { role: 'user', content: '上次问的电路题', created_at: '2026-01-01T00:00:10.000Z' },
+    { role: 'assistant', content: '上次的回答', created_at: '2026-01-01T00:00:11.000Z' },
+  ] };
+  state.sessionsByEntry[guideA.id] = [old];
+  state.sessionById[old.id] = old;
+  let created = 0;
+  await mockWorkspace(page, state);
+  await page.route(`**/api/entries/${guideA.id}/sessions`, route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    created += 1;
+    const fresh = { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' + created, entry_id: guideA.id, created_at: '2026-01-02T00:00:00.000Z', updated_at: '2026-01-02T00:00:00.000Z' };
+    state.sessionsByEntry[guideA.id] = [fresh, ...state.sessionsByEntry[guideA.id]];
+    state.sessionById[fresh.id] = { ...fresh, messages: [] };
+    return json(route, 201, { session: fresh });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByRole('button', { name: '新手向导', exact: true }).click();
+  const log = page.getByRole('log', { name: '会话记录' });
+  await expect(log).toContainText('上次的回答');
+  await page.getByRole('button', { name: '新会话', exact: true }).click();
+  await expect.poll(() => created).toBe(1);
+  await expect(log).not.toContainText('上次的回答');
+  // An empty conversation is reused rather than piling up new ones.
+  await page.getByRole('button', { name: '新会话', exact: true }).click();
+  await expect(log).not.toContainText('上次的回答');
+  await page.waitForTimeout(500);
+  expect(created).toBe(1);
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('新的问题');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(log).toContainText('已收到');
+  expect(state.sentRequests.at(-1)).toBeTruthy();
+  await page.getByRole('button', { name: '历史会话' }).click();
+  const menu = page.getByRole('menu', { name: '历史会话' });
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(2);
+  await menu.getByRole('menuitemradio', { name: /上次问的电路题/ }).click();
+  await expect(log).toContainText('上次的回答');
+  await expect(log).not.toContainText('新的问题');
 });
