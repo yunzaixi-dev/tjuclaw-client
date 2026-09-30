@@ -2,7 +2,8 @@ import { useSyncExternalStore } from 'react';
 import { X } from 'lucide-react';
 import './contest-banner.css';
 
-const STORAGE_KEY = 'tjuclaw.contest-banner.v1';
+// A new notice gets a new key, so it shows even where the contest banner was closed.
+const STORAGE_KEY = 'tjuclaw.notice-banner.v2';
 const HIDDEN_CLASS = 'contest-banner-hidden';
 
 function readOpen() {
@@ -65,11 +66,11 @@ export function ContestBanner() {
     <div id="tjuclaw-contest-2026" className="contest-banner" role="banner">
       <a
         className="contest-banner-link"
-        href="https://agent2026.tju.edu.cn/ai-competition/introduction/"
+        href="https://tjuclaw.cloud/docs"
         target="_blank"
         rel="noreferrer"
       >
-        🎉 此作品正在参加天津大学智能体大赛 2026，希望大家能投我们一票，感谢 🥳
+        🚧 TJUClaw 仍处于快速迭代期，未来将引入大量功能与优化，敬请期待 ✨
       </a>
       <button
         type="button"
