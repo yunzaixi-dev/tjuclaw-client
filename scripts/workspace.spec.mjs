@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const syntheticSessionA = {
@@ -1213,7 +1214,9 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(composer).toBeEnabled();
     await composer.fill('请解释主动回忆');
     await composer.press('Enter');
-    await expect(page.getByRole('alert')).toContainText('草稿已保留');
+    // An error response with nothing stored is a failed turn: say why, keep the draft.
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.getByRole('alert')).not.toContainText('未确认');
     await expect(composer).toHaveValue('请解释主动回忆');
     state.sendError = false;
     await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -1221,51 +1224,35 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.chat-message.assistant strong')).toHaveText('已收到');
     await expect(composer).toHaveValue('');
     expect(state.sentRequests).toHaveLength(2);
-    expect(state.sentRequests[1].client_request_id).toBe(state.sentRequests[0].client_request_id);
     expect(state.sentRequests[0].client_request_id).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  test('restores an unconfirmed Agent request after reload without changing its identity', async ({ page }) => {
+  test('an unconfirmed Agent request from before a reload never blocks new messages', async ({ page }) => {
     const state = defaultState();
-    state.sendError = true;
     await mockWorkspace(page, state);
+    const requestId = '1234567890abcdef1234567890abcdef';
+    const digest = createHash('sha256').update('请解释主动回忆').digest('hex');
+    await page.addInitScript(([session, id, hash]) => sessionStorage.setItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${session}`,
+      JSON.stringify({ sessionId: session, id, digest: hash })), [sessionA.id, requestId, digest]);
     await page.goto('/workspace');
     await page.getByRole('button', { name: 'Agent', exact: true }).click();
     await page.getByRole('button', { name: '新手向导', exact: true }).click();
     const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
-    await composer.fill('请解释主动回忆');
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('草稿已保留');
-    const requestId = state.sentRequests[0].client_request_id;
-    expect(await page.evaluate(id => JSON.parse(sessionStorage.getItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${id}`)), sessionA.id))
-      .toEqual({ sessionId: sessionA.id, id: requestId, digest: expect.stringMatching(/^[0-9a-f]{64}$/) });
-    await composer.fill('改成另一个问题');
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('不能用新内容覆盖');
-    expect(state.sentRequests).toHaveLength(1);
-
-    await page.reload();
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    await expect(composer).toHaveValue('');
-    await expect(page.getByRole('alert')).toContainText('重新输入原消息');
-
-    await composer.fill('改成另一个问题');
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('不能用新内容覆盖');
-    expect(state.sentRequests).toHaveLength(1);
-
-    await composer.fill('请解释主动回忆');
-    state.sendError = false;
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.locator('.chat-message.assistant')).toContainText('已收到');
-    expect(state.sentRequests.map(item => item.client_request_id)).toEqual([requestId, requestId]);
-    await page.reload();
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    await expect(composer).toHaveValue('');
+    await expect(composer).toBeEnabled();
     await expect(page.getByRole('alert')).toHaveCount(0);
+    // Resending the same text reuses its request id; other text is a new message.
+    await composer.fill('请解释主动回忆');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
     await expect(page.locator('.chat-message.assistant')).toContainText('已收到');
+    await composer.fill('改成另一个问题');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => state.sentRequests.length).toBe(2);
+    expect(state.sentRequests[0].client_request_id).toBe(requestId);
+    expect(state.sentRequests[1].client_request_id).not.toBe(requestId);
+    await page.reload();
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
   test('recovers a completed Agent turn when its POST response is lost', async ({ page }) => {
@@ -1332,27 +1319,22 @@ test.describe('Workspace mocked contract suite', () => {
     expect(await page.evaluate(id => sessionStorage.getItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${id}`), sessionA.id)).toBeNull();
   });
 
-  test('keeps the draft when a server turn reuses the request id with different content', async ({ page }) => {
+  test('reports a server turn that reuses the request id with different content', async ({ page }) => {
     const state = defaultState();
-    state.sendError = true;
-    await mockWorkspace(page, state);
-    await page.goto('/workspace');
-    await page.getByRole('button', { name: 'Agent', exact: true }).click();
-    await page.getByRole('button', { name: '新手向导', exact: true }).click();
-    const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
-    await composer.fill('原始消息');
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('发送结果未确认');
-    const requestId = state.sentRequests[0].client_request_id;
+    const requestId = '1234567890abcdef1234567890abcdef';
     state.sessionById[sessionA.id] = { ...sessionA, messages: [
       { role: 'user', content: '不同的内容', client_request_id: requestId, created_at: '2026-01-01T00:00:10.000Z' },
       { role: 'assistant', content: '不应被确认', created_at: '2026-01-01T00:00:11.000Z' },
     ] };
-    await page.getByRole('button', { name: '确认发送结果' }).click();
+    await mockWorkspace(page, state);
+    const digest = createHash('sha256').update('原始消息').digest('hex');
+    await page.addInitScript(([session, id, hash]) => sessionStorage.setItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${session}`,
+      JSON.stringify({ sessionId: session, id, digest: hash })), [sessionA.id, requestId, digest]);
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: 'Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新手向导', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('服务器记录与原消息不一致');
-    await expect(composer).toHaveValue('原始消息');
-    expect(state.sentRequests).toHaveLength(1);
-    expect(await page.evaluate(id => JSON.parse(sessionStorage.getItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${id}`)).id, sessionA.id)).toBe(requestId);
+    expect(state.sentRequests).toHaveLength(0);
   });
 
   test('loads sample flashcards only on request and exports them as Anki TSV', async ({ page }) => {
@@ -3169,4 +3151,10 @@ test('starts a new Agent conversation and switches back through the history', as
   await menu.getByRole('menuitemradio', { name: /上次问的电路题/ }).click();
   await expect(log).toContainText('上次的回答');
   await expect(log).not.toContainText('新的问题');
+  // The sidebar's 新对话 opens the Agent picker, which starts a fresh conversation.
+  await page.getByRole('button', { name: '新对话' }).click();
+  await expect(page.getByRole('heading', { name: '和谁开始新的对话？' })).toBeVisible();
+  await page.getByRole('region', { name: '选择 Agent' }).getByRole('button', { name: /新手向导/ }).click();
+  await expect.poll(() => created).toBe(2);
+  await expect(log).not.toContainText('上次的回答');
 });

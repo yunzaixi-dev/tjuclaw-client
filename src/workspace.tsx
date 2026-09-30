@@ -542,12 +542,12 @@ export default function Workspace() {
     }
   }
 
-  function newBlankTab() {
+  function newBlankTab(forView: SidebarView = view) {
     if (!canLeaveDraft()) return;
     flushPendingSave();
     ++chatRequestRef.current;
     const key = `blank-${crypto.randomUUID()}`;
-    const kind = view === 'sessions' ? 'agent-blank' : view === 'anki' ? 'anki' : view === 'tools' ? 'tool' : 'blank';
+    const kind = forView === 'sessions' ? 'agent-blank' : forView === 'anki' ? 'anki' : forView === 'tools' ? 'tool' : 'blank';
     const title = kind === 'agent-blank' ? '新会话' : kind === 'anki' ? '记忆闪卡' : kind === 'tool' ? '课程表' : '新建笔记';
     setTabs(current => [...current, { key, kind, title, toolId: kind === 'tool' ? 'schedule' : undefined, history: [], historyIndex: -1 }]);
     chooseTab(key);
@@ -1035,8 +1035,8 @@ export default function Workspace() {
             pendingChatRequestRef.current = pending;
             setChatError('服务器记录与原消息不一致，请不要重新发送；请检查其他设备的会话记录。');
           } else if (pending) {
+            // Kept so resending the same text reuses its id; anything else is a new message.
             pendingChatRequestRef.current = pending;
-            setChatError('上次发送结果未确认；请重新输入原消息并重试，不会生成新的请求编号。');
           }
           chatCacheRef.current[id] = next;
           setChat(next);
@@ -1528,10 +1528,6 @@ export default function Workspace() {
     if (!identity) return;
     const pending = pendingChatRequestRef.current?.sessionId === currentId
       ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
-    if (pending?.sessionId === currentId && pending.content !== undefined && pending.content !== text) {
-      setChatError('上次消息结果未确认，请先重试原消息，不能用新内容覆盖。');
-      return;
-    }
     sendingRef.current = true;
     setChatSending(true);
     let digest: string;
@@ -1548,13 +1544,10 @@ export default function Workspace() {
       if (generation === identityGeneration.current) setChatSending(false);
       return;
     }
-    if (pending?.digest && pending.digest !== digest) {
-      sendingRef.current = false;
-      setChatSending(false);
-      setChatError('上次消息结果未确认，请先重试原消息，不能用新内容覆盖。');
-      return;
-    }
-    const requestId = pending?.sessionId === currentId ? pending.id : crypto.randomUUID().replaceAll('-', '');
+    // Resending the same text reuses its request id, so a turn the server did
+    // store is not stored twice; different text is simply a new message.
+    const same = pending?.sessionId === currentId && (pending.digest ? pending.digest === digest : pending.content === text);
+    const requestId = same ? pending!.id : crypto.randomUUID().replaceAll('-', '');
     pendingChatRequestRef.current = { sessionId: currentId, content: text, id: requestId, digest };
     try {
       sessionStorage.setItem(pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
@@ -1611,6 +1604,13 @@ export default function Workspace() {
             setChat(latest);
             setDraft('');
           }
+          return;
+        }
+        if (!pending && cause instanceof AuthError) {
+          // An error response (not a timeout) and nothing stored: the turn failed.
+          clearPendingChat(identity, currentId, requestId);
+          if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
+          if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
           return;
         }
       } catch { /* Retain the request id when the outcome cannot be read back. */ }
@@ -2046,7 +2046,7 @@ export default function Workspace() {
         <button type="button" className="notion-side-row" onClick={() => { setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
       </div>
       <div className="sidebar-bottom notion-side-bottom" aria-label="工作区工具">
-        <button type="button" className="notion-new-chat" onClick={() => { switchView('sessions'); if (isMobile) setSidebarOpen(false); }}><MessageCircle size={15} /><span>新对话</span></button>
+        <button type="button" className="notion-new-chat" onClick={() => newBlankTab('sessions')}><MessageCircle size={15} /><span>新对话</span></button>
         <button type="button" className="notion-new-page" title="新建笔记" aria-label="新建笔记页面" onClick={() => void createNote()}><SquarePen size={16} /></button>
       </div>
       </div>
@@ -2054,7 +2054,7 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <motion.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
-      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={newBlankTab}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><div className="session-history-anchor"><Button variant="ghost" size="icon" onClick={() => void openSessionMenu(selected.id)} aria-label="历史会话" aria-expanded={Boolean(sessionMenu)} title="历史会话"><History size={17} /></Button>{sessionMenu ? <div className="session-history-menu" role="menu" aria-label="历史会话">{sessionMenu.loading ? <p>正在读取…</p> : sessionMenu.items.length ? sessionMenu.items.map(({ session: item, preview }) => <button type="button" role="menuitemradio" aria-checked={item.id === chat?.id} key={item.id} onClick={() => openConversation(sessionMenu.agentId, item.id)}><span><strong>{preview ?? '…'}</strong><small>{new Date(item.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></span>{item.id === chat?.id ? <Check size={14} /> : null}</button>) : <p>还没有会话</p>}</div> : null}</div><Button variant="ghost" size="icon" onClick={() => openConversation(selected.id, 'new', selected)} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
+      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <span className="notion-edited" title={new Date(selected.updated_at).toLocaleString('zh-CN')}>{editedLabel(selected.updated_at)}</span> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><div className="session-history-anchor"><Button variant="ghost" size="icon" onClick={() => void openSessionMenu(selected.id)} aria-label="历史会话" aria-expanded={Boolean(sessionMenu)} title="历史会话"><History size={17} /></Button>{sessionMenu ? <div className="session-history-menu" role="menu" aria-label="历史会话">{sessionMenu.loading ? <p>正在读取…</p> : sessionMenu.items.length ? sessionMenu.items.map(({ session: item, preview }) => <button type="button" role="menuitemradio" aria-checked={item.id === chat?.id} key={item.id} onClick={() => openConversation(sessionMenu.agentId, item.id)}><span><strong>{preview ?? '…'}</strong><small>{new Date(item.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></span>{item.id === chat?.id ? <Check size={14} /> : null}</button>) : <p>还没有会话</p>}</div> : null}</div><Button variant="ghost" size="icon" onClick={() => openConversation(selected.id, 'new', selected)} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setRailOpen(value => !value)} aria-label="切换信息栏" title="切换信息栏"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
       {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
         <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
           <div className="mobile-tab-sheet-grip" aria-hidden="true" />
