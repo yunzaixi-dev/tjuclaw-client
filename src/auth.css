@@ -611,7 +611,8 @@
 .auth-footer-police {
   display: inline-flex;
   align-items: center;
-  line-height: 0;
+  gap: 4px;
+  line-height: inherit;
 }
 
 .auth-footer-police img {
@@ -746,3 +747,7 @@
 .auth-signed-in .auth-heading { margin-bottom: 18px; }
 .auth-signed-in .auth-assurance { margin-bottom: 18px; }
 .auth-signed-in .auth-secondary-link:disabled { cursor: progress; opacity: .6; }
+
+/* Footer items never break inside a label; the filing numbers wrap as a group. */
+.auth-footer-copy > span, .auth-footer-beian a, .auth-footer-links a, .auth-footer-links button, .auth-footer-links span { white-space: nowrap; }
+.auth-footer-beian { flex-wrap: wrap; column-gap: 12px; row-gap: 2px; }

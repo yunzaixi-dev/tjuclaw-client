@@ -27,8 +27,9 @@ function Shell({ children }: { children: ReactNode }) {
             <span>© 2026 TJUClaw</span>
             <div className="auth-footer-beian">
               <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="auth-footer-link">津ICP备2026013377号</a>
-              <a href="https://www.beian.gov.cn/" target="_blank" rel="noreferrer" className="auth-footer-police" aria-label="公安备案">
+              <a href="https://beian.mps.gov.cn/#/query/webSearch?code=12011202001229" target="_blank" rel="noreferrer" className="auth-footer-police auth-footer-link">
                 <img src="/gongan.png" alt="" width={16} height={16} />
+                津公网安备12011202001229号
               </a>
             </div>
           </div>
