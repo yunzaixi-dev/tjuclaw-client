@@ -18,7 +18,7 @@ test.describe('Opening screen', () => {
       await page.goto('/preview/appearance');
       const screen = page.getByRole('status', { name: /^正在打开 TJUClaw：加载界面$/ });
       await expect(screen).toBeVisible();
-      await expect(page.getByRole('progressbar', { name: '加载进度' })).toHaveAttribute('aria-valuenow', '10');
+      await expect(page.getByRole('progressbar', { name: '加载进度' })).toHaveAttribute('aria-valuetext', '阶段 1/6：加载界面');
       await expect(page.locator('.workspace-opening')).toHaveCSS('opacity', '1');
       await page.screenshot({ path: `../test-results/ui/loading-${theme}.png` });
       const bg = await page.locator('.workspace-opening').evaluate(el => getComputedStyle(el).backgroundColor);
@@ -28,26 +28,26 @@ test.describe('Opening screen', () => {
   }
 
   test('stays hidden for its first moments so a quick load never flashes it', async ({ page }) => {
-    await slowChunks(page, 900);
-    // Record, per frame, how long the screen has existed and its opacity.
-    await page.addInitScript(() => {
-      window.__opening = [];
-      let born = 0;
-      const sample = () => {
-        const screen = document.querySelector('.workspace-opening');
-        if (screen) {
-          born ||= performance.now();
-          window.__opening.push([performance.now() - born, Number(getComputedStyle(screen).opacity)]);
-        }
-        if (!document.querySelector('.appearance-panel, .product-main')) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+    // Measure from mount, not the first RAF (which can arrive late under load).
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    let releaseChunk;
+    const chunkReady = new Promise(resolve => { releaseChunk = resolve; });
+    await page.route(/\/assets\/product.*\.js/, async route => {
+      await chunkReady;
+      await route.continue();
     });
     await page.goto('/preview/appearance');
+    const screen = page.locator('.workspace-opening');
+    await expect(screen).toBeAttached();
+    await expect(screen).toHaveCSS('opacity', '0');
+    await page.clock.runFor(239);
+    await expect(screen).toHaveCSS('opacity', '0');
+    await page.clock.runFor(1);
+    await expect(screen).toHaveCSS('opacity', '1');
+    releaseChunk();
+    await page.clock.resume();
     await expect(page.locator('.appearance-panel, [role="dialog"], .product-main')).toBeVisible();
-    const frames = await page.evaluate(() => window.__opening);
-    expect(frames.filter(([age]) => age < 200).every(([, opacity]) => opacity === 0)).toBe(true);
-    expect(frames.some(([, opacity]) => opacity === 1)).toBe(true);
   });
 
   test('renders cleanly on mobile viewport', async ({ page }) => {
@@ -55,6 +55,7 @@ test.describe('Opening screen', () => {
     await slowChunks(page, 900);
     await page.goto('/preview/appearance');
     await expect(page.locator('.workspace-opening-card')).toBeVisible();
+    await expect(page.locator('.workspace-opening')).toHaveCSS('opacity', '1');
     const box = await page.locator('.workspace-opening-card').boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -67,6 +68,7 @@ test.describe('Opening screen', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/preview/appearance');
     await expect(page.locator('.workspace-opening-card')).toBeVisible();
+    await expect(page.locator('.workspace-opening')).toHaveCSS('opacity', '1');
     await expect(page.locator('.workspace-opening-card')).toHaveCSS('animation-name', 'none');
     await expect(page.locator('.workspace-opening-bar span')).toHaveCSS('animation-name', 'none');
   });

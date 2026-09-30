@@ -2669,3 +2669,29 @@
 /* Reading mode is a book page: title on top, the text turned page by page. */
 .obsidian-app .note-editor.is-reading { display: flex; height: 100%; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
 .obsidian-app .note-editor.is-reading .note-title { flex: none; }
+
+/* Keep the current document visible while remote operations are pending. */
+.workspace-operation {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.workspace-operation span { flex: 1; min-width: 0; }
+.workspace-operation small { color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workspace-operation-spinner { flex: none; animation: workspace-operation-spin 900ms linear infinite; }
+.notion-home button:disabled { opacity: .6; cursor: wait; }
+@keyframes workspace-operation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .workspace-operation-spinner { animation: none; } }
+.workspace-feature-loading { position: fixed; inset: auto 16px 24px; z-index: var(--z-overlay); }
+.cm-md-math-block[role="button"] { cursor: text; }
+.cm-md-math-block:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+/* MathML shares the document scale in both live preview and reading mode. */
+.obsidian-app :is(.markdown-preview, .note-reader) math { font-family: 'Latin Modern Math', 'STIX Two Math', 'Cambria Math', serif; font-size: 1.15em; }
+.obsidian-app :is(.markdown-preview, .note-reader) .math-block { margin: 1em 0; overflow-x: auto; text-align: center; }

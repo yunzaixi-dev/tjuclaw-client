@@ -16,15 +16,6 @@ function capabilityLabels(tools: string[]) {
   return labels;
 }
 
-function agentStarters(tools: string[]) {
-  const campus = tools.some(name => name.startsWith('campus_'));
-  const materials = tools.includes('search_course_materials');
-  if (campus && materials) return ['看看我明天下午什么时候有空', '找数据结构的复习资料并整理要点', '根据我的课表安排这周复习，并保存成笔记'];
-  if (campus) return ['看看我明天下午什么时候有空', '这学期还有哪些考试？', '根据我的课表安排这周复习，并保存成笔记'];
-  if (materials) return ['找数据结构的复习资料并整理要点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
-  return ['帮我整理这篇笔记的重点', '解释一个我还没弄懂的概念', '把这篇内容改成复习提纲'];
-}
-
 /** The Agent at work, with elapsed seconds so a long task never looks stuck. */
 function Working({ name, sessionId }: { name: string; sessionId?: string }) {
   // Mounted when sending starts, so the first render marks the start.
@@ -236,12 +227,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
       {composer}
       {notice}
       {capabilityLabels(tools).length ? <ul className="agent-capabilities" aria-label="可以使用">{capabilityLabels(tools).map(label => <li key={label}>{label}</li>)}</ul> : null}
-      <div className="agent-suggested">
-        <h3>建议</h3>
-        <div className="agent-starters">
-          {agentStarters(tools).map(prompt => <button type="button" key={prompt} onClick={() => { onDraftChange(prompt); inputRef.current?.focus(); }}><Sparkles size={14} aria-hidden="true" /><span>{prompt}</span></button>)}
-        </div>
-      </div>
+
     </div>;
   } else {
     body = <div className="session-transcript">

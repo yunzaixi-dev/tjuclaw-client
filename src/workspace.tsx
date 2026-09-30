@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -11,23 +11,18 @@ import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
 import { openingHoldMs, openingWasVisible, WorkspaceLoading, type LoadStep } from './components/workspace-loading';
-import { AgentThread } from './components/agent-thread';
-import { NoteHistory } from './components/note-history';
-import { SearchPalette } from './components/search-palette';
-import { PagedReader } from './components/paged-reader';
+import { OperationProgress } from './components/operation-progress';
 import { agentRuntime, sendLocalTurn } from './lib/local-sandbox';
 import { getGitStatus, gitStatusLabel, type GitStatus } from './lib/git-history';
 import { BrandIcon } from './components/brand-icon';
-import { FilePreview } from './components/file-preview';
 import { EMPTY_RICH_TEXT } from './lib/rich-text';
-import { KnowledgeGraph } from './components/knowledge-graph';
 import { clearPrivateDrafts, hasPrivateDrafts } from './components/private-notebook';
-import { WorkspaceSettings, type SettingsSection } from './components/workspace-settings';
+import { type SettingsSection } from './components/workspace-settings';
 import { WorkspacePassphraseGate } from './components/workspace-passphrase-gate';
 import { builtInPlugins, WorkspacePlugins, type BuiltInPluginId } from './components/workspace-plugins';
-import { campusToolList, CampusTools, type CampusToolId } from './components/campus-tools';
+import { campusToolList, type CampusToolId } from './components/campus-tool-list';
 import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard as deleteAnkiCard, deleteDeck as deleteAnkiDeck, exportDeck as exportAnkiDeck, getReviewRequest, importDeck as importAnkiDeck, listCards as listAnkiCards, listDecks, patchCard as patchAnkiCard, renameDeck as renameAnkiDeck, reviewCard as reviewAnkiCard, type AnkiCard as RemoteAnkiCard, type AnkiDeck as RemoteAnkiDeck } from './lib/anki';
-import { AnkiWorkspace, type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
+import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
@@ -49,6 +44,15 @@ const defaultSidebarSort: SidebarSort = { notes: 'manual', sessions: 'manual', a
 const sortLabels: Record<SortMode, string> = { manual: '手动排序', 'name-asc': '名称 A → Z', 'name-desc': '名称 Z → A', recent: '最近修改' };
 const nameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
+const AgentThread = lazy(() => import('./components/agent-thread').then(module => ({ default: module.AgentThread })));
+const NoteHistory = lazy(() => import('./components/note-history').then(module => ({ default: module.NoteHistory })));
+const SearchPalette = lazy(() => import('./components/search-palette').then(module => ({ default: module.SearchPalette })));
+const PagedReader = lazy(() => import('./components/paged-reader').then(module => ({ default: module.PagedReader })));
+const FilePreview = lazy(() => import('./components/file-preview').then(module => ({ default: module.FilePreview })));
+const KnowledgeGraph = lazy(() => import('./components/knowledge-graph').then(module => ({ default: module.KnowledgeGraph })));
+const WorkspaceSettings = lazy(() => import('./components/workspace-settings').then(module => ({ default: module.WorkspaceSettings })));
+const AnkiWorkspace = lazy(() => import('./components/anki-workspace').then(module => ({ default: module.AnkiWorkspace })));
+const CampusTools = lazy(() => import('./components/campus-tools').then(module => ({ default: module.CampusTools })));
 
 function orderedItems<T extends Sortable>(items: T[], mode: SortMode, order: string[] = []): T[] {
   const positions = new Map(order.map((id, index) => [id, index]));
@@ -199,7 +203,7 @@ function editedLabel(updatedAt: string) {
   return `编辑于 ${new Date(updatedAt).toLocaleDateString('zh-CN')}`;
 }
 
-function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { entries: Entry[]; onCreate: (title?: string, body?: string) => void; onCreateRich: () => void; onUpload: () => void; onOpen: (id: string) => void }) {
+function NewNoteHome({ entries, busy, onCreate, onCreateRich, onUpload, onOpen }: { entries: Entry[]; busy: boolean; onCreate: (title?: string, body?: string) => void; onCreateRich: () => void; onUpload: () => void; onOpen: (id: string) => void }) {
   const templates = [
     { title: '空白笔记', description: '从一个标题或一句想法开始', icon: FilePlus2, body: '' },
     { title: '项目记录', description: '目标、进展、风险和下一步', icon: Table2, body: '# 项目记录\n\n## 目标\n\n## 当前进展\n\n## 风险与阻塞\n\n## 下一步\n\n- [ ] ' },
@@ -225,7 +229,7 @@ function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { en
           <span className="notion-recent-icon" aria-hidden="true">{entry.kind === 'rich_text' ? <FilePenLine size={18} /> : <FileText size={18} />}</span>
           <strong>{entry.title || '未命名笔记'}</strong>
           <small>{new Date(entry.updated_at).toLocaleDateString('zh-CN')}</small>
-        </button>) : <button type="button" className="notion-recent-card is-empty" onClick={() => onCreate()}>
+        </button>) : <button type="button" disabled={busy} className="notion-recent-card is-empty" onClick={() => onCreate()}>
           <span className="notion-recent-cover" aria-hidden="true" />
           <span className="notion-recent-icon" aria-hidden="true"><Plus size={18} /></span>
           <strong>写下第一篇笔记</strong><small>最近打开的会显示在这里</small>
@@ -235,7 +239,7 @@ function NewNoteHome({ entries, onCreate, onCreateRich, onUpload, onOpen }: { en
     <div className="notion-section">
       <h2 className="notion-section-head">新建</h2>
       <div className="notion-list">
-        {rows.map(row => { const Icon = row.icon; return <button type="button" key={row.key} aria-label={row.label ?? row.title} onClick={row.run}>
+        {rows.map(row => { const Icon = row.icon; return <button type="button" disabled={busy} key={row.key} aria-label={row.label ?? row.title} onClick={row.run}>
           <Icon size={18} aria-hidden="true" /><span>{row.title}</span><small>{row.description}</small>
         </button>; })}
       </div>
@@ -431,6 +435,27 @@ export default function Workspace() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [tabSheetOpen, setTabSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [operations, setOperations] = useState<Record<string, string>>({});
+  const operationLocks = useRef(new Map<string, symbol>());
+  const noteRequestRef = useRef(0);
+
+  function beginOperation(key: string, label: string) {
+    if (operationLocks.current.has(key)) return null;
+    const token = Symbol(key);
+    const generation = identityGeneration.current;
+    operationLocks.current.set(key, token);
+    setOperations(current => ({ ...current, [key]: label }));
+    return () => {
+      if (operationLocks.current.get(key) !== token) return;
+      operationLocks.current.delete(key);
+      if (generation !== identityGeneration.current) return;
+      setOperations(current => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    };
+  }
   const failedSave = useRef<{ id: string; title: string; body: string; generation: number; version: number } | null>(null);
   const conflictDraft = useRef<{ id: string; title: string; body: string } | null>(null);
   const [saveFailedId, setSaveFailedId] = useState<string | null>(null);
@@ -504,6 +529,13 @@ export default function Workspace() {
   const ankiDeckMutation = useRef(false);
   const ankiSyncHealthy = useRef(false);
   const pendingStudyDeckRef = useRef<string | null>(null);
+  const attachAnkiWorkspace = useCallback((handle: AnkiWorkspaceHandle | null) => {
+    ankiWorkspaceRef.current = handle;
+    if (handle && pendingStudyDeckRef.current && pendingStudyDeckRef.current === ankiDeckIdRef.current) {
+      pendingStudyDeckRef.current = null;
+      handle.startStudy();
+    }
+  }, []);
   const library = libraries[0];
   const noteCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').length;
   const fileCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file').length;
@@ -514,6 +546,7 @@ export default function Workspace() {
       : view === 'anki' ? tab.kind === 'anki' : view === 'tools' && tab.kind === 'tool');
 
   function chooseTab(key: string | null) {
+    ++noteRequestRef.current;
     activeTabRef.current = key;
     setActiveTabKey(key);
   }
@@ -909,17 +942,35 @@ export default function Workspace() {
 
   async function createFolder(parentId: string | null = null) {
     if (!library) return;
+    const finish = beginOperation('create-folder', '正在创建文件夹');
+    if (!finish) return;
+    const generation = identityGeneration.current;
     try {
       const entry = await createFolderRemote(library.id, '未命名', parentId ?? undefined);
+      if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
       persistFolders([...folders, { id: entry.id, name: entry.title, parentId: entry.parent_id || null }]);
       setOpenFolders(value => ({ ...value, ...(parentId ? { [parentId]: true } : {}), [entry.id]: true }));
       setEditingFolderId(entry.id);
-    } catch { setError('创建文件夹失败，请稍后再试。'); }
+    } catch { if (generation === identityGeneration.current) setError('创建文件夹失败，请稍后再试。'); }
+    finally { finish(); }
   }
 
   function renameFolder(folder: VaultFolder) {
     setEditingFolderId(folder.id);
+  }
+
+  async function saveFolderName(id: string, name: string) {
+    const finish = beginOperation(`folder:${id}`, '正在重命名文件夹');
+    if (!finish) return;
+    const generation = identityGeneration.current;
+    try {
+      const entry = await patchFolder(id, { title: name });
+      if (generation !== identityGeneration.current) return;
+      setEntries(items => items.map(item => item.id === id ? entry : item));
+      setFolders(current => current.map(item => item.id === id ? { ...item, name: entry.title } : item));
+    } catch { if (generation === identityGeneration.current) setError('重命名文件夹失败，请稍后再试。'); }
+    finally { finish(); }
   }
 
   async function removeFolder(folder: VaultFolder) {
@@ -937,11 +988,13 @@ export default function Workspace() {
       return;
     }
     if (!window.confirm(`删除文件夹“${folder.name}”？其中的所有笔记、文件和子文件夹都会永久删除，无法恢复；其他设备新建的内容也可能受影响。`)) return;
+    const finish = beginOperation(`folder:${folder.id}`, '正在删除文件夹及其内容');
+    if (!finish) return;
     const generation = identityGeneration.current;
-    flushPendingSave();
-    await saveChain.current;
-    if (generation !== identityGeneration.current || [...ids].some(id => conflictedEntries.current.has(id))) return;
     try {
+      flushPendingSave();
+      await saveChain.current;
+      if (generation !== identityGeneration.current || [...ids].some(id => conflictedEntries.current.has(id) || failedSave.current?.id === id)) return;
       await deleteFolderRemote(folder.id);
       if (generation !== identityGeneration.current) return;
       setEntries(items => items.filter(item => !ids.has(item.id)));
@@ -967,10 +1020,13 @@ export default function Workspace() {
         setSelected(null); setSelectedId(null); setTitle(''); setBody(''); setChat(null); setRailOpen(false);
       }
     } catch { if (generation === identityGeneration.current) setError('删除文件夹失败，请稍后再试。'); }
+    finally { finish(); }
   }
 
   async function moveEntry(id: string, folderId?: string | null) {
     if (folderId === undefined) { setMoveEntryId(id); return; }
+    const finish = beginOperation(`move:${id}`, '正在移动文档');
+    if (!finish) return;
     const generation = identityGeneration.current;
     flushPendingSave();
     const move = saveChain.current.catch(() => {}).then(async () => {
@@ -1000,7 +1056,7 @@ export default function Workspace() {
       }
     });
     saveChain.current = move;
-    await move;
+    try { await move; } finally { finish(); }
   }
 
   async function moveFolder(id: string, parentId: string | null) {
@@ -1017,11 +1073,16 @@ export default function Workspace() {
       });
     }
     if (descendants.has(parentId ?? '')) return;
+    const finish = beginOperation(`folder:${id}`, '正在移动文件夹');
+    if (!finish) return;
+    const generation = identityGeneration.current;
     try {
       const entry = await patchFolder(id, { parent_id: parentId ?? '' });
+      if (generation !== identityGeneration.current) return;
       setEntries(items => items.map(item => item.id === id ? entry : item));
-      persistFolders(folders.map(folder => folder.id === id ? { ...folder, parentId } : folder));
-    } catch { setError('移动文件夹失败，请稍后再试。'); }
+      setFolders(current => current.map(folder => folder.id === id ? { ...folder, parentId } : folder));
+    } catch { if (generation === identityGeneration.current) setError('移动文件夹失败，请稍后再试。'); }
+    finally { finish(); }
   }
 
   function renderFolder(folder: VaultFolder): ReactNode {
@@ -1037,7 +1098,7 @@ export default function Workspace() {
       <div className="obsidian-tree-row" {...dragProps(`folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root', folder.id)} onContextMenu={event => openContextMenu(event, 'folder', `folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root')}>
         <button className="tree-toggle" type="button" onClick={() => setOpenFolders(value => ({ ...value, [folder.id]: !open }))} aria-label="展开或折叠文件夹"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button>
         {editingFolderId === folder.id
-          ? <input className="tree-inline-input" autoFocus defaultValue={folder.name} onBlur={event => { const name = event.currentTarget.value.trim() || '未命名'; void patchFolder(folder.id, { title: name }).then(entry => { setEntries(items => items.map(item => item.id === folder.id ? entry : item)); persistFolders(folders.map(item => item.id === folder.id ? { ...item, name } : item)); }).catch(() => setError('重命名文件夹失败，请稍后再试。')); setEditingFolderId(null); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') setEditingFolderId(null); }} />
+          ? <input className="tree-inline-input" autoFocus defaultValue={folder.name} onBlur={event => { const name = event.currentTarget.value.trim() || '未命名'; void saveFolderName(folder.id, name); setEditingFolderId(null); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') setEditingFolderId(null); }} />
           : <button className="tree-item" type="button" onDoubleClick={() => renameFolder(folder)} onClick={() => setOpenFolders(value => ({ ...value, [folder.id]: !open }))}>{open ? <FolderOpen size={15} /> : <Folder size={15} />}<span>{folder.name}</span></button>}
         <button className="tree-more" type="button" onClick={event => openContextMenu(event, 'folder', `folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root')} aria-label="文件夹操作"><MoreHorizontal size={14} /></button>
       </div>
@@ -1060,14 +1121,20 @@ export default function Workspace() {
     }
     let item: Entry = listedItem;
     const generation = identityGeneration.current;
+    const request = ++noteRequestRef.current;
     if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
+      // A later selection wins even if this request is slower.
+      const finish = beginOperation(`open:${request}`, `正在打开「${item.title || '未命名笔记'}」`);
       try {
         item = await getEntry(item.id);
       } catch {
-        setError('打开笔记失败，请稍后重试。');
+        if (generation === identityGeneration.current && request === noteRequestRef.current) setError('打开笔记失败，请稍后重试。');
         return;
+      } finally {
+        finish?.();
       }
-      if (generation !== identityGeneration.current) return;
+      if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
+      if (!canLeaveDraft(id)) return;
     }
     if ((item.kind === 'note' || item.kind === 'rich_text') && !entryRevisions.current[id]) {
       entryRevisions.current[id] = item.updated_at;
@@ -1294,6 +1361,7 @@ export default function Workspace() {
     const remoteFolders = items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null }));
     setFolders(remoteFolders);
     setPlacements(Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])));
+    setLoadStep('cards');
     await loadAnkiData(generation);
     if (generation !== identityGeneration.current) return;
     // A new workspace always contains the guide agent, but opening that agent
@@ -1389,6 +1457,9 @@ export default function Workspace() {
         clearPrivateDrafts();
         identityRef.current = next.id;
         const generation = ++identityGeneration.current;
+        ++noteRequestRef.current;
+        operationLocks.current.clear();
+        setOperations({});
         window.clearTimeout(saveTimer.current);
         setSession(next);
         setLibraries([]);
@@ -1462,7 +1533,7 @@ export default function Workspace() {
   }, []);
 
   useEffect(() => {
-    if (pendingStudyDeckRef.current !== ankiDeckId || !ankiCards.length || view !== 'anki') return;
+    if (pendingStudyDeckRef.current !== ankiDeckId || !ankiCards.length || view !== 'anki' || !ankiWorkspaceRef.current) return;
     pendingStudyDeckRef.current = null;
     ankiWorkspaceRef.current?.startStudy();
   }, [ankiCards, ankiDeckId, view]);
@@ -1581,29 +1652,37 @@ export default function Workspace() {
   async function createNote(noteTitle = '未命名笔记', initialBody = '', folderId?: string) {
     if (!canLeaveDraft()) return;
     if (!library) return;
+    const finish = beginOperation('create', '正在创建笔记');
+    if (!finish) return;
     const generation = identityGeneration.current;
     try {
       const entry = await createEntry(library.id, { kind: 'note', title: noteTitle, body: initialBody, ...(folderId ? { parent_id: folderId } : {}) });
       if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
       if (folderId) persistPlacements({ ...placements, [entry.id]: folderId });
-      void openEntry(entry.id, entry);
+      setEditorMode('edit');
+      await openEntry(entry.id, { ...entry, body: entry.body ?? initialBody });
       window.setTimeout(() => titleRef.current?.focus(), 0);
     } catch { if (generation === identityGeneration.current) setError('暂时无法创建笔记。'); }
+    finally { finish(); }
   }
 
   async function createRichText(folderId?: string) {
     if (!canLeaveDraft()) return;
     if (!library) return;
+    const finish = beginOperation('create', '正在创建富文本文档');
+    if (!finish) return;
     const generation = identityGeneration.current;
     try {
       const entry = await createEntry(library.id, { kind: 'rich_text', title: '未命名文档', body: EMPTY_RICH_TEXT, ...(folderId ? { parent_id: folderId } : {}) });
       if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
       if (folderId) persistPlacements({ ...placements, [entry.id]: folderId });
-      void openEntry(entry.id, entry);
+      setEditorMode('edit');
+      await openEntry(entry.id, { ...entry, body: entry.body ?? EMPTY_RICH_TEXT });
       window.setTimeout(() => titleRef.current?.focus(), 0);
     } catch { if (generation === identityGeneration.current) setError('暂时无法创建富文本文档。'); }
+    finally { finish(); }
   }
 
   function uploadPicker(folderId?: string) {
@@ -1614,9 +1693,12 @@ export default function Workspace() {
   async function handleFileUpload(files: FileList | null) {
     if (!canLeaveDraft()) return;
     if (!library || !files?.length) return;
+    const finish = beginOperation('upload', '正在上传课程资料');
+    if (!finish) return;
     const generation = identityGeneration.current;
     const folderId = uploadParent.current;
-    for (const file of Array.from(files)) {
+    try { for (const [index, file] of Array.from(files).entries()) {
+      setOperations(current => ({ ...current, upload: `正在上传 ${index + 1}/${files.length}：「${file.name}」` }));
       if (!file.size || file.size > 8 * 1024 * 1024) {
         setError(`“${file.name}”超过当前 8 MB 的单文件上限，或是空文件。`);
         continue;
@@ -1626,17 +1708,40 @@ export default function Workspace() {
         if (generation !== identityGeneration.current) return;
         setEntries(items => [...items, entry]);
         if (folderId) setPlacements(current => ({ ...current, [entry.id]: folderId }));
-        void openEntry(entry.id, entry);
+        await openEntry(entry.id, entry);
       } catch { if (generation === identityGeneration.current) setError(`“${file.name}”上传失败。`); }
-    }
+    } } finally { finish(); }
+  }
+
+  async function renameFile(item: Entry, name: string) {
+    const finish = beginOperation(`rename:${item.id}`, '正在重命名文件');
+    if (!finish) return;
+    const generation = identityGeneration.current;
+    try {
+      const entry = await patchEntry(item.id, { title: name, expected_updated_at: item.updated_at });
+      if (generation !== identityGeneration.current) return;
+      setEntries(items => items.map(item => item.id === entry.id ? entry : item));
+      setSelected(current => current?.id === entry.id ? entry : current);
+      setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab));
+    } catch {
+      if (generation === identityGeneration.current) setError('重命名失败，请重新打开文件后重试。');
+    } finally { finish(); }
   }
 
   async function deleteNote(id: string) {
     if (!canLeaveDraft()) return;
     const item = entries.find(entry => entry.id === id);
     if (!item || !window.confirm(`删除“${item.title || '未命名笔记'}”？`)) return;
+    const finish = beginOperation(`delete:${id}`, `正在删除「${item.title || '未命名笔记'}」`);
+    if (!finish) return;
+    const generation = identityGeneration.current;
     try {
+      flushPendingSave();
+      await saveChain.current;
+      if (generation !== identityGeneration.current) return;
+      if (!canLeaveDraft()) return;
       await deleteEntry(id);
+      if (generation !== identityGeneration.current) return;
       setEntries(items => items.filter(entry => entry.id !== id));
       const next = { ...placements };
       delete next[id];
@@ -1656,7 +1761,8 @@ export default function Workspace() {
         if (current?.entryId) void openEntry(current.entryId, undefined, current.key, current.historyIndex);
         else { setSelected(null); setSelectedId(null); setTitle(''); setBody(''); setRailOpen(false); setView('notes'); }
       }
-    } catch { setError('删除文档失败，请稍后再试。'); }
+    } catch { if (generation === identityGeneration.current) setError('删除文档失败，请稍后再试。'); }
+    finally { finish(); }
   }
 
   async function handleChat(event: FormEvent) {
@@ -1866,7 +1972,8 @@ export default function Workspace() {
   async function selectAnkiDeck(deck: RemoteAnkiDeck) {
     if (ankiDeckMutation.current || !ankiSyncHealthy.current) return;
     if (deck.id === ankiDeckId) {
-      ankiWorkspaceRef.current?.startStudy();
+      if (ankiWorkspaceRef.current) ankiWorkspaceRef.current.startStudy();
+      else pendingStudyDeckRef.current = deck.id;
       return;
     }
     const generation = identityGeneration.current;
@@ -2219,7 +2326,7 @@ export default function Workspace() {
       {sideView === 'notes' && notesPane === 'outline' ? <div className="notes-outline-pane">{outlineTree()}</div> : <>
       <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'sessions' ? '会话' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
-          {sideView === 'notes' ? <><button type="button" onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
+          {sideView === 'notes' ? <><button type="button" disabled={Boolean(operations.create)} onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
           {sideView === 'sessions' ? <button type="button" onClick={() => void startNewChat()} aria-label="新建对话" title="新对话"><Plus size={15} /></button> : null}
           {sideView !== 'sessions' ? <div className="sidebar-sort-anchor" ref={sortMenuRef}>
             <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[sideView]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
@@ -2245,7 +2352,7 @@ export default function Workspace() {
               <button type="button" className={`notes-flashcards-title${view === 'anki' ? ' is-active' : ''}`} aria-current={view === 'anki' ? 'page' : undefined} onClick={() => switchView('anki')}>记忆闪卡</button>
               <div className="tree-heading-actions">
                 <button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => { if (view !== 'anki') switchView('anki'); void createAnkiDeck(); }} aria-label="新建牌组" title="新建牌组"><FolderPlus size={15} /></button>
-                <button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => { if (view !== 'anki') switchView('anki'); void addAnkiCard().then(card => { if (card) ankiWorkspaceRef.current?.openCard(card.id); }); }} aria-label="新建卡片"><Plus size={15} /></button>
+                <button type="button" disabled={!ankiRemoteReady || ankiDeckBusy} onClick={() => { if (view !== 'anki') switchView('anki'); void addAnkiCard().then(card => { if (card) setAnkiOpenCardId(card.id); }); }} aria-label="新建卡片"><Plus size={15} /></button>
               </div>
             </div>
             <div className="anki-sidebar-list">
@@ -2279,7 +2386,7 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <motion.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
-      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <div className="note-topbar-controls"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={16} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={16} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={15} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={15} /></button></div></div> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button><Button variant="ghost" size="icon" onClick={() => setOutlineOpen(!(notesPane === 'outline' && sidebarOpen))} aria-label="切换大纲" title="大纲"><PanelLeft size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
+      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <div className="note-topbar-controls"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={16} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={16} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={15} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={15} /></button></div></div> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
       {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
         <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
           <div className="mobile-tab-sheet-grip" aria-hidden="true" />
@@ -2292,43 +2399,46 @@ export default function Workspace() {
           <button type="button" className="mobile-tab-sheet-new" onClick={() => { newBlankTab(); setTabSheetOpen(false); }}><Plus size={17} />新建标签页</button>
         </div>
       </div> : null}
+      {Object.entries(operations).map(([key, label]) => <OperationProgress key={key} label={label} />)}
       {error ? <div className="workspace-error">{error}<button type="button" onClick={() => setError('')}><X size={14} /></button></div> : null}
       {saveConflictId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveConflictId)?.title || '未命名笔记'}」云端已更新，本地内容未保存。请先复制备份，再决定是否加载云端版本。</span>{selectedId !== saveConflictId ? <button type="button" onClick={() => void openEntry(saveConflictId)}>返回冲突笔记</button> : null}<button type="button" onClick={() => void copyConflictDraft()}>复制我的内容</button><button type="button" onClick={() => void discardConflictDraft()}>加载云端版本</button></div> : null}
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
+      <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
       {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady
-        ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={ankiWorkspaceRef} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
+        ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={attachAnkiWorkspace} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
         : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><SquareStack size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
-        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => { void patchEntry(selected.id, { title: name, expected_updated_at: selected.updated_at }).then(entry => { setEntries(items => items.map(item => item.id === entry.id ? entry : item)); setSelected(entry); setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab)); }).catch(() => setError('重命名失败，请重新打开文件后重试。')); }} /> : <article className={`note-editor${editorMode === 'preview' && selected.kind === 'note' ? ' is-reading' : ''}`} onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} busy={Boolean(operations.create)} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => void renameFile(selected, name)} /> : <article className={`note-editor${editorMode === 'preview' && selected.kind === 'note' ? ' is-reading' : ''}`} onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
         {isMobile ? <div className="note-toolbar"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div></div> : null}
         <input ref={titleRef} className="note-title" aria-label="标题" value={title} onChange={event => { setTitle(event.target.value); queueSave(event.target.value, body); }} placeholder={selected.kind === 'rich_text' ? '未命名文档' : '未命名笔记'} />
         {selected.kind === 'rich_text'
           ? <Suspense fallback={<div className="rich-text-loading" role="status">正在打开文档…</div>}><RichTextEditor key={selected.id} value={body} readOnly={editorMode === 'preview'} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} /></Suspense>
           : editorMode === 'preview' ? <PagedReader key={selected.id} className="note-reader" storageKey={`tjuclaw.reader.v1.${selected.id}`} chapters={[{ id: selected.id, title: title || '未命名笔记', html: renderMarkdown(body, true) }]} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
       </article>}
+      </Suspense>
       </div>
       {!isMobile && view !== 'sessions' && view !== 'notes' && view !== 'anki' ? <button type="button" className="notion-ai-fab" aria-label="问 AI" title="问 AI" onClick={() => switchView('sessions')}><BrandIcon size={24} /></button> : null}
       <nav className="mobile-command-bar" aria-label="快捷操作">
         <button type="button" className="mobile-bar-round" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={20} /></button>
         <button type="button" className="mobile-bar-ask" onClick={() => { setSidebarOpen(false); switchView('sessions'); }} aria-label="打开 Agent"><span className="mobile-bar-ask-mark"><BrandIcon size={20} /></span><span>问 AI</span></button>
-        <button type="button" className="mobile-bar-round" onClick={() => void createNote()} aria-label="新建笔记"><SquarePen size={20} /></button>
+        <button type="button" className="mobile-bar-round" disabled={Boolean(operations.create)} onClick={() => void createNote()} aria-label="新建笔记"><SquarePen size={20} /></button>
       </nav>
       <footer className="workspace-statusbar"><span>{library?.name ?? '我的知识库'}</span><span className="statusbar-details">{<>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? ` · ${editedLabel(selected.updated_at)}` : ''}{gitStatusLabel(gitStatus) ? ` · ${gitStatusLabel(gitStatus)}` : ''}</>}</span></footer>
-      {selected?.kind === 'note' && gitStatus?.enabled && historyOpen ? <NoteHistory key={selected.id} entryId={selected.id} title={title} open={historyOpen} onOpenChange={setHistoryOpen} current={body} renderMarkdown={renderMarkdown}
-        onRestore={content => { setBody(content); queueSave(title, content); setRestoreNonce(value => value + 1); }} /> : null}
+      {selected?.kind === 'note' && gitStatus?.enabled && historyOpen ? <Suspense fallback={<OperationProgress label="正在加载版本历史" />}><NoteHistory key={selected.id} entryId={selected.id} title={title} open={historyOpen} onOpenChange={setHistoryOpen} current={body} renderMarkdown={renderMarkdown}
+        onRestore={content => { setBody(content); queueSave(title, content); setRestoreNonce(value => value + 1); }} /></Suspense> : null}
     </main>
     {contextMenu ? <><button className="mobile-context-backdrop" type="button" aria-label="关闭操作菜单" onClick={() => setContextMenu(null)} /><WorkspaceContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onAction={handleContextAction} /></> : null}
-    <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
+    <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载设置" /></div>}>{settingsOpen ? <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
       setSettingsOpen(false);
       if (id === 'graph') { setGraphOpen(true); return; }
       switchView(id === 'flashcards' ? 'anki' : 'notes');
-    }} />
-    <KnowledgeGraph key={session.id} open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} />
+    }} /> : null}</Suspense>
+    <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载知识图谱" /></div>}>{graphOpen ? <KnowledgeGraph key={session.id} open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} /> : null}</Suspense>
     <Dialog open={moveEntryId !== null} onOpenChange={open => { if (!open) setMoveEntryId(null); }}><DialogContent className="workspace-move-dialog"><DialogTitle>移动到</DialogTitle><DialogDescription>选择文档所在的文件夹</DialogDescription><div className="workspace-folder-picker"><button type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, null)}><Folder size={17} /> 知识库根目录 <MoveRight size={15} /></button>{folders.map(folder => <button key={folder.id} type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, folder.id)} style={{ paddingLeft: 16 + folders.filter(parent => parent.id === folder.parentId).length * 16 }}><Folder size={17} /> {folder.name} <MoveRight size={15} /></button>)}</div></DialogContent></Dialog>
-    <SearchPalette open={commandOpen} onOpenChange={setCommandOpen} libraryId={library?.id} sources={{
+    <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载快速切换" /></div>}>{commandOpen ? <SearchPalette open={commandOpen} onOpenChange={setCommandOpen} libraryId={library?.id} sources={{
       notes: entries.filter(item => item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file').map(item => ({ id: item.id, title: item.title, updatedAt: item.updated_at })),
       conversations: listedConversations.map(item => ({ id: item.id, title: item.title ?? '新对话' })),
       decks: ankiDecks.map(deck => ({ id: deck.id, name: deck.name })),
@@ -2341,6 +2451,6 @@ export default function Workspace() {
       newChat: () => void startNewChat(),
       openGraph: () => setGraphOpen(true),
       openSettings: () => { setSettingsSection('appearance'); setSettingsOpen(true); },
-    }} />
+    }} /> : null}</Suspense>
   </div>;
 }

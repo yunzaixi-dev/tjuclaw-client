@@ -17,6 +17,9 @@
 .workspace-opening.is-continued .bp-layer { animation: none !important; }
 .workspace-opening-now { display: flex; justify-content: space-between; width: 100%; margin: -4px 0 0; color: var(--muted-foreground); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .workspace-opening-now span { color: var(--foreground); font-weight: 600; }
+.workspace-opening-detail { width: 100%; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.workspace-opening-detail p { margin: 0 0 4px; }
+.workspace-opening-detail small { font-size: 11px; }
 .workspace-opening-bar span.is-done { width: 100%; animation: opening-bar-step 260ms var(--auth-ease) both; }
 
 .workspace-opening-card {

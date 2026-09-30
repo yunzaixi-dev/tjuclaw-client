@@ -128,17 +128,6 @@
 .agent-empty .agent-notice { width: 100%; }
 .agent-capabilities { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; }
 .agent-capabilities li { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 6px; background: var(--selected); color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
-.agent-suggested { width: 100%; margin-top: 28px; text-align: left; }
-.agent-suggested h3 { margin: 0 0 4px 8px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
-.agent-starters { display: grid; gap: 1px; }
-.agent-starters button {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 8px;
-  border: 0; border-radius: 6px; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; text-align: left;
-  transition: background-color 120ms;
-}
-.agent-starters button:hover { background: var(--hover-wash); }
-.agent-starters button svg { flex: none; color: var(--muted-foreground); }
-
 @keyframes agent-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes agent-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
 @keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }

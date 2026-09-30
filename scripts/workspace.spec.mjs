@@ -2103,9 +2103,9 @@ test('desktop panes share scrollbars, scroll independently and resize from a qui
   // The outline lives in the sidebar (文件 | 大纲); there is no right panel.
   await expect(page.locator('.obsidian-rail')).toHaveCount(0);
   await expect(page.getByRole('separator', { name: '调整右侧面板宽度' })).toHaveCount(0);
-  await page.getByRole('button', { name: '切换大纲' }).click();
+  await page.getByRole('tab', { name: '大纲', exact: true }).click();
   await expect(page.getByRole('tab', { name: '大纲' })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('button', { name: '切换大纲' }).click();
+  await page.getByRole('tab', { name: '文件', exact: true }).click();
   await expect(page.getByRole('tab', { name: '文件' })).toHaveAttribute('aria-selected', 'true');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(left).toBeHidden();
@@ -2305,7 +2305,7 @@ test('live Markdown preview reveals only the construct being edited and keeps so
   await expect(editor.locator('.cm-md-syntax').first()).toBeVisible();
   await editor.locator('.cm-md-heading-line').click();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(1);
-  await page.getByRole('button', { name: '切换大纲' }).focus();
+  await page.getByRole('button', { name: '快速切换', exact: true }).focus();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(0);
 
   await editor.locator('.cm-md-checkbox').check();
@@ -2426,7 +2426,7 @@ test('typing a Markdown heading keeps the marker legible without underlining the
     heading: getComputedStyle(line).fontSize,
   }));
   expect(markerSize.marker).toBe(markerSize.heading);
-  await page.getByRole('button', { name: '切换大纲' }).focus();
+  await page.getByRole('button', { name: '快速切换', exact: true }).focus();
   await expect(editor.locator('.cm-md-syntax')).toHaveCount(0);
   await expect(editor.locator('.cm-md-heading-line')).not.toHaveCSS('text-decoration-line', 'underline');
   await editor.locator('.cm-md-heading-line').click();
@@ -2716,7 +2716,7 @@ test('the full Markdown fixture stays editable within its pane', async ({ page }
   await expect(page.locator('.codemirror-editor .cm-line').filter({ hasText: '最后再留一个链接' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
   await page.getByRole('button', { name: '阅读模式' }).last().click();
-  expect(await page.locator('.markdown-preview table').count()).toBeGreaterThan(0);
+  await expect.poll(() => page.locator('.markdown-preview table').count()).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
 
@@ -2859,7 +2859,7 @@ test('a reply shows its thinking and each tool call with its own view, and sendi
   await expect(steps.locator('pre').first()).toContainText('"id": "n1"');
 });
 
-test('Agent without a sandbox offers campus starters and shows which tools a reply used', async ({ page }) => {
+test('Agent without a sandbox has no suggestions and shows which tools a reply used', async ({ page }) => {
   const state = defaultState();
   state.model = { ...state.model, agent: { sandbox: false, tools: ['campus_semester', 'campus_timetable', 'search_course_materials'] } };
   await mockWorkspace(page, state);
@@ -2878,7 +2878,9 @@ test('Agent without a sandbox offers campus starters and shows which tools a rep
   const log = page.getByRole('log', { name: '会话记录' });
   await expect(log.getByText('校园服务', { exact: true })).toBeVisible();
   await expect(log.getByText('课程资料', { exact: true })).toBeVisible();
-  await log.getByRole('button', { name: '看看我明天下午什么时候有空' }).click();
+  await expect(log.locator('.agent-suggested, .agent-starters')).toHaveCount(0);
+  await expect(log.getByRole('heading', { name: '建议', exact: true })).toHaveCount(0);
+  await page.getByLabel('发送给 Agent 的消息').fill('看看我明天下午什么时候有空');
   await expect(page.getByLabel('发送给 Agent 的消息')).toHaveValue('看看我明天下午什么时候有空');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(log.getByText('明天 14:00 以后没有课。')).toBeVisible();
@@ -3333,3 +3335,151 @@ test('EPUB books open in the paged reader with their chapters', async ({ page })
   await page.keyboard.press('ArrowRight');
   await expect(reader).toContainText('全书完。');
 });
+
+test('new note home opens a confirmed empty note without fetching its omitted body', async ({ page }) => {
+  const state = defaultState();
+  state.entries = [guideA];
+  await mockWorkspace(page, state);
+  await page.route(`**/api/libraries/${libA.id}/entries`, async route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    state.entries.push(createdNote);
+    state.entryById[createdNote.id] = { ...createdNote };
+    return json(route, 201, { entry: createdNote });
+  });
+  await page.route(`**/api/entries/${createdNote.id}`, route => json(route, 503, { error: { id: 'unavailable' } }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '空白笔记', exact: true }).click();
+  await expect(page.locator('.note-editor')).toBeVisible();
+  await expect(page.locator('.note-title')).toHaveValue('未命名笔记');
+});
+
+test('slow note creation shows feedback, prevents duplicates and then opens the editor', async ({ page }) => {
+  const state = defaultState();
+  state.entries = [guideA];
+  let release;
+  state.holdCreate = new Promise(resolve => { release = resolve; });
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '空白笔记', exact: true }).click();
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toContainText('正在创建笔记');
+  await expect(page.getByRole('button', { name: '空白笔记', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '切换大纲', exact: true })).toHaveCount(0);
+  release();
+  await expect(page.locator('.note-editor')).toBeVisible();
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+});
+
+test('multiline display math stays one editable formula across blank lines and adjacent prose', async ({ page }) => {
+  const state = defaultState();
+  const body = '# 公式\n\n$$\n\\begin{aligned}\nx &= 1 \\\\\n\ny &= 2\n\\end{aligned}\n$$\n公式后的正文\n\n> $$\n> \\begin{cases}\n> a & x > 0 \\\\\n> b & x \\le 0\n> \\end{cases}\n> $$\n\n```tex\n$$\nz=3\n$$\n```';
+  state.entryById[noteA.id] = { ...noteA, body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const editor = page.locator('.codemirror-editor');
+  await expect(editor.locator('.cm-md-math-block math')).toHaveCount(2);
+  await expect(editor.locator('.katex-error')).toHaveCount(0);
+  await expect(editor).toContainText('公式后的正文');
+  await editor.locator('.cm-md-math-block').first().click();
+  await expect(editor.locator('.cm-content')).toContainText('\\begin{aligned}');
+  await page.getByRole('button', { name: '快速切换', exact: true }).focus();
+  await expect(editor.locator('.cm-md-math-block math')).toHaveCount(2);
+  expect(state.entryById[noteA.id].body).toBe(body);
+  await page.getByRole('button', { name: '阅读模式', exact: true }).click();
+  await expect(page.locator('.note-reader .math-block math')).toHaveCount(2);
+  await page.screenshot({ path: '../test-results/workspace/multiline-math.png' });
+});
+
+test('records initial workspace JavaScript and defers optional feature downloads', async ({ page }, testInfo) => {
+  const scripts = [];
+  page.on('response', response => {
+    if (new URL(response.url()).pathname.endsWith('.js')) scripts.push(response.body().then(body => ({ path: new URL(response.url()).pathname, bytes: body.length, captcha: body.includes(Buffer.from('CAP_CUSTOM_WASM_URL')) })));
+  });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await expect(page.locator('.codemirror-editor')).toBeVisible();
+  const loaded = await Promise.all(scripts);
+  const total = loaded.reduce((sum, script) => sum + script.bytes, 0);
+  console.log(`Initial workspace JavaScript: ${total} bytes across ${loaded.length} modules`);
+  await testInfo.attach('initial-javascript', { body: JSON.stringify({ total, loaded }, null, 2), contentType: 'application/json' });
+  expect(total).toBeLessThan(1_350_000);
+  expect(loaded.some(script => script.captcha)).toBe(false);
+  expect(loaded.some(script => /campus-tools-|workspace-settings-|anki-workspace-/.test(script.path))).toBe(false);
+});
+
+test('failed note creation clears pending feedback and permits retry', async ({ page }) => {
+  const state = defaultState();
+  state.entries = [guideA];
+  await mockWorkspace(page, state);
+  let fail = true;
+  await page.route(`**/api/libraries/${libA.id}/entries`, route => {
+    if (route.request().method() !== 'POST' || !fail) return route.fallback();
+    fail = false;
+    return json(route, 503, { error: { id: 'unavailable' } });
+  });
+  await page.goto('/workspace');
+  const create = page.getByRole('button', { name: '空白笔记', exact: true });
+  await create.click();
+  await expect(page.getByText('暂时无法创建笔记。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(page.locator('.note-editor')).toBeVisible();
+});
+
+test('a slow note fetch never overrides a later selection', async ({ page }) => {
+  const state = defaultState();
+  state.entries.push(noteC);
+  state.entryById[noteC.id] = noteC;
+  await mockWorkspace(page, state);
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/entries/${noteC.id}`, async route => {
+    await hold;
+    return json(route, 200, { entry: noteC });
+  });
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  await page.getByRole('button', { name: noteC.title, exact: true }).click();
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toContainText(noteC.title);
+  await page.getByRole('button', { name: noteA.title, exact: true }).click();
+  release();
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+});
+
+test('startup explains the current stage and honest elapsed waiting time', async ({ page }) => {
+  await page.clock.install();
+  await mockWorkspace(page, defaultState());
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/decks', async route => { await hold; return route.fallback(); });
+  await page.goto('/workspace');
+  await expect(page.locator('.workspace-opening-now')).toContainText('同步记忆闪卡');
+  await expect(page.locator('.workspace-opening-detail')).toContainText('正在读取闪卡分区与学习记录');
+  await page.clock.fastForward(9000);
+  await expect(page.locator('.workspace-opening-detail')).toContainText('服务器响应较慢');
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '阶段 5/6：同步记忆闪卡');
+  release();
+  await expect(page.locator('.codemirror-editor')).toBeVisible();
+});
+
+for (const action of ['create', 'study']) {
+  test(`flashcard sidebar ${action} waits for its lazy module without losing the action`, async ({ page }) => {
+    const state = defaultState();
+    const deck = { id: 'abababababababababababababababac', name: '默认牌组', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' };
+    state.ankiByOwner[syntheticSessionA.id] = { decks: [deck], cards: [{ id: 'abababababababababababababababad', deck_id: deck.id, front: '等待加载的卡片', back: '答案', tags: [], due: '2026-01-01T00:00:00Z', interval: 0, ease: 250, reps: 0, lapses: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }], reviews: [] };
+    await mockWorkspace(page, state);
+    let release;
+    const hold = new Promise(resolve => { release = resolve; });
+    await page.route(/\/assets\/anki-workspace-.*\.js$/, async route => { await hold; return route.continue(); });
+    await page.goto('/workspace');
+    await expect(page.locator('.note-title')).toBeVisible();
+    await page.getByRole('button', { name: '记忆闪卡', exact: true }).click();
+    if (action === 'create') await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+    else await page.locator('.anki-sidebar-deck').click();
+    await expect(page.getByRole('status', { name: '笔记操作进度' })).toContainText('正在加载分区界面');
+    release();
+    if (action === 'create') await expect(page.getByRole('textbox', { name: '正面', exact: true })).toBeVisible();
+    else await expect(page.locator('.anki-review-card')).toContainText('等待加载的卡片');
+  });
+}

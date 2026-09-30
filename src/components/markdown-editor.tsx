@@ -13,6 +13,7 @@ import { actions, applyAction, toolbarActions } from './markdown-actions';
 import { FootnoteWidget, HtmlBlockWidget, htmlBlockRenders, ImageWidget, INLINE_HTML, INLINE_MATH, MathWidget, mathLoaded, mathReady, MermaidWidget, SummaryWidget } from './markdown-extras';
 import { classHighlighter } from '@lezer/highlight';
 import { codeLanguages } from '../lib/code-highlight';
+import { findDisplayMath } from './display-math';
 
 // Phones and tablets: CodeMirror's drawn cursor and selection hide the native
 // caret, selection handles and magnifier, so touch devices use the browser's
@@ -165,6 +166,8 @@ const QUOTE_PREFIX = /^(?:[ \t]*>)+[ \t]?/;
 function livePreviewDecorations(view: EditorView): PreviewRanges {
   const doc = view.state.doc;
   const text = doc.toString();
+  const mathBlocks = view.state.field(displayMathBlocks);
+  const inMath = (from: number, to = from) => mathBlocks.some(block => from >= block.from && to <= block.to);
   const decorations: ReturnType<Decoration['range']>[] = [];
   const atomic: ReturnType<Decoration['range']>[] = [];
   const selected = (from: number, to: number) =>
@@ -203,6 +206,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
   }
   syntaxTree(view.state).iterate({
     enter(node) {
+      if (inMath(node.from, node.to)) return false;
       const { from, to, name } = node;
       const parent = node.node.parent;
       const activeLine = selected(doc.lineAt(from).from, doc.lineAt(from).to);
@@ -387,15 +391,14 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
           decorations.push(range);
           atomic.push(range);
         };
-        // $$ blocks are drawn by the block field.
-        if (!/^\s*\$\$/.test(paragraph.replace(QUOTE_PREFIX, ''))) {
-          for (const match of paragraph.matchAll(INLINE_MATH)) {
-            const start = from + (match.index ?? 0);
-            const end = start + match[0].length;
-            if (inCode(start)) continue;
-            if (selected(start, end)) add(start, end, mark('cm-md-math-source'));
-            else replaceWith(start, end, new MathWidget(match[1], false, mathReady()));
-          }
+        // $$ blocks are drawn by the block field; inline formulas outside them
+        // still render even when Markdown groups the entire text as a paragraph.
+        for (const match of paragraph.matchAll(INLINE_MATH)) {
+          const start = from + (match.index ?? 0);
+          const end = start + match[0].length;
+          if (inCode(start) || inMath(start, end)) continue;
+          if (selected(start, end)) add(start, end, mark('cm-md-math-source'));
+          else replaceWith(start, end, new MathWidget(match[1], false, mathReady()));
         }
         for (const match of paragraph.matchAll(INLINE_HTML)) {
           const start = from + (match.index ?? 0);
@@ -530,13 +533,33 @@ const editorFocus = StateField.define<boolean>({
   update: (value, tr) => tr.effects.reduce((focused, effect) => effect.is(setEditorFocus) ? effect.value : focused, value),
 });
 
+function scanDisplayMath(state: EditorState) {
+  const tree = syntaxTree(state);
+  return findDisplayMath(state.doc.toString(), position => {
+    for (let node = tree.resolveInner(position, 1); node; node = node.parent!) {
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock' || node.name === 'HTMLBlock') return true;
+    }
+    return false;
+  });
+}
+
+const displayMathBlocks = StateField.define<ReturnType<typeof findDisplayMath>>({
+  create: scanDisplayMath,
+  update: (value, tr) => tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? scanDisplayMath(tr.state) : value,
+});
+
 /** Block previews (tables, $$ math, setext underlines) need a state field. */
 function blockDecorations(state: EditorState): DecorationSet {
   const focused = state.field(editorFocus, false) ?? false;
   const ranges: Range<Decoration>[] = [];
   const editing = (from: number, to: number) => focused && state.selection.ranges.some(range => range.from <= to && range.to >= from);
+  const mathBlocks = state.field(displayMathBlocks);
+  for (const block of mathBlocks) {
+    if (!editing(block.from, block.to)) ranges.push(Decoration.replace({ widget: new MathWidget(block.tex, true, mathReady(), block.contentFrom), block: true }).range(block.from, block.to));
+  }
   syntaxTree(state).iterate({
     enter(node) {
+      if (mathBlocks.some(block => node.from >= block.from && node.to <= block.to)) return false;
       if (node.name === 'Table') {
         const from = state.doc.lineAt(node.from).from;
         const to = state.doc.lineAt(node.to).to;
@@ -564,14 +587,6 @@ function blockDecorations(state: EditorState): DecorationSet {
         const first = state.doc.lineAt(node.from);
         const last = state.doc.lineAt(node.to);
         if (last.number > first.number && !editing(first.from, last.to)) ranges.push(Decoration.replace({}).range(first.to, last.to));
-        return false;
-      }
-      if (node.name === 'Paragraph') {
-        const from = state.doc.lineAt(node.from).from;
-        const to = state.doc.lineAt(node.to).to;
-        const source = state.doc.sliceString(from, to).split('\n').map(line => line.replace(QUOTE_PREFIX, '')).join('\n').trim();
-        const math = /^\$\$([\s\S]+?)\$\$$/.exec(source);
-        if (math && !editing(from, to)) ranges.push(Decoration.replace({ widget: new MathWidget(math[1].trim(), true, mathReady()), block: true }).range(from, to));
         return false;
       }
     },
@@ -643,6 +658,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           livePreview,
           previewAtomicRanges,
           editorFocus,
+          displayMathBlocks,
           tablePreview,
           EditorView.focusChangeEffect.of((_state, focusing) => setEditorFocus.of(focusing)),
           EditorView.lineWrapping,

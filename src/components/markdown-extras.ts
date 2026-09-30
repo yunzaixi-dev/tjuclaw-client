@@ -26,16 +26,35 @@ export function mathML(tex: string, display: boolean): string | null {
 export const mathLoaded = StateEffect.define<null>();
 
 export class MathWidget extends WidgetType {
-  constructor(readonly tex: string, readonly display: boolean, readonly ready: boolean) { super(); }
-  eq(other: MathWidget) { return this.tex === other.tex && this.display === other.display && this.ready === other.ready; }
+  constructor(readonly tex: string, readonly display: boolean, readonly ready: boolean, readonly contentFrom?: number) { super(); }
+  eq(other: MathWidget) { return this.tex === other.tex && this.display === other.display && this.ready === other.ready && this.contentFrom === other.contentFrom; }
   toDOM(view: EditorView) {
-    const element = document.createElement(this.display ? 'div' : 'span');
+    const element: HTMLElement = document.createElement(this.display ? 'div' : 'span');
     element.className = this.display ? 'cm-md-math cm-md-math-block' : 'cm-md-math';
     const html = mathML(this.tex, this.display);
     if (html) element.innerHTML = html;
     else {
       element.textContent = this.tex;
       void loadMath().then(() => view.dispatch({ effects: mathLoaded.of(null) }));
+    }
+    if (this.contentFrom !== undefined) {
+      element.setAttribute('aria-label', '数学公式，点击编辑');
+      element.setAttribute('role', 'button');
+      element.tabIndex = 0;
+      const edit = () => {
+        view.dispatch({ selection: { anchor: Math.min(this.contentFrom!, view.state.doc.length) } });
+        view.focus();
+      };
+      element.addEventListener('mousedown', event => {
+        event.preventDefault();
+        edit();
+      });
+      element.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        edit();
+      });
     }
     return element;
   }

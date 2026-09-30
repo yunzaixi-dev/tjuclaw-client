@@ -1,22 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, GraduationCap, KeyRound, Map, MessageSquareText, Pause, Play, Plus, QrCode, RotateCcw, School, Timer, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, KeyRound, Map, School, MessageSquareText, Pause, Play, Plus, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
 import { connectCampus, connectOffice, disconnectCampus, disconnectOffice, fetchAcademicClasses, fetchAcademicExams, fetchAcademicGPA, fetchBuildings, fetchCampuses, fetchEntryCode, fetchForumPosts, fetchOfficeCaptcha, fetchRoomSchedule, fetchRooms, readOfficeSession, readSemester, type CampusClasses, type CampusCredentials, type CampusSemester, type CampusSession, type ForumPosts, type OfficeCaptcha, type StudyroomItem } from '../lib/campus-api';
 import { hasCampusCredentials } from '../lib/campus-vault';
 import { hasOfficeAccount, hasWpyAccount, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
+import { campusToolList, type CampusToolId } from './campus-tool-list';
 import './campus-tools.css';
 
-export const campusToolList = [
-  { id: 'schedule', name: '课程表', Icon: CalendarDays },
-  { id: 'entry', name: '入校码', Icon: QrCode },
-  { id: 'map', name: '校园地图', Icon: Map },
-  { id: 'calendar', name: '学校校历', Icon: BookOpen },
-  { id: 'gpa', name: 'GPA', Icon: GraduationCap },
-  { id: 'rooms', name: '空教室', Icon: School },
-  { id: 'forum', name: '论坛', Icon: MessageSquareText },
-  { id: 'focus', name: '番茄时钟', Icon: Timer },
-] as const;
-export type CampusToolId = typeof campusToolList[number]['id'];
+export { campusToolList, type CampusToolId } from './campus-tool-list';
 
 type Course = { id: string; name: string; place: string; day: number; start: number; end: number; color: number };
 type Grade = { id: string; name: string; credits: number; points: number };
@@ -553,7 +544,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       {liveExams.length ? <section className="campus-exam-list"><h2>近期考试</h2>{liveExams.map((exam, index) => <div key={String(exam.id ?? index)}><strong>{firstText(exam, ['name', 'course_name', 'courseName', 'course']) || '未命名考试'}</strong><span>{[firstText(exam, ['date', 'exam_date', 'examDate']), firstText(exam, ['time', 'exam_time', 'examTime']), firstText(exam, ['location', 'place', 'room'])].filter(Boolean).join(' · ') || '考试安排待补充'}</span></div>)}</section> : null}
     </> : null}
     {activeId === 'entry' ? <div className="campus-entry-message"><QrCode size={33} /><div><h2>入校码需要实时认证</h2><p>微北洋实时入校码由校园 CAS 签发，有效期约 3 分钟，不会写入本地存储。</p>{entryCode ? <div className="campus-entry-code">{/^data:image|^https?:\/\//.test(entryCode.content) ? <img src={entryCode.content} alt="实时入校码" /> : <code>{entryCode.content}</code>}<small>有效至 {new Date(entryCode.expires_at).toLocaleTimeString('zh-CN')}</small></div> : null}<button type="button" className="campus-action-button" onClick={() => campusSession ? void refreshEntryCode() : onOpenAccounts?.()}><QrCode size={15} /> {entryCode ? '刷新入校码' : campusSession ? '获取入校码' : '绑定账号后获取'}</button></div></div> : null}
-    {activeId === 'map' ? <><div className="campus-map-index"><div><img src="/campus/map/wjl-thumb.jpeg" alt="卫津路校区地图" /><Map size={27} /><h2>卫津路校区</h2><p>南开区卫津路 92 号</p><a className="campus-external" href="/campus/map/wjl.png" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div><div><img src="/campus/map/byy-thumb.jpeg" alt="北洋园校区地图" /><School size={27} /><h2>北洋园校区</h2><p>津南区雅观路 135 号</p><a className="campus-external" href="/campus/map/byy.png" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div></div><p className="campus-footnote">地图资源随微北洋客户端分发；校内道路和楼宇如有调整，以学校公告为准。</p></> : null}
+    {activeId === 'map' ? <><div className="campus-map-index"><div><img src="/campus/map/wjl-thumb.jpeg" alt="卫津路校区地图" /><Map size={27} /><h2>卫津路校区</h2><p>南开区卫津路 92 号</p><a className="campus-external" href="/campus/map/wjl.webp" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div><div><img src="/campus/map/byy-thumb.jpeg" alt="北洋园校区地图" /><School size={27} /><h2>北洋园校区</h2><p>津南区雅观路 135 号</p><a className="campus-external" href="/campus/map/byy.webp" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div></div><p className="campus-footnote">地图资源随微北洋客户端分发；校内道路和楼宇如有调整，以学校公告为准。</p></> : null}
     {activeId === 'calendar' ? <div className="campus-calendar-sheet"><CalendarDays size={27} /><h2>学校校历</h2><p>显示微北洋随包发布的校历资料。教学安排调整时，请以天津大学教务处正式通知为准。</p><div className="campus-calendar-images"><a href="/campus/calendar/first.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/first-thumb.jpg" alt="学校校历上半页" /></a><a href="/campus/calendar/second.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/second-thumb.jpg" alt="学校校历下半页" /></a></div><External href="https://oaa.tju.edu.cn/">打开天津大学教务处</External></div> : null}
     {activeId === 'gpa' ? <>
       <div className="campus-gpa-result"><span>{schoolGrades.length ? '办公网教务 GPA' : '本地学分加权平均绩点'}</span><strong>{totalCredits ? average.toFixed(3) : '—'}</strong><small>{totalCredits ? `${totalCredits.toFixed(1)} 学分 · ${visibleGrades.length} 门课程` : '添加课程或绑定账号后开始计算'}</small></div>
