@@ -3259,6 +3259,84 @@ test('a running turn lists each tool call as it happens, then settles', async ({
   await expect(live).toHaveCount(0);
 });
 
+test('a running turn writes the model\'s thinking and reply as they arrive, and typing warms the sandbox once', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let prepared = 0;
+  await page.route('**/api/sessions/*/prepare', route => { prepared += 1; return route.fulfill({ status: 202 }); });
+  // Each answer is what a client with that cursor has not seen yet; offsets are bytes.
+  const stream = (version, part) => ({ version, steps: [], stream: { call: '5', thinking: '', thinking_from: 0, thinking_next: 15, text: '', text_from: 0, text_next: 0, ...part } });
+  const cursors = [];
+  let finish;
+  const finished = new Promise(resolve => { finish = resolve; });
+  await page.route('**/api/sessions/*/live*', async route => {
+    const query = new URL(route.request().url()).searchParams;
+    cursors.push(query.toString());
+    if (!query.has('version')) return json(route, 200, stream(1, { thinking: '先分析', thinking_next: 9 }));
+    if (query.get('version') === '1') return json(route, 200, stream(2, { thinking: '题目', thinking_from: 9 }));
+    if (query.get('version') === '2') return json(route, 200, stream(3, { thinking_from: 15, text: '**基尔霍夫**', text_next: 16 }));
+    if (query.get('version') === '3') return json(route, 200, stream(4, { thinking_from: 15, text: '定律', text_from: 16, text_next: 22 }));
+    // Nothing new: the server holds the request until the turn changes.
+    await finished;
+    return json(route, 200, { version: 0, steps: [], stream: { call: '0', thinking: '', thinking_from: 0, thinking_next: 0, text: '', text_from: 0, text_next: 0 } });
+  });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+  await composer.fill('什么是');
+  await composer.fill('什么是基尔霍夫定律');
+  await expect.poll(() => prepared).toBe(1);
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+
+  const working = page.getByRole('status', { name: /正在处理/ });
+  const reply = working.locator('.agent-live-text');
+  await expect(reply).toHaveText('基尔霍夫定律');
+  await expect(reply.locator('strong')).toHaveText('基尔霍夫');
+  await expect(working.locator('.agent-working-text')).toHaveText('正在回答');
+  // Once the reply starts, the thinking steps aside.
+  await expect(working.getByLabel('思考过程')).toHaveCount(0);
+  expect(cursors.slice(0, 4)).toEqual(['',
+    'version=1&call=5&thinking=9&text=0', 'version=2&call=5&thinking=15&text=0', 'version=3&call=5&thinking=15&text=16']);
+
+  finish();
+  release();
+  await expect(working).toHaveCount(0);
+  await expect(page.locator('.chat-message.assistant').last()).toBeVisible();
+  expect(prepared).toBe(1);
+});
+
+test('a running turn shows the thinking alone until the reply begins', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.route('**/api/sessions/*/prepare', route => route.fulfill({ status: 202 }));
+  let finish;
+  const finished = new Promise(resolve => { finish = resolve; });
+  await page.route('**/api/sessions/*/live*', async route => {
+    const versioned = new URL(route.request().url()).searchParams.has('version');
+    if (versioned) await finished;
+    return json(route, 200, { version: versioned ? 0 : 1, steps: [{ name: 'campus_timetable', status: 'done' }],
+      stream: { call: '9', thinking: versioned ? '' : '先看看课表里今天有什么课', thinking_from: 0, thinking_next: versioned ? 0 : 36, text: '', text_from: 0, text_next: 0 } });
+  });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('今天有什么课');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const working = page.getByRole('status', { name: /正在处理/ });
+  await expect(working.getByLabel('思考过程')).toHaveText('先看看课表里今天有什么课');
+  await expect(working.locator('.agent-working-text')).toHaveText('正在思考');
+  await expect(working.getByRole('list', { name: '正在进行的工具调用' }).getByRole('listitem')).toHaveCount(1);
+  await expect(working.locator('.agent-live-text')).toHaveCount(0);
+  finish();
+  release();
+  await expect(working).toHaveCount(0);
+});
+
 test('replies highlight code, offer a copy button and draw no external images', async ({ page }) => {
   const state = defaultState();
   state.sessionById[sessionA.id] = { ...sessionA, messages: [

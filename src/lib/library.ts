@@ -67,11 +67,47 @@ export interface TurnStep {
 /** A tool call of the turn that is still running. */
 export interface LiveStep { name: string; input?: string; status: 'running' | 'done' | 'failed' }
 
-export async function getLiveSteps(sessionId: string, signal?: AbortSignal): Promise<LiveStep[]> {
-  const data = await authRequest<{ steps: unknown }>(`/api/sessions/${sessionId}/live`, { signal });
-  if (!Array.isArray(data.steps)) return [];
-  return data.steps.filter((step): step is LiveStep => Boolean(step) && typeof step === 'object'
-    && typeof (step as LiveStep).name === 'string' && ['running', 'done', 'failed'].includes((step as LiveStep).status));
+/**
+ * The running turn as the server sees it: its tool calls, and what the model
+ * is thinking and writing in its current call. `thinking` and `text` are the
+ * parts after the offsets sent with the request (`*From`); `*Next` are the
+ * offsets to send next time.
+ */
+export interface LiveTurn {
+  /** Changes whenever the turn changes; 0 while idle, null on a server without live output. */
+  version: number | null;
+  steps: LiveStep[];
+  call: string;
+  thinking: string; thinkingFrom: number; thinkingNext: number;
+  text: string; textFrom: number; textNext: number;
+}
+export type LiveCursor = Pick<LiveTurn, 'call' | 'thinkingNext' | 'textNext'> & { version: number };
+
+/**
+ * Reads the running turn. With a cursor the server answers when the turn has
+ * changed (or after about 15 seconds) and sends only what is new.
+ */
+export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal): Promise<LiveTurn> {
+  const query = cursor ? `?${new URLSearchParams({ version: String(cursor.version), call: cursor.call,
+    thinking: String(cursor.thinkingNext), text: String(cursor.textNext) })}` : '';
+  const data = await authRequest<{ version?: unknown; steps?: unknown; stream?: Record<string, unknown> }>(
+    `/api/sessions/${sessionId}/live${query}`, { signal }, 25000);
+  const steps = Array.isArray(data.steps) ? data.steps.filter((step): step is LiveStep => Boolean(step) && typeof step === 'object'
+    && typeof (step as LiveStep).name === 'string' && ['running', 'done', 'failed'].includes((step as LiveStep).status)) : [];
+  const stream = data.stream && typeof data.stream === 'object' ? data.stream : {};
+  const text = (key: string) => typeof stream[key] === 'string' ? stream[key] as string : '';
+  const count = (key: string) => Number.isSafeInteger(stream[key]) && (stream[key] as number) >= 0 ? stream[key] as number : 0;
+  return {
+    version: Number.isSafeInteger(data.version) ? data.version as number : null, steps,
+    call: text('call'),
+    thinking: text('thinking'), thinkingFrom: count('thinking_from'), thinkingNext: count('thinking_next'),
+    text: text('text'), textFrom: count('text_from'), textNext: count('text_next'),
+  };
+}
+
+/** Warms the session's sandbox ahead of the first message. Best effort. */
+export async function prepareSession(sessionId: string): Promise<void> {
+  await authRequest(`/api/sessions/${sessionId}/prepare`, { method: 'POST' }).catch(() => undefined);
 }
 
 function isStep(value: unknown): value is TurnStep {

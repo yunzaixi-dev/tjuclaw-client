@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowUp, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
-import { AgentSteps, StepStatus, toolView } from './agent-steps';
+import { Working } from './agent-live';
+import { AgentSteps } from './agent-steps';
 import { LifeBackground } from './life-background';
-import { agentEffort, chooseProductModel, getLiveSteps, type LiveStep, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { agentRuntime } from '../lib/local-sandbox';
 import './agent-thread.css';
 
 
@@ -16,45 +18,8 @@ function capabilityLabels(tools: string[]) {
   return labels;
 }
 
-/** The Agent at work, with elapsed seconds so a long task never looks stuck. */
-function Working({ name, sessionId }: { name: string; sessionId?: string }) {
-  // Mounted when sending starts, so the first render marks the start.
-  const [since] = useState(() => Date.now());
-  const [now, setNow] = useState(since);
-  const [steps, setSteps] = useState<LiveStep[]>([]);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  // Each tool call appears as it starts and settles when it finishes.
-  useEffect(() => {
-    if (!sessionId) return;
-    const controller = new AbortController();
-    let timer = 0;
-    const poll = () => {
-      getLiveSteps(sessionId, controller.signal).then(setSteps).catch(() => undefined)
-        .finally(() => { if (!controller.signal.aborted) timer = window.setTimeout(poll, 1200); });
-    };
-    timer = window.setTimeout(poll, 600);
-    return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [sessionId]);
-  const seconds = Math.max(0, Math.floor((now - since) / 1000));
-  const running = steps.some(step => step.status === 'running');
-  // Honest wording: the Agent may think, call tools and write in this time.
-  const phase = running ? '正在调用工具' : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考';
-  return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
-    <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span><span className="agent-working-time">{seconds} 秒</span></div>
-    {steps.length ? <ol className="agent-steps-list agent-live-steps" aria-label="正在进行的工具调用">
-      {steps.map((step, index) => {
-        const view = toolView({ kind: 'tool', name: step.name, input: step.input });
-        const Icon = view.icon;
-        return <li key={index} className={`agent-step is-tool is-live is-${step.status}`}>
-          <div className="agent-step-line"><Icon size={14} aria-hidden="true" /><span className="agent-step-label">{view.label}</span><StepStatus status={step.status} /></div>
-        </li>;
-      })}
-    </ol> : null}
-  </div>;
-}
+/** Conversations whose sandbox this page already asked to warm. */
+const warmed = new Set<string>();
 
 /** TJUClaw in figlet's ANSI Shadow, for the empty conversation. */
 const TITLE_ART = "████████╗  ██╗██╗   ██╗ ██████╗██╗      █████╗ ██╗    ██╗\n╚══██╔══╝  ██║██║   ██║██╔════╝██║     ██╔══██╗██║    ██║\n   ██║     ██║██║   ██║██║     ██║     ███████║██║ █╗ ██║\n   ██║██   ██║██║   ██║██║     ██║     ██╔══██║██║███╗██║\n   ██║╚█████╔╝╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝\n   ╚═╝ ╚════╝  ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ \n                                                         ";
@@ -181,6 +146,22 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     if (area) area.scrollTo({ top: area.scrollHeight, behavior: messages.length ? 'smooth' : 'auto' });
   }, [chat?.id, messages.length, sending]);
 
+  // Keep the growing live output in view, unless the reader scrolled up.
+  const followLive = useCallback(() => {
+    const area = scrollRef.current;
+    if (area && area.scrollHeight - area.scrollTop - area.clientHeight < 200) area.scrollTop = area.scrollHeight;
+  }, []);
+
+  // Starting to write is the signal a message is coming: warm the cloud
+  // sandbox now, once per conversation, so the first reply does not wait for it.
+  const chatId = chat?.id;
+  const writing = Boolean(draft.trim());
+  useEffect(() => {
+    if (!chatId || !writing || warmed.has(chatId) || agentRuntime() !== 'cloud') return;
+    warmed.add(chatId);
+    void prepareSession(chatId);
+  }, [chatId, writing]);
+
   // Grow the composer with its content, up to a comfortable height.
   useEffect(() => {
     const input = inputRef.current;
@@ -251,7 +232,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working name={title} sessionId={chat?.id} /> : null}
+      {sending ? <Working name={title} sessionId={chat?.id} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

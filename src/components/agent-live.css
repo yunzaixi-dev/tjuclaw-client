@@ -1,0 +1,21 @@
+/* The running turn's thinking and reply, written as the model produces them. */
+.agent-live-thinking { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; margin-top: 8px; color: var(--muted-foreground); animation: agent-in 240ms var(--ease-out) both; }
+.agent-live-thinking > svg { margin-top: 4px; }
+.agent-live-thinking > p {
+  max-height: 7.2em; margin: 0; padding: 2px 0 2px 12px; overflow-y: auto; border-left: 2px solid var(--border);
+  font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none;
+  /* Older thoughts fade out at the top as new ones arrive below. */
+  mask-image: linear-gradient(to bottom, transparent, #000 1.6em);
+}
+.agent-live-thinking > p::-webkit-scrollbar { display: none; }
+.agent-live-text { margin-top: 8px; animation: agent-in 240ms var(--ease-out) both; }
+/* A caret after the last written character while the reply is still coming. */
+.agent-live-text > :last-child::after {
+  content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -0.12em;
+  background: currentColor; opacity: .6; animation: agent-caret 1s steps(2, jump-none) infinite;
+}
+@keyframes agent-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .agent-live-thinking, .agent-live-text { animation: none; }
+  .agent-live-text > :last-child::after { animation: none; }
+}
