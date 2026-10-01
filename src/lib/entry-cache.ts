@@ -128,6 +128,8 @@ export function rememberEntry(entry: Entry) {
   if (!identity || !cacheable(entry)) return;
   memory.set(entry.id, entry);
   if (replica) void rememberGitEntry(identity, entry).catch(() => undefined);
+  // The idle hydrate opens the database. Starting it here would download the
+  // SQLite worker before the first note is on screen.
   if (!loaded) { unsaved.add(entry.id); return; }
   void persistent().then(opened => opened?.set(namespace(identity), entry.id, JSON.stringify(entry))).catch(() => undefined);
 }
@@ -190,8 +192,20 @@ export function loadEntry(id: string): Promise<Entry> {
   return request;
 }
 
-/** Starts loading a listed note that is not on this device yet. */
+/**
+ * Starts loading a listed note that is not on this device yet.
+ * Hover and focus must not fetch a body the SQLite or Git cache already has;
+ * a matching revision is opened locally, and an older one is refreshed on open.
+ */
 export function warmEntry(listed: Entry) {
   if (listed.kind !== 'note' || listed.body !== undefined || cachedEntry(listed)) return;
-  void loadEntry(listed.id).catch(() => undefined);
+  void (async () => {
+    const local = await localNote(listed, true, 1500);
+    if (local || cachedEntry(listed) || memory.has(listed.id)) return;
+    if (loaded) {
+      await loaded.catch(() => undefined);
+      if (owner && (cachedEntry(listed) || memory.has(listed.id))) return;
+    }
+    await loadEntry(listed.id);
+  })().catch(() => undefined);
 }
