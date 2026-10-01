@@ -35,6 +35,10 @@ export function createEdgeoneConfig(sandboxOrigin = '') {
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Referrer-Policy', value: 'no-referrer' },
       ],
+    }, {
+      // The browser must always see the newest service worker; a cached copy would pin an old build.
+      source: '/sw.js',
+      headers: [{ key: 'Cache-Control', value: 'no-cache' }],
     }],
   };
 }

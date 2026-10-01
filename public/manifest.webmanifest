@@ -1,0 +1,17 @@
+{
+  "name": "TJUClaw",
+  "short_name": "TJUClaw",
+  "description": "面向高校学习与生活场景的通用智能体平台。",
+  "lang": "zh-CN",
+  "id": "/",
+  "start_url": "/workspace",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#20211f",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

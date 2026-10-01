@@ -14,6 +14,8 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     colorScheme: 'light',
     reducedMotion: 'reduce',
+    // Suites mock the network; the installed-app behaviour has its own spec.
+    serviceWorkers: 'block',
     screenshot: 'only-on-failure',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {},

@@ -18,6 +18,8 @@ test('EdgeOne SPA fallback and sandbox connect-src use exact origins', () => {
   assert.match(headers['Content-Security-Policy'], /connect-src 'self' https:\/\/sandbox\.example\.invalid;/);
   assert.doesNotMatch(headers['Content-Security-Policy'], /connect-src[^;]*(?:\*|'unsafe-inline'|https:;)/);
   assert.equal(headers['X-Content-Type-Options'], 'nosniff');
+  assert.match(headers['Content-Security-Policy'], /worker-src 'self'/);
+  assert.deepEqual(config.headers[1], { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] });
   assert.match(createEdgeoneConfig().headers[0].headers[0].value, /connect-src 'self';/);
   for (const invalid of [
     'http://sandbox.example.invalid', 'https://sandbox.example.invalid/',

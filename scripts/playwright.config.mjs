@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['ui.spec.mjs', 'loading.spec.mjs', 'auth-transition.spec.mjs'],
+  testMatch: ['ui.spec.mjs', 'loading.spec.mjs', 'auth-transition.spec.mjs', 'pwa.spec.mjs'],
   outputDir: '../test-results/ui',
   workers: 1,
   reporter: 'list',
@@ -12,6 +12,8 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     colorScheme: 'light',
     reducedMotion: 'reduce',
+    // Suites mock the network; the installed-app behaviour has its own spec.
+    serviceWorkers: 'block',
     screenshot: 'only-on-failure',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {},

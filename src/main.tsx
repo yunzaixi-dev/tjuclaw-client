@@ -4,12 +4,15 @@ import { LazyMotion } from 'motion/react';
 import { ContestBanner } from './contest-banner';
 import { LoadingFallback } from './components/loading-fallback';
 import { UpdateNotice } from './components/update-notice';
+import { WebUpdateNotice } from './components/web-update-notice';
 import './lib/appearance';
+import { registerServiceWorker } from './lib/pwa';
 import { installScrollActivity } from './lib/scroll-activity';
 import './product.css';
 import './scrollbars.css';
 
 installScrollActivity();
+registerServiceWorker();
 
 // Start the page's code download now, alongside this entry's own work,
 // instead of when React first renders the lazy component.
@@ -30,5 +33,6 @@ createRoot(document.getElementById('root')!).render(
       </Suspense>
     </LazyMotion>
     {import.meta.env.MODE === 'audit' ? null : <UpdateNotice />}
+    {import.meta.env.MODE === 'audit' ? null : <WebUpdateNotice />}
   </StrictMode>,
 );

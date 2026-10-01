@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -40,8 +43,29 @@ function preloadWorkspace(): Plugin {
   };
 }
 
+// Writes dist/sw.js once the build is on disk. The shell it precaches is
+// exactly what index.html asks for up front (entry, workspace graph, styles);
+// everything else under /assets/ is cached when first used.
+function serviceWorker(): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'tjuclaw-service-worker',
+    apply: 'build',
+    configResolved(config) { outDir = config.build.outDir; },
+    closeBundle() {
+      const html = readFileSync(join(outDir, 'index.html'), 'utf8');
+      const shell = [...new Set([...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1]!))];
+      const precache = ['/index.html', ...shell];
+      const assets = readdirSync(join(outDir, 'assets')).map(name => `/assets/${name}`).sort();
+      const version = createHash('sha256').update(html).update(assets.join('\n')).digest('hex').slice(0, 16);
+      const source = readFileSync(fileURLToPath(new URL('./src/service-worker.js', import.meta.url)), 'utf8');
+      writeFileSync(join(outDir, 'sw.js'), `const BUILD = ${JSON.stringify({ version, precache, assets })};\n${source}`);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace()]), ...(mode === 'audit'
+  plugins: [react(), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
     ? [auditServer(fileURLToPath(new URL('../private/audit/', import.meta.url)))] : [])],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   clearScreen: false,
