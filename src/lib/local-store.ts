@@ -4,13 +4,23 @@
 // anything private must be encrypted by the caller first.
 import { invoke, isTauri } from '@tauri-apps/api/core';
 
+/** One Git object as the database stores it. */
+export type GitRow = { oid: string; type: string; data: Uint8Array };
 export type StoreRequest =
   | { id: string; op: 'get' | 'delete'; ns: string; key: string }
   | { id: string; op: 'set'; ns: string; key: string; value: string }
-  | { id: string; op: 'list'; ns: string };
-type RequestBody = StoreRequest extends infer R ? R extends StoreRequest ? Omit<R, 'id'> : never : never;
+  | { id: string; op: 'list'; ns: string }
+  // Git replicas (src/lib/git): objects and refs of one repository per `repo` key.
+  | { id: string; op: 'git-read'; repo: string; oid: string }
+  | { id: string; op: 'git-write'; repo: string; objects: GitRow[] }
+  | { id: string; op: 'git-ref-get'; repo: string; name: string }
+  | { id: string; op: 'git-ref-set'; repo: string; name: string; oid: string }
+  | { id: string; op: 'git-clear'; repo: string };
+export type StoreRequestBody = StoreRequest extends infer R ? R extends StoreRequest ? Omit<R, 'id'> : never : never;
+type RequestBody = StoreRequestBody;
+export type StoreResult = string | null | [string, string][] | { type: string; data: Uint8Array };
 export type StoreResponse =
-  | { id: string; ok: true; result: string | null | [string, string][] }
+  | { id: string; ok: true; result: StoreResult }
   | { id: string; ok: false; error: string };
 
 export type LocalStore = {
@@ -19,6 +29,8 @@ export type LocalStore = {
   set(ns: string, key: string, value: string): Promise<void>;
   delete(ns: string, key: string): Promise<void>;
   list(ns: string): Promise<[string, string][]>;
+  /** The database worker itself, present only for SQLite on OPFS. */
+  readonly worker?: (request: StoreRequestBody) => Promise<StoreResult>;
 };
 
 const MAX_NAME = 256;
@@ -101,6 +113,7 @@ function workerStore(): Promise<LocalStore | null> {
     },
     delete: async (ns, key) => { checkName(ns, key); await result({ op: 'delete', ns, key }); },
     list: async ns => (checkName(ns), await result({ op: 'list', ns }) as [string, string][]),
+    worker: result,
   };
   return new Promise(resolve => {
     let settled = false;

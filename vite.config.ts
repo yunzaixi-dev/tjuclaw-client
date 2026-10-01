@@ -60,6 +60,8 @@ export default defineConfig(({ mode }) => ({
   },
   build: { target: ['es2022', 'chrome105', 'safari15'] },
   // sqlite-wasm locates its .wasm relative to its own module; keep it out of prebundling.
-  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  // pako is first imported by the lazily loaded Git replica; listing it avoids
+  // a dev-server reload when that happens.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'], include: ['pako'] },
   worker: { format: 'es' },
 }));
