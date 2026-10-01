@@ -2232,7 +2232,19 @@
   .notion-recent-card { flex-basis: 136px; }
 }
 @media (max-width: 720px) {
-  .obsidian-app .obsidian-topbar { background: var(--surface); border-bottom: 0; }
+  .obsidian-app .obsidian-topbar {
+    height: calc(48px + env(safe-area-inset-top));
+    gap: 0;
+    padding: env(safe-area-inset-top) 4px 0;
+    overflow: hidden;
+    background: var(--surface);
+    border-bottom: 0;
+    z-index: 6;
+  }
+  .obsidian-app .sidebar-opener, .obsidian-app .mobile-topbar-actions { flex: none; }
+  .obsidian-app .mobile-tab-title { flex: 1 1 auto; min-width: 0; width: auto; margin: 0 2px; }
+  .obsidian-app .mobile-tab-title span { min-width: 0; }
+  .obsidian-app .mobile-topbar-actions { margin-left: auto; }
   .obsidian-app :is(.mobile-topbar-actions button, .sidebar-opener) {
     width: 40px !important; height: 40px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--foreground);
   }

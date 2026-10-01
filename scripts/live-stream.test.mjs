@@ -64,6 +64,7 @@ test('a slash token opens Pi commands and a sentence does not', () => {
   assert.equal(slashQuery('/thinking'), '/thinking');
   assert.equal(slashQuery('/hello world'), null);
   assert.equal(slashQuery('你好'), null);
-  assert.deepEqual(matchingCommands('/co').map(command => command.name), ['/copy', '/compact']);
-  assert.equal(matchingCommands('/compact')[0].available, false);
+  assert.deepEqual(matchingCommands('/co').map(command => command.name), ['/copy']);
+  assert.deepEqual(matchingCommands('/compact'), []);
+  assert.deepEqual(matchingCommands('/').map(command => command.name), ['/new', '/model', '/thinking', '/copy', '/session', '/resume']);
 });

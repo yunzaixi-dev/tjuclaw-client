@@ -22,7 +22,74 @@ let loaded: Promise<void> | null = null;
 let store: Promise<LocalStore | null> | null = null;
 
 const namespace = (identity: string) => `entries:${identity}`;
-const cacheable = (entry: Entry) => entry.kind === 'note' && typeof entry.body === 'string';
+const cacheable = (entry: Entry) => (entry.kind === 'note' || entry.kind === 'rich_text') && typeof entry.body === 'string';
+
+// A synchronous copy so opening a note never waits on SQLite, Git, or the
+// network. The database still holds the full set; this mirror is what the
+// click handler can read before the first await. Large bodies stay in SQLite.
+const MIRROR_BUDGET = 1_500_000;
+const MIRROR_NOTE_LIMIT = 180_000;
+const mirrorKey = (identity: string) => `tjuclaw.note-mirror.v1.${identity}`;
+type Mirror = { order: string[]; notes: Record<string, Entry> };
+let mirrorCache: { identity: string; data: Mirror } | null = null;
+
+function browserStorage(): Storage | null {
+  try { return globalThis.localStorage ?? null; } catch { return null; }
+}
+
+function emptyMirror(): Mirror { return { order: [], notes: {} }; }
+
+function readMirror(identity: string): Mirror {
+  if (mirrorCache?.identity === identity) return mirrorCache.data;
+  const storage = browserStorage();
+  let data = emptyMirror();
+  try {
+    const parsed = JSON.parse(storage?.getItem(mirrorKey(identity)) ?? '') as Mirror;
+    if (parsed && typeof parsed.notes === 'object' && Array.isArray(parsed.order)) data = parsed;
+  } catch { /* an unreadable mirror is simply not used */ }
+  mirrorCache = { identity, data };
+  return data;
+}
+
+function writeMirror(identity: string, entry: Entry) {
+  if (!cacheable(entry) || entry.body!.length > MIRROR_NOTE_LIMIT) return;
+  const storage = browserStorage();
+  if (!storage) return;
+  const data = readMirror(identity);
+  const kept: Entry = {
+    id: entry.id, library_id: entry.library_id, parent_id: entry.parent_id, kind: entry.kind,
+    title: entry.title, body: entry.body, created_at: entry.created_at, updated_at: entry.updated_at,
+  };
+  data.notes[entry.id] = kept;
+  data.order = [entry.id, ...data.order.filter(id => id !== entry.id)];
+  const persist = () => {
+    while (data.order.length > 1 && JSON.stringify(data).length > MIRROR_BUDGET) {
+      const drop = data.order.pop();
+      if (drop) delete data.notes[drop];
+    }
+    storage.setItem(mirrorKey(identity), JSON.stringify(data));
+  };
+  try { persist(); } catch {
+    const drop = data.order.pop();
+    if (drop) delete data.notes[drop];
+    try { persist(); } catch { /* quota: memory still has the body */ }
+  }
+}
+
+function dropMirror(identity: string, id?: string) {
+  const storage = browserStorage();
+  if (!storage) return;
+  if (!id) {
+    mirrorCache = null;
+    try { storage.removeItem(mirrorKey(identity)); } catch { /* already gone */ }
+    return;
+  }
+  const data = readMirror(identity);
+  if (!data.notes[id]) return;
+  delete data.notes[id];
+  data.order = data.order.filter(item => item !== id);
+  try { storage.setItem(mirrorKey(identity), JSON.stringify(data)); } catch { /* keep memory */ }
+}
 
 function persistent(): Promise<LocalStore | null> {
   // localStorage has a few megabytes for everything; bodies stay in memory there.
@@ -50,7 +117,10 @@ export function hydrateEntryCache(): Promise<void> {
       if (owner !== identity) return;
       try {
         const entry = JSON.parse(value) as Entry;
-        if (entry?.id === id && cacheable(entry) && !memory.has(id)) memory.set(id, entry);
+        if (entry?.id === id && cacheable(entry) && !memory.has(id)) {
+          memory.set(id, entry);
+          writeMirror(identity, entry);
+        }
       } catch { /* an unreadable row is simply not used */ }
     }
     for (const id of [...unsaved]) {
@@ -64,8 +134,21 @@ export function hydrateEntryCache(): Promise<void> {
 
 /** The stored note for a listed entry, if it is the same revision. */
 export function cachedEntry(listed: Entry): Entry | null {
-  const entry = memory.get(listed.id);
+  const entry = memory.get(listed.id) ?? (owner ? readMirror(owner).notes[listed.id] : undefined);
   return entry && entry.updated_at === listed.updated_at ? entry : null;
+}
+
+/**
+ * The note this browser can show before any await. Memory first, then the
+ * localStorage mirror. `fresh` means the tree's revision matches, so the
+ * caller must not GET. An older body is still returned so the page can open
+ * and refresh afterwards.
+ */
+export function peekNote(listed: Entry): { entry: Entry; fresh: boolean } | null {
+  const stored = withBody(memory.get(listed.id)) ?? (owner ? withBody(readMirror(owner).notes[listed.id]) : null);
+  if (!stored) return null;
+  if (!memory.has(stored.id)) memory.set(stored.id, stored);
+  return { entry: stored, fresh: stored.updated_at === listed.updated_at };
 }
 
 const withBody = (entry: Entry | null | undefined) => entry && typeof entry.body === 'string' ? entry : null;
@@ -82,19 +165,19 @@ export async function localNote(listed: Entry, hydrate: boolean, waitMs = 1500):
     const body = withBody(entry);
     return body ? { entry: body, fresh: body.updated_at === listed.updated_at } : null;
   };
-  const memoryHit = pick(memory.get(listed.id));
-  if (memoryHit) return memoryHit;
+  const ready = peekNote(listed);
+  if (ready) return ready;
   const reading = hydrate ? hydrateEntryCache() : loaded;
   if (reading) await Promise.race([reading, new Promise(resolve => setTimeout(resolve, waitMs))]);
   const stored = pick(memory.get(listed.id));
   if (stored) return stored;
-  if (!hydrate || !owner) return memoryHit;
+  if (!hydrate || !owner) return null;
   const git = await Promise.race([
     readGitEntry(owner, listed.id).catch(() => null),
     new Promise<null>(resolve => setTimeout(() => resolve(null), Math.min(waitMs, 800))),
   ]);
   const gitHit = pick(git);
-  if (!gitHit) return memoryHit;
+  if (!gitHit) return null;
   memory.set(gitHit.entry.id, gitHit.entry);
   return gitHit;
 }
@@ -127,6 +210,7 @@ export function rememberEntry(entry: Entry) {
   const identity = owner;
   if (!identity || !cacheable(entry)) return;
   memory.set(entry.id, entry);
+  writeMirror(identity, entry);
   if (replica) void rememberGitEntry(identity, entry).catch(() => undefined);
   // The idle hydrate opens the database. Starting it here would download the
   // SQLite worker before the first note is on screen.
@@ -139,7 +223,8 @@ export function pruneEntryCache(listed: Entry[]) {
   const identity = owner;
   if (!identity) return;
   const ids = new Set(listed.map(entry => entry.id));
-  for (const id of [...memory.keys()]) if (!ids.has(id)) { memory.delete(id); unsaved.delete(id); }
+  for (const id of [...memory.keys()]) if (!ids.has(id)) { memory.delete(id); unsaved.delete(id); dropMirror(identity, id); }
+  for (const id of [...readMirror(identity).order]) if (!ids.has(id)) dropMirror(identity, id);
   // Rows on disk are pruned once the database has been read.
   void (loaded ?? Promise.resolve()).then(async () => {
     if (!loaded) return;
@@ -161,7 +246,9 @@ export function clearEntryCache() {
   unsaved.clear();
   loaded = null;
   replica = false;
+  mirrorCache = null;
   if (!identity) return;
+  dropMirror(identity);
   void clearGitEntries(identity).catch(() => undefined);
   void persistent().then(async opened => {
     if (!opened) return;
@@ -198,7 +285,7 @@ export function loadEntry(id: string): Promise<Entry> {
  * a matching revision is opened locally, and an older one is refreshed on open.
  */
 export function warmEntry(listed: Entry) {
-  if (listed.kind !== 'note' || listed.body !== undefined || cachedEntry(listed)) return;
+  if ((listed.kind !== 'note' && listed.kind !== 'rich_text') || listed.body !== undefined || cachedEntry(listed) || peekNote(listed)) return;
   void (async () => {
     const local = await localNote(listed, true, 1500);
     if (local || cachedEntry(listed) || memory.has(listed.id)) return;

@@ -1,4 +1,4 @@
-/** Composer commands that this page can run itself. Terminal-only Pi commands stay visible but do not send. */
+/** Composer commands this page can run itself. Terminal-only Pi commands are omitted. */
 
 export type PiAction = 'new' | 'model' | 'thinking' | 'copy' | 'session' | 'resume';
 
@@ -17,10 +17,6 @@ export const PI_COMMANDS: PiCommand[] = [
   { name: '/copy', label: '复制上一条', hint: '复制上一条助手回复', action: 'copy', available: true },
   { name: '/session', label: '会话信息', hint: '查看当前会话编号和消息数', action: 'session', available: true },
   { name: '/resume', label: '历史会话', hint: '打开会话列表', action: 'resume', available: true },
-  { name: '/compact', label: '压缩上下文', hint: '需要在 Pi 终端里使用', available: false },
-  { name: '/tree', label: '会话树', hint: '需要在 Pi 终端里使用', available: false },
-  { name: '/login', label: '登录', hint: '需要在 Pi 终端里使用', available: false },
-  { name: '/quit', label: '退出', hint: '需要在 Pi 终端里使用', available: false },
 ];
 
 /** The command token being typed, or null when the draft is an ordinary message. */
@@ -35,5 +31,5 @@ export function slashQuery(draft: string): string | null {
 
 export function matchingCommands(query: string): PiCommand[] {
   const needle = query.toLowerCase();
-  return PI_COMMANDS.filter(command => command.name.startsWith(needle));
+  return PI_COMMANDS.filter(command => command.available && command.name.startsWith(needle));
 }
