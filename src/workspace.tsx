@@ -26,8 +26,8 @@ import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './co
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
-import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, rememberEntry, warmEntry } from './lib/entry-cache';
-import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
+import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
+import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
@@ -43,6 +43,25 @@ type WorkspaceGateState = { workspaceId: string | null; workspaceName: string; m
 const ACTIVITY_RAIL_WIDTH = 48;
 const defaultSidebarSort: SidebarSort = { notes: 'manual', sessions: 'manual', anki: 'manual', plugins: 'manual', tools: 'manual' };
 const sortLabels: Record<SortMode, string> = { manual: '手动排序', 'name-asc': '名称 A → Z', 'name-desc': '名称 Z → A', recent: '最近修改' };
+
+function readStoredJson<T>(identity: string | null | undefined, key: string): T | null {
+  if (!identity || typeof localStorage === 'undefined') return null;
+  try { return JSON.parse(localStorage.getItem(`${key}.${identity}`) ?? '') as T; } catch { return null; }
+}
+
+/** Manual order and sort survive a cached boot; note order still comes from the tree. */
+function storedSidebarSort(identity: string | null | undefined): SidebarSort {
+  const saved = readStoredJson<Partial<SidebarSort>>(identity, 'tjuclaw.sidebar.sort.v1');
+  return Object.fromEntries((Object.keys(defaultSidebarSort) as SidebarView[]).map(section =>
+    [section, saved && Object.hasOwn(sortLabels, saved[section] ?? '') ? saved[section] : 'manual'])) as SidebarSort;
+}
+
+function storedSidebarOrder(identity: string | null | undefined): Record<string, string[]> {
+  const saved = readStoredJson<Record<string, string[]>>(identity, 'tjuclaw.sidebar.order.v1');
+  return saved && typeof saved === 'object' && !Array.isArray(saved)
+    ? Object.fromEntries(Object.entries(saved).filter(([group]) => !group.startsWith('notes:')))
+    : {};
+}
 const nameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
 const AgentThread = lazy(() => import('./components/agent-thread').then(module => ({ default: module.AgentThread })));
@@ -345,8 +364,65 @@ function renderMarkdown(markdown: string, externalImages = false) {
 /** Message errors the API returns before storing the turn. */
 const definiteChatRefusals = new Set(['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded', 'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked']);
 
+const SESSION_SNAPSHOT_KEY = 'tjuclaw.workspace-session.v1';
+
+function readSessionSnapshot(): IdentitySession | null {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(SESSION_SNAPSHOT_KEY) ?? '') as IdentitySession;
+    if (!parsed || typeof parsed.id !== 'string' || !parsed.id || typeof parsed.email !== 'string' || !parsed.email || parsed.email_verified !== true) return null;
+    if (!Number.isFinite(Date.parse(parsed.expires_at)) || Date.parse(parsed.expires_at) <= Date.now()) return null;
+    return { id: parsed.id, email: parsed.email, email_verified: true, expires_at: parsed.expires_at };
+  } catch { return null; }
+}
+
+function writeSessionSnapshot(session: IdentitySession) {
+  try {
+    sessionStorage.setItem(SESSION_SNAPSHOT_KEY, JSON.stringify({ id: session.id, email: session.email, email_verified: true, expires_at: session.expires_at }));
+  } catch { /* the cache is optional */ }
+}
+
+function dropSessionSnapshot() {
+  try { sessionStorage.removeItem(SESSION_SNAPSHOT_KEY); } catch { /* already gone */ }
+}
+
+type CachedBoot = {
+  session: IdentitySession;
+  library: WorkspaceTree['library'];
+  items: Entry[];
+  folders: VaultFolder[];
+  placements: VaultPlacement;
+  selected: Entry | null;
+  paintedId: string;
+  verification: WorkspaceVerification;
+};
+
+/** The last unlocked workspace this tab showed, so a return visit paints before the network. */
+function bootCachedWorkspace(): CachedBoot | null {
+  const session = readSessionSnapshot();
+  if (!session) return null;
+  const tree = readWorkspaceTree(session.id);
+  if (!tree || !isWorkspaceUnlocked(session.id, tree.library.id, tree.verification)) return null;
+  openEntryCache(session.id);
+  const items = tree.entries.map(listedWithCache);
+  const focused = tree.focus && tree.focus !== 'home'
+    ? items.find(item => item.id === tree.focus && typeof item.body === 'string') ?? null
+    : null;
+  const selected = tree.focus === 'home' ? null : focused ?? items.find(item => (item.kind === 'note' || item.kind === 'rich_text') && typeof item.body === 'string') ?? null;
+  return {
+    session,
+    library: tree.library,
+    items,
+    folders: items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null })),
+    placements: Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])),
+    selected: selected && typeof selected.body === 'string' ? selected : null,
+    paintedId: selected && typeof selected.body === 'string' ? selected.id : 'home',
+    verification: tree.verification,
+  };
+}
+
 export default function Workspace() {
-  const [session, setSession] = useState<IdentitySession | null>(null);
+  const [boot] = useState(bootCachedWorkspace);
+  const [session, setSession] = useState<IdentitySession | null>(boot?.session ?? null);
   const [agentCapabilities, setAgentCapabilities] = useState<AgentCapabilities | null>(null);
   const sessionId = session?.id;
   useEffect(() => {
@@ -360,15 +436,15 @@ export default function Workspace() {
     });
     return () => controller.abort();
   }, [sessionId]);
-  const [libraries, setLibraries] = useState<Library[]>([]);
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [folders, setFolders] = useState<VaultFolder[]>([]);
-  const [placements, setPlacements] = useState<VaultPlacement>({});
+  const [libraries, setLibraries] = useState<Library[]>(boot ? [boot.library] : []);
+  const [entries, setEntries] = useState<Entry[]>(boot?.items ?? []);
+  const [folders, setFolders] = useState<VaultFolder[]>(boot?.folders ?? []);
+  const [placements, setPlacements] = useState<VaultPlacement>(boot?.placements ?? {});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
-  const [selected, setSelected] = useState<Entry | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [selected, setSelected] = useState<Entry | null>(boot?.selected ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(boot?.selected?.id ?? null);
+  const [title, setTitle] = useState(boot?.selected?.title ?? '');
+  const [body, setBody] = useState(boot?.selected?.body ?? '');
   const [chat, setChat] = useState<ChatSession | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
@@ -376,13 +452,15 @@ export default function Workspace() {
   const [pendingText, setPendingText] = useState('');
   const [chatError, setChatError] = useState('');
   const [draft, setDraft] = useState('');
-  const [tabs, setTabs] = useState<WorkspaceTab[]>([{ key: 'home', kind: 'blank', title: '新建笔记', history: [], historyIndex: -1 }]);
-  const [activeTabKey, setActiveTabKey] = useState<string | null>('home');
+  const [tabs, setTabs] = useState<WorkspaceTab[]>(boot?.selected
+    ? [{ key: 'restored-note', kind: boot.selected.kind === 'rich_text' ? 'rich_text' : 'note', title: boot.selected.title, entryId: boot.selected.id, history: [boot.selected.id], historyIndex: 0 }]
+    : [{ key: 'home', kind: 'blank', title: '新建笔记', history: [], historyIndex: -1 }]);
+  const [activeTabKey, setActiveTabKey] = useState<string | null>(boot?.selected ? 'restored-note' : 'home');
   // Searching happens in the search palette; the tree is never filtered.
   const query = '' as string;
   const [view, setView] = useState<SidebarView>('notes');
-  const [sidebarSort, setSidebarSort] = useState<SidebarSort>(defaultSidebarSort);
-  const [sidebarOrder, setSidebarOrder] = useState<Record<string, string[]>>({});
+  const [sidebarSort, setSidebarSort] = useState<SidebarSort>(() => storedSidebarSort(boot?.session.id));
+  const [sidebarOrder, setSidebarOrder] = useState<Record<string, string[]>>(() => storedSidebarOrder(boot?.session.id));
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [activePluginId, setActivePluginId] = useState<BuiltInPluginId>('editor');
   const [activeToolId, setActiveToolId] = useState<CampusToolId>('schedule');
@@ -464,11 +542,11 @@ export default function Workspace() {
   const failedSave = useRef<{ id: string; title: string; body: string; generation: number; version: number } | null>(null);
   const conflictDraft = useRef<{ id: string; title: string; body: string } | null>(null);
   const [saveFailedId, setSaveFailedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!boot);
   const [loadStep, setLoadStep] = useState<LoadStep>('session');
   // Keep a visible opening screen up briefly after loading so it never
   // flickers; a load that finished before it appeared skips straight in.
-  const [openingDone, setOpeningDone] = useState(false);
+  const [openingDone, setOpeningDone] = useState(Boolean(boot));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoreNonce, setRestoreNonce] = useState(0);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -510,9 +588,12 @@ export default function Workspace() {
   // Conversations are listed on their own; Agents are only where they are stored.
   const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string }[]>([]);
   const pendingChatRequestRef = useRef<PendingChatRequest | null>(null);
-  const activeTabRef = useRef<string | null>('home');
-  const identityRef = useRef<string | null>(null);
-  const identityGeneration = useRef(0);
+  const activeTabRef = useRef<string | null>(boot?.selected ? 'restored-note' : 'home');
+  const identityRef = useRef<string | null>(boot?.session.id ?? null);
+  const treeVerification = useRef<WorkspaceVerification>(boot?.verification ?? 'local');
+  const paintedNoteRef = useRef<string | null>(boot?.paintedId ?? null);
+  const bootRefreshRef = useRef(Boolean(boot));
+  const identityGeneration = useRef(boot ? 1 : 0);
   const bodyRef = useRef<EditorView | null>(null);
   const ankiWorkspaceRef = useRef<AnkiWorkspaceHandle | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
@@ -1157,17 +1238,19 @@ export default function Workspace() {
     // shown at once, then refreshed. The first screen does not open the store.
     let fromDevice: Entry | null = null;
     let revisionMatches = false;
-    if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
+    if (item.kind === 'note' || item.kind === 'rich_text') {
       // Memory and the localStorage mirror are synchronous: a hit paints in
       // this click, with no progress indicator. Disk is only awaited on a miss.
-      const local = peekNote(item) ?? await localNote(item, !loading);
+      const local = peekNote(item) ?? (item.body === undefined ? await localNote(item, !loading) : null);
       if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
       if (local) {
         fromDevice = local.entry;
         revisionMatches = local.fresh;
-        item = local.fresh
-          ? { ...item, body: local.entry.body }
-          : { ...local.entry, title: item.title || local.entry.title, library_id: item.library_id, parent_id: item.parent_id };
+        if (item.body === undefined && typeof local.entry.body === 'string') {
+          item = local.fresh
+            ? { ...item, body: local.entry.body }
+            : { ...local.entry, title: item.title || local.entry.title, library_id: item.library_id, parent_id: item.parent_id };
+        }
       }
     }
     if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
@@ -1206,6 +1289,7 @@ export default function Workspace() {
     });
     chooseTab(key);
     setSelectedId(id); setSelected(item); setTitle(item.title); setBody(item.body ?? '');
+    if (item.kind === 'note' || item.kind === 'rich_text') paintedNoteRef.current = id;
     if (fromDevice) rememberEntry({ ...fromDevice, title: item.title || fromDevice.title, library_id: item.library_id, parent_id: item.parent_id });
     // Keep a matching body on the tree row so the next open does not wait at all.
     if ((item.kind === 'note' || item.kind === 'rich_text') && typeof item.body === 'string' && item.updated_at === listedItem.updated_at) {
@@ -1405,36 +1489,115 @@ export default function Workspace() {
   // The device's note store is opened once the workspace is on screen, so its
   // code and database never delay the first load.
   useEffect(() => {
+    const identity = identityRef.current;
+    const current = libraries[0];
+    if (!identity || !current || loading || workspaceGate || !entries.length) return;
+    const onHome = view === 'notes' && !selectedId;
+    writeWorkspaceTree(identity, {
+      library: { id: current.id, name: current.name, created_at: current.created_at, updated_at: current.updated_at },
+      entries,
+      verification: treeVerification.current,
+      focus: onHome ? 'home' : selected?.kind === 'note' || selected?.kind === 'rich_text' ? selected.id : undefined,
+    });
+  }, [entries, libraries, loading, workspaceGate, view, selectedId, selected]);
+
+  useEffect(() => {
     if (loading || !session) return;
-    const start = () => { void hydrateEntryCache(); enableEntryReplica(); };
-    const idle = window.requestIdleCallback(start, { timeout: 1200 });
-    return () => window.cancelIdleCallback(idle);
+    // requestIdleCallback fires as soon as the browser is idle, which is
+    // immediately in tests, and would download SQLite during the first paint.
+    // The localStorage mirror answers a click at once; disk is only for notes
+    // that did not fit in it, so it can wait until the opening budget is past.
+    const timer = window.setTimeout(() => { void hydrateEntryCache(); enableEntryReplica(); }, 1500);
+    return () => window.clearTimeout(timer);
   }, [loading, session]);
 
-  async function loadWorkspaceData(libraryId: string, generation: number) {
-    setLoadStep('entries');
-    // Flashcards do not depend on the note tree: both load at once.
-    const flashcards = loadAnkiData(generation);
-    const items = await listEntries(libraryId);
-    if (generation !== identityGeneration.current) return;
-    pruneEntryCache(items);
+  function showTree(items: Entry[]) {
     setEntries(items);
     setSidebarOrder(current => ({
       ...Object.fromEntries(Object.entries(current).filter(([group]) => !group.startsWith('notes:'))),
       ...noteOrdersFromEntries(items),
     }));
-    const remoteFolders = items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null }));
-    setFolders(remoteFolders);
+    setFolders(items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null })));
     setPlacements(Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])));
+  }
+
+  /** Paints the last tree and a cached note before any network answer. No opening screen. */
+  function paintCachedTree(tree: WorkspaceTree) {
+    treeVerification.current = tree.verification;
+    const items = tree.entries.map(listedWithCache);
+    setLibraries([tree.library]);
+    showTree(items);
+    const focused = tree.focus && tree.focus !== 'home' ? items.find(item => item.id === tree.focus && typeof item.body === 'string') : null;
+    const first = tree.focus === 'home' ? null : focused ?? items.find(item => (item.kind === 'note' || item.kind === 'rich_text') && typeof item.body === 'string');
+    if (first && typeof first.body === 'string') {
+      const key = 'restored-note';
+      paintedNoteRef.current = first.id;
+      setView('notes');
+      setTabs([{ key, kind: first.kind === 'rich_text' ? 'rich_text' : 'note', title: first.title, entryId: first.id, history: [first.id], historyIndex: 0 }]);
+      chooseTab(key);
+      setSelectedId(first.id);
+      setSelected(first);
+      setTitle(first.title);
+      setBody(first.body);
+      setChat(null);
+      setRailOpen(false);
+    } else {
+      paintedNoteRef.current = 'home';
+      setView('notes');
+      setSelected(null);
+      setSelectedId(null);
+      setTitle('');
+      setBody('');
+      setChat(null);
+      setRailOpen(false);
+    }
+    setLoading(false);
+    setOpeningDone(true);
+  }
+
+  async function loadWorkspaceData(activeLibrary: Pick<Library, 'id' | 'name'> & Partial<Pick<Library, 'created_at' | 'updated_at'>>, generation: number) {
+    setLoadStep('entries');
+    // Flashcards do not depend on the note tree: both load at once.
+    const flashcards = loadAnkiData(generation);
+    const items = (await listEntries(activeLibrary.id)).map(listedWithCache);
+    if (generation !== identityGeneration.current) return;
+    pruneEntryCache(items);
+    showTree(items);
+    const identity = identityRef.current;
+    if (identity) writeWorkspaceTree(identity, {
+      library: { id: activeLibrary.id, name: activeLibrary.name, created_at: activeLibrary.created_at ?? '', updated_at: activeLibrary.updated_at ?? '' },
+      entries: items,
+      verification: treeVerification.current,
+      focus: paintedNoteRef.current === 'home' ? 'home' : paintedNoteRef.current ?? undefined,
+    });
     // A new workspace always contains the guide agent, but opening that agent
     // automatically would switch the user away from the notes home and hide
     // the primary "new note" action. Only restore a real note here; otherwise
     // keep the notes home visible.
     const firstNote = items.find(item => item.kind === 'note' || item.kind === 'rich_text');
-    // Open the last note before the loading screen ends, so the workspace
-    // appears on that note instead of flashing the new-note home first. Its
-    // body is requested now, while the flashcards are still loading.
-    const opening = firstNote ? openEntry(firstNote.id, firstNote) : null;
+    // A note already painted from this device stays put. A newer tree revision
+    // is fetched in the background, without a progress indicator.
+    const paintedId = paintedNoteRef.current;
+    const restoredHome = paintedId === 'home';
+    if (paintedId && !restoredHome && !items.some(item => item.id === paintedId)) {
+      paintedNoteRef.current = null;
+      setSelected(null);
+      setSelectedId(null);
+      setTitle('');
+      setBody('');
+    }
+    const painted = paintedId && !restoredHome ? items.find(item => item.id === paintedId && (item.kind === 'note' || item.kind === 'rich_text')) ?? null : null;
+    if (painted) {
+      const stored = peekNote(painted);
+      if (stored && !stored.fresh) void refreshFromServer(stored.entry, generation, noteRequestRef.current, saveVersions.current[painted.id] ?? 0);
+      else {
+        setSelected(current => current?.id === painted.id ? { ...current, title: painted.title, updated_at: painted.updated_at } : current);
+        setTitle(painted.title);
+      }
+    }
+    // A cached home or note is already on screen. Do not replace it with a
+    // fetch spinner. Only a cold visit still opens the first note.
+    const opening = firstNote && !painted && !restoredHome ? openEntry(firstNote.id, firstNote) : null;
     opening?.catch(() => undefined);
     setLoadStep('cards');
     await flashcards;
@@ -1442,8 +1605,7 @@ export default function Workspace() {
     if (opening) {
       setLoadStep('note');
       await opening;
-    }
-    else {
+    } else if (!painted && !restoredHome) {
       ++chatRequestRef.current;
       setView('notes');
       chooseTab('home');
@@ -1464,9 +1626,11 @@ export default function Workspace() {
     if (!target) return;
     if (createdWorkspace) setLibraries([createdWorkspace]);
     setWorkspaceGate(null);
-    setLoading(true);
+    const cachedTree = identityRef.current ? readWorkspaceTree(identityRef.current) : null;
+    if (cachedTree && cachedTree.library.id === target.id) paintCachedTree(cachedTree);
+    else setLoading(true);
     try {
-      await loadWorkspaceData(target.id, generation);
+      await loadWorkspaceData(target, generation);
     } catch (err) {
       if (generation !== identityGeneration.current) return;
       if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
@@ -1477,21 +1641,29 @@ export default function Workspace() {
   }
 
   async function load(generation: number, early?: { libraries: Promise<Library[]>; verification: ReturnType<typeof workspaceVerification> }) {
+    const identity = identityRef.current;
+    const cached = identity ? readWorkspaceTree(identity) : null;
+    // Only a workspace this tab already unlocked may appear before the network.
+    // A locked vault still waits, so another person at this browser does not see notes.
+    // A return visit already painted this tree. Painting again would undo a
+    // home or note the user opened while the session check was in flight.
+    if (identity && cached && !paintedNoteRef.current && isWorkspaceUnlocked(identity, cached.library.id, cached.verification)) paintCachedTree(cached);
     try {
       setLoadStep('library');
       // Neither answer depends on the other, and the first page load already
       // asked for both while the session was being confirmed.
       const [libs, verification] = await Promise.all([early?.libraries ?? listLibraries(), early?.verification ?? workspaceVerification()]);
       if (generation !== identityGeneration.current) return;
+      treeVerification.current = verification;
       setLibraries(libs);
       const activeLibrary = libs[0];
       if (!activeLibrary) {
         setWorkspaceGate({ workspaceId: null, workspaceName: '', mode: 'setup', verification, firstWorkspace: true });
         return;
       }
-      const identity = identityRef.current;
-      if (!identity) return;
-      const passphraseState = await workspacePassphraseState(identity, activeLibrary.id, verification);
+      const currentIdentity = identityRef.current;
+      if (!currentIdentity) return;
+      const passphraseState = await workspacePassphraseState(currentIdentity, activeLibrary.id, verification);
       if (generation !== identityGeneration.current) return;
       if (!passphraseState.unlocked) {
         setWorkspaceGate({
@@ -1503,7 +1675,7 @@ export default function Workspace() {
         return;
       }
       setWorkspaceGate(null);
-      await loadWorkspaceData(activeLibrary.id, generation);
+      await loadWorkspaceData(activeLibrary, generation);
     } catch (err) {
       if (generation !== identityGeneration.current) return;
       if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
@@ -1525,13 +1697,23 @@ export default function Workspace() {
       early?.verification.catch(() => undefined);
       void readSession().then(next => {
         if (!active) return;
-        if (!next) { location.replace('/auth/login'); return; }
-        if (identityRef.current === next.id) return;
+        if (!next) { dropSessionSnapshot(); location.replace('/auth/login'); return; }
+        writeSessionSnapshot(next);
+        if (identityRef.current === next.id) {
+          setSession(next);
+          // The cached page is already up. Still ask the cloud, without a spinner.
+          if (bootRefreshRef.current) {
+            bootRefreshRef.current = false;
+            void load(identityGeneration.current);
+          }
+          return;
+        }
         clearRemoteWorkspaceUnlocks();
         clearPrivateDrafts();
         if (identityRef.current) clearEntryCache();
         identityRef.current = next.id;
         openEntryCache(next.id);
+        paintedNoteRef.current = null;
         const generation = ++identityGeneration.current;
         ++noteRequestRef.current;
         operationLocks.current.clear();
@@ -1698,6 +1880,20 @@ export default function Workspace() {
     window.clearTimeout(saveTimer.current);
     setSaving(true);
     saveTimer.current = window.setTimeout(flushPendingSave, 650);
+  }
+
+  function showNotesHome() {
+    if (view !== 'notes' && !canLeaveDraft()) return;
+    flushPendingSave();
+    paintedNoteRef.current = 'home';
+    setView('notes');
+    setRailOpen(false);
+    chooseTab(null);
+    setSelected(null);
+    setSelectedId(null);
+    setTitle('');
+    setBody('');
+    setChat(null);
   }
 
   function switchView(next: SidebarView) {
@@ -2248,6 +2444,7 @@ export default function Workspace() {
     clearRemoteWorkspaceUnlocks();
     clearPrivateDrafts();
     clearEntryCache();
+    dropSessionSnapshot();
     if (session && library) clearWorkspaceUnlock(session.id, library.id);
     void logout();
   }
@@ -2377,7 +2574,7 @@ export default function Workspace() {
   if (!openingDone) return <WorkspaceLoading step="done" />;
   if (workspaceGate) return <WorkspacePassphraseGate identity={session.id} workspaceId={workspaceGate.workspaceId} workspaceName={workspaceGate.workspaceName} mode={workspaceGate.mode} verification={workspaceGate.verification} firstWorkspace={workspaceGate.firstWorkspace} accountEmail={session.email} onUnlocked={continueAfterWorkspaceUnlock} />;
 
-  return <div className={`obsidian-app${entering.fade ? ' is-entering' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) 0px` }}>
+  return <div data-view={view} className={`obsidian-app${entering.fade ? ' is-entering' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) 0px` }}>
     <m.aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}
       initial={false} animate={{ x: isMobile && !sidebarOpen ? '-100%' : '0%', opacity: isMobile && !sidebarOpen ? 0 : 1 }}
       transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}>
@@ -2388,10 +2585,11 @@ export default function Workspace() {
           <span className="sidebar-library-copy"><strong className="sidebar-library-name">{library?.name ?? '我的知识库'}</strong><small>{fileCount} 个文件 · {folders.length} 个文件夹</small></span>
           <ChevronDown className="sidebar-library-chevron" size={14} />
         </button>
+        {isMobile && view === 'sessions' ? <button type="button" className="notion-side-session-more" aria-label="会话操作" onClick={() => setContextMenu({ x: 0, y: 0, kind: 'session' })}><MoreHorizontal size={18} /></button> : null}
         <button type="button" className="notion-side-collapse" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button>
       </div>
       <div className="notion-nav" aria-label="工作区导航">
-        <button type="button" className={`notion-nav-home${sideView === 'notes' ? ' is-active' : ''}`} aria-current={sideView === 'notes' ? 'page' : undefined} onClick={() => switchView('notes')}><House size={16} /><span>主页</span></button>
+        <button type="button" className={`notion-nav-home${sideView === 'notes' ? ' is-active' : ''}`} aria-current={sideView === 'notes' ? 'page' : undefined} onClick={() => showNotesHome()}><House size={16} /><span>主页</span></button>
         <button type="button" className={view === 'sessions' ? 'is-active' : ''} aria-label="Agent" title="Agent" aria-current={view === 'sessions' ? 'page' : undefined} onClick={() => switchView('sessions')}><MessageCircle size={16} /></button>
         <button type="button" className="notion-nav-search" aria-label="搜索" title="搜索" onClick={() => setCommandOpen(true)}><Search size={16} /></button>
       </div>
@@ -2463,7 +2661,7 @@ export default function Workspace() {
     <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <m.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
-      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <div className="note-topbar-controls"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={16} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={16} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={15} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={15} /></button></div></div> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else if (view === 'sessions') setContextMenu({ x: 0, y: 0, kind: 'session' }); else setCommandOpen(true); }} aria-label="更多操作"><MoreHorizontal size={19} /></button></div></header>
+      <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <div className="note-topbar-controls"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={16} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={16} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={15} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={15} /></button></div></div> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" className="mobile-more" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else if (view === 'sessions') setContextMenu({ x: 0, y: 0, kind: 'session' }); else setCommandOpen(true); }} aria-label={view === 'sessions' ? '会话操作' : '更多操作'}><MoreHorizontal size={19} /></button></div></header>
       {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
         <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
           <div className="mobile-tab-sheet-grip" aria-hidden="true" />

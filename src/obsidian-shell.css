@@ -2162,6 +2162,49 @@
 .workspace-context-menu button, .sidebar-sort-menu button { min-height: 32px; border-radius: 6px; font-size: 14px; }
 .workspace-context-menu button:hover, .sidebar-sort-menu button:hover { background: var(--hover-wash); }
 .workspace-context-menu button.is-danger { color: var(--destructive); }
+@media (max-width: 720px) {
+  .obsidian-app .obsidian-topbar { display: flex; align-items: center; min-width: 0; overflow: visible; }
+  .obsidian-app .mobile-tab-title { flex: 1 1 auto; min-width: 0; }
+  .obsidian-app .mobile-topbar-actions {
+    display: flex; flex: none; margin-left: auto; z-index: 8;
+    padding-right: max(4px, env(safe-area-inset-right));
+  }
+  .obsidian-app .mobile-topbar-actions .mobile-more {
+    flex: none; width: 44px !important; height: 44px !important;
+  }
+  /* The drawer covers the page. Controls left in the remaining sliver are clipped. */
+  .obsidian-app:not(.sidebar-collapsed) .mobile-topbar-actions { visibility: hidden; pointer-events: none; }
+  .obsidian-app.sidebar-collapsed[data-view="sessions"] .obsidian-topbar {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    column-gap: 4px;
+    padding-right: max(8px, env(safe-area-inset-right));
+    overflow: visible;
+  }
+  .obsidian-app.sidebar-collapsed[data-view="sessions"] .mobile-tab-count { display: none; }
+  .obsidian-app.sidebar-collapsed[data-view="sessions"] .mobile-more {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .notion-side-session-more {
+    display: none;
+  }
+  .obsidian-app .workspace-context-menu {
+    position: fixed !important;
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: 62dvh;
+    overflow-y: auto;
+    padding: 30px 12px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 22px 22px 0 0 !important;
+    background: var(--muted) !important;
+    box-shadow: 0 -3px 12px oklch(0% 0 0 / .08) !important;
+  }
+}
 
 /* Phone bottom bar, as in Notion: search, Ask AI and compose float over the page. */
 @media (max-width: 720px) {
@@ -2241,6 +2284,7 @@
     border-bottom: 0;
     z-index: 6;
   }
+  .obsidian-app.sidebar-collapsed[data-view="sessions"] .obsidian-topbar { overflow: visible; }
   .obsidian-app .sidebar-opener, .obsidian-app .mobile-topbar-actions { flex: none; }
   .obsidian-app .mobile-tab-title { flex: 1 1 auto; min-width: 0; width: auto; margin: 0 2px; }
   .obsidian-app .mobile-tab-title span { min-width: 0; }
@@ -2261,6 +2305,14 @@
 .obsidian-app .sidebar-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: transparent; border: 0; }
 .obsidian-app .obsidian-tree { flex: 1; min-height: 60px; overflow: auto; padding: 0 8px; }
 .notion-side-head { display: flex; align-items: center; gap: 4px; padding: 10px 8px 6px; }
+@media (max-width: 720px) {
+  .notion-side-session-more {
+    display: grid; flex: none; width: 44px; height: 44px; place-items: center;
+    border: 0; border-radius: 50%; background: var(--surface); color: var(--foreground);
+    box-shadow: 0 0 0 1px var(--control-border);
+  }
+}
+
 .obsidian-app .notion-side-head .sidebar-library-button {
   display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 8px;
   border: 0; border-radius: 8px; background: transparent; color: var(--foreground); text-align: left;

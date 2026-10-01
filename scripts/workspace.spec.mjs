@@ -2199,7 +2199,8 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
   await expect(sidebar).toHaveAttribute('inert', '');
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
   await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeHidden();
+  // Home keeps the shortcut bar; a note or session hides it.
+  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
@@ -3273,6 +3274,70 @@ test('settings show the running version and build, and explain updates where non
   await expect(dialog.getByText('当前环境无法检查更新，刷新页面即可获取最新版本。')).toBeVisible();
 });
 
+test('a cached workspace paints before the cloud answers, including on a phone session menu', async ({ page }) => {
+  const state = defaultState();
+  state.entries = [guideA, noteA, noteC];
+  state.entryById = Object.fromEntries(state.entries.map(item => [item.id, { ...item }]));
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  await page.getByRole('button', { name: noteC.title, exact: true }).click();
+  await expect(page.locator('.cm-content')).toContainText('Another document');
+  let release = () => {};
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/libraries/**', async route => { await held; return route.fallback(); });
+  await page.route('**/api/vault/status', async route => { await held; return route.fallback(); });
+  await page.route('**/api/decks**', async route => { await held; return route.fallback(); });
+  try {
+    await page.reload();
+    await expect(page.locator('.note-title')).toHaveValue(noteC.title, { timeout: 2500 });
+    await expect(page.locator('.workspace-opening')).toHaveCount(0);
+    await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+    await page.getByRole('button', { name: '主页', exact: true }).click();
+    await expect(page.locator('.notion-home')).toBeVisible();
+    await expect(page.locator('.workspace-opening')).toHaveCount(0);
+    await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+    await page.getByRole('button', { name: noteC.title, exact: true }).click();
+    await expect(page.locator('.note-title')).toHaveValue(noteC.title);
+    await expect(page.locator('.cm-content')).toContainText('Another document');
+    await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const opener = page.locator('.sidebar-opener');
+  if ((await opener.getAttribute('aria-label')) === '打开侧栏') await opener.click();
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: 'Agent', exact: true }).click();
+  const drawerMore = page.locator('.notion-side-session-more');
+  await expect(drawerMore).toBeVisible();
+  const drawerBox = await drawerMore.boundingBox();
+  const sidebarBox = await page.locator('.obsidian-sidebar').boundingBox();
+  expect(drawerBox.x).toBeGreaterThanOrEqual(sidebarBox.x);
+  expect(drawerBox.x + drawerBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width + 1);
+  await page.getByRole('button', { name: '收起侧栏' }).first().click();
+  await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
+  const more = page.getByRole('button', { name: '会话操作', exact: true });
+  await expect(more).toBeVisible();
+  const box = await more.boundingBox();
+  expect(box).toBeTruthy();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+  const hit = await more.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const target = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return Boolean(target && (target === element || element.contains(target)));
+  });
+  expect(hit).toBe(true);
+  await more.click();
+  const menu = page.getByRole('menu', { name: '会话操作' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '新会话' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '历史会话' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '压缩上下文' })).toHaveCount(0);
+});
+
 test('a note already on this device opens without waiting, and a newer server copy replaces it only if untouched', async ({ page }) => {
   const state = defaultState();
   state.entries = [guideA, noteA, noteC];
@@ -3307,25 +3372,21 @@ test('a note already on this device opens without waiting, and a newer server co
     .then(root => root.getDirectoryHandle('.tjuclaw-sqlite')).then(() => true, () => false))).toBe(true);
   await page.waitForTimeout(400);
 
-  // After a reload the tree lists the same revision. The note opens from this
-  // device and does not ask the server again.
+  // After a reload the last note is painted from this device before the cloud
+  // answers, and a matching revision is not fetched again.
   await page.reload();
-  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
-  block();
-  await open();
   await expect(page.locator('.note-title')).toHaveValue(noteC.title);
   await expect(editor).toContainText('Another document');
+  await expect(page.locator('.workspace-opening')).toHaveCount(0);
   await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
   await page.waitForTimeout(400);
   expect(reads).toBe(1);
-  release();
 
-  // A different listed revision is fetched. Untouched text takes the new body.
+  // A different listed revision is fetched in the background. Untouched text takes the new body.
   revise({ updated_at: '2026-02-02T00:00:00.000Z' }, true);
-  await page.reload();
-  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
   block();
-  await open();
+  await page.reload();
+  await expect(page.locator('.note-title')).toHaveValue(noteC.title);
   await expect(editor).toContainText('Another document');
   await expect.poll(() => reads).toBe(2);
   revise({ body: '另一台设备写入的新内容', updated_at: '2026-02-02T00:00:00.000Z' });
@@ -3334,10 +3395,9 @@ test('a note already on this device opens without waiting, and a newer server co
 
   // A note being edited keeps the reader's text when a newer revision arrives.
   revise({ updated_at: '2026-03-03T00:00:00.000Z' }, true);
-  await page.reload();
-  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
   block();
-  await open();
+  await page.reload();
+  await expect(page.locator('.note-title')).toHaveValue(noteC.title);
   await expect(editor).toContainText('另一台设备写入的新内容');
   await editor.click();
   await page.keyboard.type('我正在写');

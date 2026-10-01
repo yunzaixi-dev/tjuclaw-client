@@ -238,6 +238,78 @@ export function pruneEntryCache(listed: Entry[]) {
   });
 }
 
+export type WorkspaceTree = {
+  library: { id: string; name: string; created_at: string; updated_at: string };
+  entries: Entry[];
+  verification: 'local' | 'remote';
+  /** Last surface this browser showed: the notes home, or a note id. */
+  focus?: 'home' | string;
+};
+const treeKey = (identity: string) => `tjuclaw.workspace-tree.v1.${identity}`;
+
+function bareEntry(entry: Entry): Entry {
+  const copy = { ...entry };
+  delete copy.body;
+  return copy;
+}
+
+/** The last workspace tree this browser showed, without note bodies. */
+export function readWorkspaceTree(identity: string): WorkspaceTree | null {
+  const storage = browserStorage();
+  if (!storage) return null;
+  try {
+    const parsed = JSON.parse(storage.getItem(treeKey(identity)) ?? '') as WorkspaceTree;
+    if (!parsed || parsed.verification !== 'local' && parsed.verification !== 'remote') return null;
+    if (!parsed.library || typeof parsed.library.id !== 'string' || typeof parsed.library.name !== 'string') return null;
+    if (!Array.isArray(parsed.entries)) return null;
+    const entries = parsed.entries.filter(entry => entry && typeof entry.id === 'string' && typeof entry.kind === 'string' && typeof entry.title === 'string' && typeof entry.updated_at === 'string');
+    if (!entries.length) return null;
+    return {
+      library: {
+        id: parsed.library.id,
+        name: parsed.library.name,
+        created_at: typeof parsed.library.created_at === 'string' ? parsed.library.created_at : '',
+        updated_at: typeof parsed.library.updated_at === 'string' ? parsed.library.updated_at : '',
+      },
+      entries: entries.map(bareEntry),
+      verification: parsed.verification,
+      focus: parsed.focus === 'home' || typeof parsed.focus === 'string' ? parsed.focus : undefined,
+    };
+  } catch { return null; }
+}
+
+/** Remembers the tree so the next visit can paint before the network answers. */
+export function writeWorkspaceTree(identity: string, tree: WorkspaceTree) {
+  const storage = browserStorage();
+  if (!storage || !tree.entries.length) return;
+  const payload: WorkspaceTree = {
+    library: tree.library,
+    entries: tree.entries.slice(0, 800).map(bareEntry),
+    verification: tree.verification,
+    focus: tree.focus === 'home' || typeof tree.focus === 'string' ? tree.focus : undefined,
+  };
+  const persist = () => storage.setItem(treeKey(identity), JSON.stringify(payload));
+  try { persist(); } catch {
+    payload.entries = payload.entries.slice(0, 80);
+    try { persist(); } catch { /* individual notes still open from the mirror */ }
+  }
+}
+
+export function dropWorkspaceTree(identity: string) {
+  try { browserStorage()?.removeItem(treeKey(identity)); } catch { /* already gone */ }
+}
+
+/**
+ * The listed row plus a cached body when this device already has that revision.
+ * A miss stays body-less so the caller can show an older copy, then refresh.
+ */
+export function listedWithCache(entry: Entry): Entry {
+  if ((entry.kind !== 'note' && entry.kind !== 'rich_text') || typeof entry.body === 'string') return entry;
+  const local = peekNote(entry);
+  // A stale body still paints at once. The caller compares updated_at and refreshes.
+  return local && typeof local.entry.body === 'string' ? { ...entry, body: local.entry.body } : entry;
+}
+
 /** Forgets every stored note of the current identity (sign-out, another account). */
 export function clearEntryCache() {
   const identity = owner;
@@ -249,6 +321,7 @@ export function clearEntryCache() {
   mirrorCache = null;
   if (!identity) return;
   dropMirror(identity);
+  dropWorkspaceTree(identity);
   void clearGitEntries(identity).catch(() => undefined);
   void persistent().then(async opened => {
     if (!opened) return;
