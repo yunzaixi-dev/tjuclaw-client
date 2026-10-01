@@ -67,7 +67,8 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
   const [since] = useState(() => Date.now());
   const [now, setNow] = useState(since);
   const [held, setHeld] = useState<HeldStream>({ call: '', thinking: '', text: '', steps: [] });
-  const started = useRef<number | null>(null);
+  // First visible thinking or reply. Recorded in the poll, not during render.
+  const [streamStart, setStreamStart] = useState<number | null>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
@@ -86,6 +87,10 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
           const live = await getLive(sessionId, cursor, controller.signal);
           if (controller.signal.aborted) return;
           setHeld(current => mergeLiveFrame(current, live));
+          if (live.thinking || live.text) {
+            const stamp = Date.now();
+            setStreamStart(current => current ?? stamp);
+          }
           // Before the turn is registered, or on a server without live output, poll gently.
           if (live.version === null) { cursor = undefined; await pause(1200); }
           else if (live.version === 0) { cursor = undefined; await pause(500); }
@@ -102,7 +107,6 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
 
   useEffect(() => { onProgress?.(); }, [held.steps.length, held.text, held.thinking, onProgress]);
   const { thinking, text, steps } = held;
-  if ((thinking || text) && started.current === null) started.current = Date.now();
 
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
   const active = [...steps].reverse().find(step => step.status === 'running');
@@ -111,7 +115,7 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
   // the phase text stays an exact status.
   const phase = activeView ? `正在${activeView.label}` : text ? '正在回答' : thinking ? '正在思考'
     : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考';
-  const rate = formatTokenRate(estimateTokens(text || thinking), started.current ? now - started.current : 0);
+  const rate = formatTokenRate(estimateTokens(text || thinking), streamStart ? now - streamStart : 0);
   return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
     <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span>{rate ? <span className="agent-working-rate">{rate}</span> : null}<span className="agent-working-time">{seconds} 秒</span></div>
     {steps.length ? <ol className="agent-steps-list agent-live-steps" aria-label="正在进行的工具调用">

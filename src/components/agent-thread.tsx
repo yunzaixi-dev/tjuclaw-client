@@ -151,8 +151,16 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [commandNote, setCommandNote] = useState('');
-  const [commandIndex, setCommandIndex] = useState(0);
   const slash = slashQuery(draft);
+  // Index belongs to one slash query. A new query shows the first match without an effect.
+  const [commandCursor, setCommandCursor] = useState<{ slash: string | null; index: number }>({ slash: null, index: 0 });
+  const commandIndex = commandCursor.slash === slash ? commandCursor.index : 0;
+  const setCommandIndex = (value: number | ((index: number) => number)) => {
+    setCommandCursor(current => {
+      const index = current.slash === slash ? current.index : 0;
+      return { slash, index: typeof value === 'function' ? value(index) : value };
+    });
+  };
   const commands = slash ? matchingCommands(slash) : [];
   const commandOpen = Boolean(slash) && !sending;
 
@@ -176,8 +184,6 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     warmed.add(chatId);
     void prepareSession(chatId);
   }, [chatId, writing]);
-
-  useEffect(() => { setCommandIndex(0); }, [slash]);
 
   const runCommand = (command: PiCommand) => {
     if (!command.available || !command.action) {
