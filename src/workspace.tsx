@@ -26,7 +26,7 @@ import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './co
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
-import { cachedEntryWhenReady, clearEntryCache, hydrateEntryCache, justLoaded, loadEntry, openEntryCache, pruneEntryCache, rememberEntry, warmEntry } from './lib/entry-cache';
+import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, loadEntry, localNote, openEntryCache, pruneEntryCache, rememberEntry, warmEntry } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
@@ -1142,13 +1142,21 @@ export default function Workspace() {
     let item: Entry = listedItem;
     const generation = identityGeneration.current;
     const request = ++noteRequestRef.current;
-    // A note whose body is on this device opens from it at once; the server
-    // is then asked in the background whether a newer revision exists.
+    // A note whose body is on this device opens from it. The tree's updated_at
+    // is the revision: a match is not fetched again. An older local body is
+    // shown at once, then refreshed. The first screen does not open the store.
     let fromDevice: Entry | null = null;
+    let revisionMatches = false;
     if (item.kind === 'note' && item.body === undefined) {
-      fromDevice = await cachedEntryWhenReady(item, !loading);
+      const local = await localNote(item, !loading);
       if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
-      if (fromDevice) item = fromDevice;
+      if (local) {
+        fromDevice = local.entry;
+        revisionMatches = local.fresh;
+        item = local.fresh
+          ? { ...item, body: local.entry.body }
+          : { ...local.entry, title: item.title || local.entry.title, library_id: item.library_id, parent_id: item.parent_id };
+      }
     }
     if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
       // A later selection wins even if this request is slower.
@@ -1187,7 +1195,7 @@ export default function Workspace() {
     chooseTab(key);
     setSelectedId(id); setSelected(item); setTitle(item.title); setBody(item.body ?? '');
     // chooseTab advanced the counter; a later selection advances it again.
-    if (fromDevice && !justLoaded(id)) void refreshFromServer(fromDevice, generation, noteRequestRef.current, saveVersions.current[id] ?? 0);
+    if (fromDevice && !revisionMatches && !justLoaded(id)) void refreshFromServer(fromDevice, generation, noteRequestRef.current, saveVersions.current[id] ?? 0);
     setView(item.kind === 'agent' ? 'sessions' : 'notes');
     if (!preserveSidebar && window.innerWidth <= 720) setSidebarOpen(false);
     // Like Notion, the page opens without a side panel; the outline is on demand.
@@ -1381,7 +1389,7 @@ export default function Workspace() {
   // code and database never delay the first load.
   useEffect(() => {
     if (loading || !session) return;
-    const timer = window.setTimeout(() => { void hydrateEntryCache(); }, 1500);
+    const timer = window.setTimeout(() => { void hydrateEntryCache(); enableEntryReplica(); }, 1500);
     return () => window.clearTimeout(timer);
   }, [loading, session]);
 
@@ -2456,7 +2464,7 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
       <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

@@ -2188,9 +2188,11 @@
   }
   .obsidian-app .mobile-command-bar button:active { transform: scale(.95); }
   .mobile-bar-ask-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border); }
-  /* The Agent has its own composer, and editing shows the format bar. */
-  .obsidian-app:has(.agent-thread, .agent-picker) .mobile-command-bar { display: none; }
+  /* The Agent has its own composer, and editing shows the format bar.
+     A note page has no room for the ask-AI bar; home and tools keep it. */
+  .obsidian-app:has(.agent-thread, .agent-picker, .note-editor) .mobile-command-bar { display: none; }
   .obsidian-app .note-editor, .obsidian-app .new-note-home, .obsidian-app .campus-tool { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .obsidian-app:has(.note-editor) .note-editor { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
   /* Page title as Notion's breadcrumb pill. */
   .obsidian-app .mobile-tab-title { flex: 0 1 auto; margin: 0 auto; height: 34px; padding: 0 12px; border-radius: 999px; background: var(--hover-wash); font-size: 14px; font-weight: 500; }
 }

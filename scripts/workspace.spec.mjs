@@ -2123,7 +2123,7 @@ test('mobile note shell keeps navigation, actions and settings within one viewpo
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/workspace');
   await expect(page.locator('.note-title')).toHaveValue('First note for user A');
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeHidden();
   await expect(page.locator('.codemirror-editor .cm-md-syntax')).toHaveCount(0);
   await page.locator('.codemirror-editor .cm-line').first().click();
   await expect(page.locator('.codemirror-editor .cm-md-syntax')).toHaveCount(1);
@@ -2199,7 +2199,7 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
   await expect(sidebar).toHaveAttribute('inert', '');
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
   await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
@@ -2604,7 +2604,7 @@ test('mobile Markdown commands appear as a scrollable sheet instead of a permane
   const editor = page.locator('.codemirror-editor .cm-content');
   await editor.click();
   await expect(page.getByRole('dialog', { name: 'Markdown 编辑菜单' })).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeHidden();
   await editor.click({ button: 'right' });
   const menu = page.getByRole('dialog', { name: 'Markdown 编辑菜单' });
   await expect(menu).toBeVisible();
@@ -3307,7 +3307,8 @@ test('a note already on this device opens without waiting, and a newer server co
     .then(root => root.getDirectoryHandle('.tjuclaw-sqlite')).then(() => true, () => false))).toBe(true);
   await page.waitForTimeout(400);
 
-  // After a reload the tree lists no bodies. The note still opens while its request is held.
+  // After a reload the tree lists the same revision. The note opens from this
+  // device and does not ask the server again.
   await page.reload();
   await expect(page.locator('.note-title')).toHaveValue(noteA.title);
   block();
@@ -3315,15 +3316,24 @@ test('a note already on this device opens without waiting, and a newer server co
   await expect(page.locator('.note-title')).toHaveValue(noteC.title);
   await expect(editor).toContainText('Another document');
   await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
-  await expect.poll(() => reads).toBe(2);
+  await page.waitForTimeout(400);
+  expect(reads).toBe(1);
+  release();
 
-  // The held answer is a newer revision from another device: it replaces the untouched text.
+  // A different listed revision is fetched. Untouched text takes the new body.
+  revise({ updated_at: '2026-02-02T00:00:00.000Z' }, true);
+  await page.reload();
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  block();
+  await open();
+  await expect(editor).toContainText('Another document');
+  await expect.poll(() => reads).toBe(2);
   revise({ body: '另一台设备写入的新内容', updated_at: '2026-02-02T00:00:00.000Z' });
   release();
   await expect(editor).toContainText('另一台设备写入的新内容');
 
   // A note being edited keeps the reader's text when a newer revision arrives.
-  revise({}, true);
+  revise({ updated_at: '2026-03-03T00:00:00.000Z' }, true);
   await page.reload();
   await expect(page.locator('.note-title')).toHaveValue(noteA.title);
   block();
@@ -3375,12 +3385,16 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   await expect(reply).toHaveText('基尔霍夫定律');
   await expect(reply.locator('strong')).toHaveText('基尔霍夫');
   await expect(working.locator('.agent-working-text')).toHaveText('正在回答');
+  await expect(working.locator('.agent-working-rate')).toContainText('token/秒');
   // Once the reply starts, the thinking steps aside.
   await expect(working.getByLabel('思考过程')).toHaveCount(0);
   expect(cursors.slice(0, 4)).toEqual(['',
     'version=1&call=5&thinking=9&text=0', 'version=2&call=5&thinking=15&text=0', 'version=3&call=5&thinking=15&text=16']);
 
   finish();
+  // The turn ending clears the live snapshot. The reply already on screen stays
+  // until the confirmed message replaces this working view.
+  await expect(reply).toHaveText('基尔霍夫定律');
   release();
   await expect(working).toHaveCount(0);
   await expect(page.locator('.chat-message.assistant').last()).toBeVisible();

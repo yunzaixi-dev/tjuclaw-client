@@ -37,13 +37,12 @@ tokens and data, not identical chrome.
 | Layering | Named `--z-overlay` and `--z-dialog` tokens, portal-based dialogs |
 | Motion | 160-200ms state transitions; respect reduced motion |
 
-Brand artwork uses the transparent crystal mark through `src/assets/brand-icon.webp`
-for in-product surfaces. The white-background `app-icon.png` is reserved for native
-application icons; `favicon.png` is its lightweight browser-tab derivative. Use
+Brand artwork is the rounded blueprint app icon. `src/assets/brand-icon.webp`
+is that plate with the outer canvas removed, for in-product surfaces. `app-icon.png`
+is the same plate for native icons; `favicon.png` is its browser-tab size. Use
 the shared `BrandIcon` component rather than
 substituting a generic sparkle or letter. Decorative marks beside the wordmark use
-empty alt text; standalone meaningful images need a label. Native icon sources
-remain independent of this web display asset.
+empty alt text; standalone meaningful images need a label.
 
 Use `Button` variants `solid`, `ghost`, `floating`, and sizes `default`, `icon`.
 Icon-only buttons need an accessible name. Dialogs need a title, description,

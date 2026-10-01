@@ -1,14 +1,16 @@
 // Note bodies kept on this device, so opening a note does not wait for the
 // network. A body is stored with the note's `updated_at`; the tree lists that
-// same stamp, so a stored body whose stamp matches the listed one is the
-// note as the server last described it. The caller still asks the server
-// afterwards and swaps in a newer body if there is one.
+// same stamp, so a stored body whose stamp matches the listed one is current
+// and must not be fetched again. A different stamp is shown at once, then
+// refreshed. A Git blob written after the workspace is on screen is the
+// fallback when this cache misses. The first screen does not open the store.
 //
 // Memory answers at once; SQLite on OPFS (or the native store) carries the
 // bodies across visits. The database is opened only after the workspace is on
 // screen (or when a note is first opened by hand), so it never adds to the
 // first load. Bodies are stored as they are: this device is the user's own,
 // and signing out clears them.
+import { clearGitEntries, readGitEntry, rememberGitEntry } from './git/entry-replica.ts';
 import { getEntry, type Entry } from './library';
 import { openLocalStore, type LocalStore } from './local-store.ts';
 
@@ -66,6 +68,37 @@ export function cachedEntry(listed: Entry): Entry | null {
   return entry && entry.updated_at === listed.updated_at ? entry : null;
 }
 
+const withBody = (entry: Entry | null | undefined) => entry && typeof entry.body === 'string' ? entry : null;
+
+/**
+ * The note on this device, even when its revision is older than the tree.
+ * `fresh` means the tree's `updated_at` matches, so the caller must not GET.
+ * With `hydrate` the database is opened if needed and waited on, up to
+ * `waitMs`. During the first load, pass hydrate false so the screen does not
+ * open the store; an already-started read is still awaited.
+ */
+export async function localNote(listed: Entry, hydrate: boolean, waitMs = 1500): Promise<{ entry: Entry; fresh: boolean } | null> {
+  const pick = (entry: Entry | null | undefined) => {
+    const body = withBody(entry);
+    return body ? { entry: body, fresh: body.updated_at === listed.updated_at } : null;
+  };
+  const memoryHit = pick(memory.get(listed.id));
+  if (memoryHit) return memoryHit;
+  const reading = hydrate ? hydrateEntryCache() : loaded;
+  if (reading) await Promise.race([reading, new Promise(resolve => setTimeout(resolve, waitMs))]);
+  const stored = pick(memory.get(listed.id));
+  if (stored) return stored;
+  if (!hydrate || !owner) return memoryHit;
+  const git = await Promise.race([
+    readGitEntry(owner, listed.id).catch(() => null),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), Math.min(waitMs, 800))),
+  ]);
+  const gitHit = pick(git);
+  if (!gitHit) return memoryHit;
+  memory.set(gitHit.entry.id, gitHit.entry);
+  return gitHit;
+}
+
 /**
  * As cachedEntry, waiting briefly for the read from disk. With `hydrate` the
  * database is opened if it is not yet; during the first load it is left alone.
@@ -79,11 +112,22 @@ export async function cachedEntryWhenReady(listed: Entry, hydrate: boolean, wait
   return cachedEntry(listed);
 }
 
+let replica = false;
+
+/** After the workspace is on screen, also keep bodies as Git blobs. */
+export function enableEntryReplica() {
+  replica = true;
+  const identity = owner;
+  if (!identity) return;
+  for (const entry of memory.values()) void rememberGitEntry(identity, entry).catch(() => undefined);
+}
+
 /** Keeps a note's body (as returned by the server) for later opens. */
 export function rememberEntry(entry: Entry) {
   const identity = owner;
   if (!identity || !cacheable(entry)) return;
   memory.set(entry.id, entry);
+  if (replica) void rememberGitEntry(identity, entry).catch(() => undefined);
   if (!loaded) { unsaved.add(entry.id); return; }
   void persistent().then(opened => opened?.set(namespace(identity), entry.id, JSON.stringify(entry))).catch(() => undefined);
 }
@@ -114,7 +158,9 @@ export function clearEntryCache() {
   memory.clear();
   unsaved.clear();
   loaded = null;
+  replica = false;
   if (!identity) return;
+  void clearGitEntries(identity).catch(() => undefined);
   void persistent().then(async opened => {
     if (!opened) return;
     for (const [id] of await opened.list(namespace(identity))) await opened.delete(namespace(identity), id);

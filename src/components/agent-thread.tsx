@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
 import { LifeBackground } from './life-background';
 import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { matchingCommands, slashQuery, type PiCommand } from '../lib/pi-commands';
 import { agentRuntime } from '../lib/local-sandbox';
 import './agent-thread.css';
 
@@ -57,6 +58,11 @@ function EffortPicker() {
   const ref = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => setOpen(false), []);
   useMenuDismiss(open, close, ref);
+  useEffect(() => {
+    const sync = () => setEffort(agentEffort());
+    window.addEventListener('tjuclaw:agent-effort', sync);
+    return () => window.removeEventListener('tjuclaw:agent-effort', sync);
+  }, []);
   const current = EFFORTS.find(item => item.value === effort) ?? EFFORTS[0];
   return <div className="agent-model" ref={ref}>
     <button type="button" className="agent-chip is-button" aria-haspopup="menu" aria-expanded={open} aria-label={`思考强度：${current.label}`} onClick={() => setOpen(value => !value)}>
@@ -117,7 +123,7 @@ function ModelPill({ onManage }: { onManage: () => void }) {
   );
 }
 
-export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, renderMarkdown }: {
+export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, onNewChat, onShowHistory, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   capabilities: AgentCapabilities | null;
@@ -133,6 +139,10 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   onSubmit: (event: FormEvent) => void;
   onRetry: () => void;
   onManageModels: () => void;
+  /** Starts another conversation. `/new` in the composer. */
+  onNewChat?: () => void;
+  /** Opens the conversation list. `/resume` in the composer. */
+  onShowHistory?: () => void;
   renderMarkdown: (markdown: string) => string;
 }) {
   const messages = (chat?.messages ?? []).filter(message => message.content);
@@ -140,6 +150,11 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [commandNote, setCommandNote] = useState('');
+  const [commandIndex, setCommandIndex] = useState(0);
+  const slash = slashQuery(draft);
+  const commands = slash ? matchingCommands(slash) : [];
+  const commandOpen = Boolean(slash) && !sending;
 
   useEffect(() => {
     const area = scrollRef.current;
@@ -162,6 +177,75 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     void prepareSession(chatId);
   }, [chatId, writing]);
 
+  useEffect(() => { setCommandIndex(0); }, [slash]);
+
+  const runCommand = (command: PiCommand) => {
+    if (!command.available || !command.action) {
+      setCommandNote(`${command.label}需要在 Pi 终端里使用，这里不会把它发给模型。`);
+      return;
+    }
+    if (command.action === 'new') { onDraftChange(''); setCommandNote(''); onNewChat?.(); return; }
+    if (command.action === 'model') { onDraftChange(''); setCommandNote(''); onManageModels(); return; }
+    if (command.action === 'resume') { onDraftChange(''); setCommandNote(''); onShowHistory?.(); return; }
+    if (command.action === 'thinking') {
+      const order: AgentEffort[] = ['', 'low', 'high'];
+      const next = order[(order.indexOf(agentEffort()) + 1) % order.length];
+      setAgentEffort(next);
+      window.dispatchEvent(new CustomEvent('tjuclaw:agent-effort'));
+      const label = EFFORTS.find(item => item.value === next)?.label ?? '自动';
+      onDraftChange('');
+      setCommandNote(`思考强度：${label}`);
+      return;
+    }
+    if (command.action === 'copy') {
+      const last = [...messages].reverse().find(message => message.role === 'assistant' && message.content);
+      if (!last) { setCommandNote('还没有可复制的回复。'); return; }
+      void navigator.clipboard?.writeText(last.content);
+      onDraftChange('');
+      setCommandNote('已复制上一条回复。');
+      return;
+    }
+    const updated = chat?.updated_at ? new Date(chat.updated_at).toLocaleString('zh-CN', { hour12: false }) : '';
+    onDraftChange('');
+    setCommandNote(chat ? `会话 ${chat.id.slice(0, 8)} · ${messages.length} 条消息${updated ? ` · ${updated}` : ''}` : '会话尚未就绪。');
+  };
+
+  const submitComposer = (event: FormEvent) => {
+    if (slash) {
+      event.preventDefault();
+      const exact = commands.find(command => command.name === slash);
+      const chosen = exact ?? (commands.length === 1 ? commands[0] : commands[commandIndex]);
+      if (chosen) runCommand(chosen);
+      else setCommandNote('这里没有这条指令。输入 / 查看可以在这里用的指令。');
+      return;
+    }
+    onSubmit(event);
+  };
+
+  const onComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (commandOpen && commands.length) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setCommandIndex(index => {
+          const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+          return (next + commands.length) % commands.length;
+        });
+        return;
+      }
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const chosen = commands[commandIndex] ?? commands[0];
+        if (chosen) onDraftChange(chosen.name);
+        return;
+      }
+    }
+    if (event.key === 'Escape' && commandOpen) { event.preventDefault(); onDraftChange(''); setCommandNote(''); return; }
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
+  };
+
   // Grow the composer with its content, up to a comfortable height.
   useEffect(() => {
     const input = inputRef.current;
@@ -174,13 +258,21 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   const empty = Boolean(chat) && !messages.length && !sending && !pending && !(loading && !chat?.messages);
   const composer = (
       <>
-      <form className="agent-composer" onSubmit={onSubmit}>
+      <form className="agent-composer" onSubmit={submitComposer}>
+        {commandOpen ? <div id="agent-command-menu" className="agent-command-menu" role="listbox" aria-label="Pi 指令">
+          <p>指令</p>
+          {commands.length ? commands.map((command, index) => <button type="button" key={command.name} role="option" aria-selected={index === commandIndex} className={`agent-command-option${index === commandIndex ? ' is-active' : ''}`} onMouseEnter={() => setCommandIndex(index)} onClick={() => runCommand(command)}>
+            <code>{command.name}</code><strong>{command.label}</strong><small>{command.hint}</small>
+          </button>) : <p>没有匹配的指令</p>}
+        </div> : null}
         <label htmlFor="session-draft" className="sr-only">发送给 Agent 的消息</label>
         <textarea ref={inputRef} id="session-draft" value={draft} rows={1}
-          onChange={event => onDraftChange(event.target.value)}
-          placeholder={chat ? '提问、搜索或创建任何内容…' : '会话尚未就绪'}
+          onChange={event => { setCommandNote(''); onDraftChange(event.target.value); }}
+          placeholder={chat ? '提问、搜索或创建任何内容，输入 / 查看指令' : '会话尚未就绪'}
           disabled={!chat || sending}
-          onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+          aria-expanded={commandOpen}
+          aria-controls={commandOpen ? 'agent-command-menu' : undefined}
+          onKeyDown={onComposerKeyDown} />
         <div className="agent-composer-bar">
           <span className="agent-composer-tools">
             <ModelPill key={`${modelVersion}:${messages.length}:${error ? 1 : 0}`} onManage={onManageModels} />
@@ -192,6 +284,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
         </div>
       </form>
       <p className="agent-disclaimer">以上内容由智能体生成，仅供参考</p>
+      {commandNote ? <p className="agent-command-note" role="status">{commandNote}</p> : null}
       </>
   );
   const notice = error && chat ? <div className="agent-notice" role="alert"><span>{error}</span>{error.includes('未确认') ? <button type="button" onClick={onRetry}>确认发送结果</button> : null}</div> : null;

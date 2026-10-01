@@ -91,6 +91,7 @@
 /* The running turn: one row per call, appearing as each call starts. */
 .agent-live-steps { margin: 10px 0 0; }
 .agent-step.is-live .agent-step-line { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 6px; color: var(--foreground); font-size: 13.5px; }
+.agent-step.is-live .agent-step-detail { flex: 1; min-width: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .agent-step.is-live .agent-step-line > svg:first-child { flex: none; color: var(--muted-foreground); }
 .agent-step.is-live { animation: agent-step-in 220ms var(--ease-out, ease-out) both; }
 .agent-step.is-live.is-running .agent-step-label { color: var(--foreground); }
