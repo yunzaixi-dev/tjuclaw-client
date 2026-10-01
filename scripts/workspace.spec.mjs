@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
@@ -3257,6 +3258,84 @@ test('a running turn lists each tool call as it happens, then settles', async ({
   await expect(live.getByRole('img', { name: '失败' })).toHaveCount(1);
   release();
   await expect(live).toHaveCount(0);
+});
+
+test('settings show the running version and build, and explain updates where none can be checked', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '关于', exact: true }).click();
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  await expect(dialog.locator('.settings-value').first()).toHaveText(new RegExp(`^v${version.replaceAll('.', '\\.')}( · [0-9a-f]{7})?$`));
+  // This suite blocks service workers, as a browser without them would.
+  await dialog.getByRole('button', { name: '检查更新', exact: true }).click();
+  await expect(dialog.getByText('当前环境无法检查更新，刷新页面即可获取最新版本。')).toBeVisible();
+});
+
+test('a note already on this device opens without waiting, and a newer server copy replaces it only if untouched', async ({ page }) => {
+  const state = defaultState();
+  state.entries = [guideA, noteA, noteC];
+  state.entryById = Object.fromEntries(state.entries.map(item => [item.id, { ...item }]));
+  await mockWorkspace(page, state);
+  // The server's copy of the note; `listed` also changes what the tree reports.
+  const revise = (patch, listed = false) => {
+    state.entryById[noteC.id] = { ...state.entryById[noteC.id], ...patch };
+    if (listed) state.entries = state.entries.map(item => item.id === noteC.id ? state.entryById[noteC.id] : item);
+  };
+  // A held body read proves that what is on screen meanwhile came from the device.
+  let hold = false, release, reads = 0;
+  let gate = Promise.resolve();
+  const block = () => { hold = true; gate = new Promise(resolve => { release = () => { hold = false; resolve(); }; }); };
+  await page.route(`**/api/entries/${noteC.id}`, async route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    reads += 1;
+    if (hold) await gate;
+    return route.fallback();
+  });
+  const open = () => page.getByRole('button', { name: noteC.title, exact: true }).click();
+  const editor = page.locator('.cm-content');
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+
+  // First open: fetched from the server and kept on the device.
+  await open();
+  await expect(editor).toContainText('Another document');
+  expect(reads).toBe(1);
+  // The database opens with the first note opened by hand; give the write a moment to land.
+  await expect.poll(() => page.evaluate(() => navigator.storage.getDirectory()
+    .then(root => root.getDirectoryHandle('.tjuclaw-sqlite')).then(() => true, () => false))).toBe(true);
+  await page.waitForTimeout(400);
+
+  // After a reload the tree lists no bodies. The note still opens while its request is held.
+  await page.reload();
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  block();
+  await open();
+  await expect(page.locator('.note-title')).toHaveValue(noteC.title);
+  await expect(editor).toContainText('Another document');
+  await expect(page.getByRole('status', { name: '笔记操作进度' })).toHaveCount(0);
+  await expect.poll(() => reads).toBe(2);
+
+  // The held answer is a newer revision from another device: it replaces the untouched text.
+  revise({ body: '另一台设备写入的新内容', updated_at: '2026-02-02T00:00:00.000Z' });
+  release();
+  await expect(editor).toContainText('另一台设备写入的新内容');
+
+  // A note being edited keeps the reader's text when a newer revision arrives.
+  revise({}, true);
+  await page.reload();
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  block();
+  await open();
+  await expect(editor).toContainText('另一台设备写入的新内容');
+  await editor.click();
+  await page.keyboard.type('我正在写');
+  revise({ body: '第三个版本', updated_at: '2026-03-03T00:00:00.000Z' });
+  release();
+  await expect.poll(() => reads).toBe(3);
+  await expect(editor).toContainText('我正在写');
+  await expect(editor).not.toContainText('第三个版本');
 });
 
 test('a running turn writes the model\'s thinking and reply as they arrive, and typing warms the sandbox once', async ({ page }) => {

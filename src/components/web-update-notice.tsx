@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { applyUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
+import { versionLabel } from '../lib/version';
 import './update-notice.css';
 
 // Web 端：新版本已在后台装好时提示刷新；不点刷新就继续用当前版本。
@@ -17,7 +18,7 @@ export function WebUpdateNotice() {
           <X size={14} />
         </button>
       </div>
-      <p>刷新后使用新版本；未保存的输入请先保存。</p>
+      <p>当前 {versionLabel}。刷新后使用新版本；未保存的输入请先保存。</p>
       <div className="update-notice-actions">
         <button type="button" className="is-secondary" onClick={() => setDismissed(true)}>稍后</button>
         <button type="button" className="is-primary" onClick={applyUpdate}>刷新</button>

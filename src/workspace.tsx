@@ -26,6 +26,7 @@ import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './co
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
+import { cachedEntryWhenReady, clearEntryCache, hydrateEntryCache, justLoaded, loadEntry, openEntryCache, pruneEntryCache, rememberEntry, warmEntry } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
@@ -133,7 +134,7 @@ function TreeItem({ entry, entries, group, selectedId, onSelect, onContextMenu, 
   return <div className="obsidian-tree-node">
     <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} role="treeitem" aria-label={entry.title || '未命名笔记'} aria-selected={selectedId === entry.id} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)}>
       {children.length ? <button className="tree-toggle" type="button" onClick={() => setOpen(value => !value)} aria-label="展开或折叠"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button> : <span className="tree-spacer" />}
-      <button className="tree-item" type="button" onClick={() => onSelect(entry.id)}>{entry.kind === 'file' ? <Paperclip size={15} /> : entry.kind === 'rich_text' ? <FilePenLine size={15} /> : <FileText size={15} />}<span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
+      <button className="tree-item" type="button" onPointerEnter={() => warmEntry(entry)} onFocus={() => warmEntry(entry)} onClick={() => onSelect(entry.id)}>{entry.kind === 'file' ? <Paperclip size={15} /> : entry.kind === 'rich_text' ? <FilePenLine size={15} /> : <FileText size={15} />}<span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
     </div>
     {open && children.length ? <div className="tree-children">{children.map(child => <TreeItem key={child.id} entry={child} entries={entries} group={`notes:entry:${entry.id}`} selectedId={selectedId} onSelect={onSelect} onContextMenu={onContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
   </div>;
@@ -569,6 +570,7 @@ export default function Workspace() {
         const entry = await patchEntry(pending.id, { title: pending.title, body: pending.body, expected_updated_at: expected });
         if (pending.generation !== identityGeneration.current) return;
         entryRevisions.current[entry.id] = entry.updated_at;
+        rememberEntry(entry);
         if (saveVersions.current[entry.id] === pending.version) {
           if (failedSave.current?.id === entry.id) {
             failedSave.current = null;
@@ -1108,6 +1110,24 @@ export default function Workspace() {
     </div>;
   }
 
+  // After a note opened from this device: fetch the server's copy, keep it for
+  // next time and, if it is newer and the note has not been edited or left
+  // meanwhile, show it. An edited note keeps its text; saving it then reports
+  // the conflict as before.
+  async function refreshFromServer(shown: Entry, generation: number, request: number, version: number) {
+    let fresh: Entry;
+    try { fresh = await loadEntry(shown.id); } catch { return; }
+    if (generation !== identityGeneration.current) return;
+    if (fresh.updated_at === shown.updated_at || request !== noteRequestRef.current ||
+      (saveVersions.current[shown.id] ?? 0) !== version || conflictedEntries.current.has(shown.id)) return;
+    entryRevisions.current[shown.id] = fresh.updated_at;
+    setEntries(items => items.map(item => item.id === fresh.id ? fresh : item));
+    setSelected(current => current?.id === fresh.id ? fresh : current);
+    setTabs(current => current.map(tab => tab.entryId === fresh.id ? { ...tab, title: fresh.title || '未命名笔记' } : tab));
+    setTitle(fresh.title);
+    setBody(fresh.body ?? '');
+  }
+
   async function openEntry(id: string, loadedItem?: Entry, targetTabKey?: string, historyIndex?: number, preserveSidebar = false) {
     if (id !== selectedId && !canLeaveDraft(id)) return;
     const listedItem = loadedItem ?? entries.find(entry => entry.id === id);
@@ -1122,11 +1142,19 @@ export default function Workspace() {
     let item: Entry = listedItem;
     const generation = identityGeneration.current;
     const request = ++noteRequestRef.current;
+    // A note whose body is on this device opens from it at once; the server
+    // is then asked in the background whether a newer revision exists.
+    let fromDevice: Entry | null = null;
+    if (item.kind === 'note' && item.body === undefined) {
+      fromDevice = await cachedEntryWhenReady(item, !loading);
+      if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
+      if (fromDevice) item = fromDevice;
+    }
     if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
       // A later selection wins even if this request is slower.
       const finish = beginOperation(`open:${request}`, `正在打开「${item.title || '未命名笔记'}」`);
       try {
-        item = await getEntry(item.id);
+        item = await loadEntry(item.id);
       } catch {
         if (generation === identityGeneration.current && request === noteRequestRef.current) setError('打开笔记失败，请稍后重试。');
         return;
@@ -1158,6 +1186,8 @@ export default function Workspace() {
     });
     chooseTab(key);
     setSelectedId(id); setSelected(item); setTitle(item.title); setBody(item.body ?? '');
+    // chooseTab advanced the counter; a later selection advances it again.
+    if (fromDevice && !justLoaded(id)) void refreshFromServer(fromDevice, generation, noteRequestRef.current, saveVersions.current[id] ?? 0);
     setView(item.kind === 'agent' ? 'sessions' : 'notes');
     if (!preserveSidebar && window.innerWidth <= 720) setSidebarOpen(false);
     // Like Notion, the page opens without a side panel; the outline is on demand.
@@ -1347,12 +1377,21 @@ export default function Workspace() {
     }
   }
 
+  // The device's note store is opened once the workspace is on screen, so its
+  // code and database never delay the first load.
+  useEffect(() => {
+    if (loading || !session) return;
+    const timer = window.setTimeout(() => { void hydrateEntryCache(); }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [loading, session]);
+
   async function loadWorkspaceData(libraryId: string, generation: number) {
     setLoadStep('entries');
     // Flashcards do not depend on the note tree: both load at once.
     const flashcards = loadAnkiData(generation);
     const items = await listEntries(libraryId);
     if (generation !== identityGeneration.current) return;
+    pruneEntryCache(items);
     setEntries(items);
     setSidebarOrder(current => ({
       ...Object.fromEntries(Object.entries(current).filter(([group]) => !group.startsWith('notes:'))),
@@ -1464,7 +1503,9 @@ export default function Workspace() {
         if (identityRef.current === next.id) return;
         clearRemoteWorkspaceUnlocks();
         clearPrivateDrafts();
+        if (identityRef.current) clearEntryCache();
         identityRef.current = next.id;
+        openEntryCache(next.id);
         const generation = ++identityGeneration.current;
         ++noteRequestRef.current;
         operationLocks.current.clear();
@@ -2180,6 +2221,7 @@ export default function Workspace() {
     if (hasPrivateDrafts() && !window.confirm('私密笔记还有未保存的草稿。退出登录会丢失草稿，确定继续吗？')) return;
     clearRemoteWorkspaceUnlocks();
     clearPrivateDrafts();
+    clearEntryCache();
     if (session && library) clearWorkspaceUnlock(session.id, library.id);
     void logout();
   }

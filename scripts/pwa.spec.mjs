@@ -66,6 +66,8 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
     await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
     const notice = page.getByRole('status', { name: '应用更新' });
     await expect(notice).toContainText('新版本已就绪');
+    // The notice names the build the reader is on.
+    await expect(notice).toContainText(/当前 v\d+\.\d+\.\d+/);
     // Until the reader agrees, the page keeps the build it started with.
     expect(await page.evaluate(() => navigator.serviceWorker.getRegistration().then(registration => Boolean(registration.waiting)))).toBe(true);
 

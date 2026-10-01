@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,6 +44,19 @@ function preloadWorkspace(): Plugin {
   };
 }
 
+// What this build is: the package version, and the commit it was built from
+// (several deployments can share one version).
+const packageVersion = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
+function buildCommit(): string {
+  const fromCI = process.env.GITHUB_SHA;
+  if (fromCI && /^[0-9a-f]{40}$/.test(fromCI)) return fromCI.slice(0, 7);
+  try {
+    return execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: fileURLToPath(new URL('.', import.meta.url)), stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+
 // Writes dist/sw.js once the build is on disk. The shell it precaches is
 // exactly what index.html asks for up front (entry, workspace graph, styles);
 // everything else under /assets/ is cached when first used.
@@ -68,6 +82,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
     ? [auditServer(fileURLToPath(new URL('../private/audit/', import.meta.url)))] : [])],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  define: { __APP_VERSION__: JSON.stringify(packageVersion), __APP_COMMIT__: JSON.stringify(buildCommit()) },
   clearScreen: false,
   server: {
     host: mode === 'audit' ? '127.0.0.1' : process.env.TAURI_DEV_HOST || '127.0.0.1',

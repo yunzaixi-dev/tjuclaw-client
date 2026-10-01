@@ -1,10 +1,13 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
 import { Blocks, BookOpen, Bot, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { CampusAccounts } from './campus-accounts';
 import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
+import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
+import { versionLabel } from '../lib/version';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'account' | 'about';
@@ -32,6 +35,25 @@ const descriptions: Record<SettingsSection, string> = {
   account: '当前登录状态与账户操作。',
   about: '关于此工作区。',
 };
+
+/** Web: asks for a newer build on demand. The desktop app updates through its own notice. */
+function UpdateCheck() {
+  const waiting = useSyncExternalStore(subscribeUpdate, updateWaiting, () => false);
+  const [state, setState] = useState<'idle' | 'checking' | 'current' | 'unavailable'>('idle');
+  if (isTauri()) return null;
+  const check = async () => {
+    setState('checking');
+    const result = await checkForUpdate();
+    setState(result === 'ready' ? 'idle' : result);
+  };
+  const description = waiting ? '新版本已下载，刷新后生效。' : state === 'current' ? '已是最新版本。'
+    : state === 'unavailable' ? '当前环境无法检查更新，刷新页面即可获取最新版本。' : '网页版会在后台自动检查；也可以现在检查。';
+  return <SettingRow title="更新" description={description}>
+    {waiting
+      ? <button type="button" className="settings-action-button" onClick={applyUpdate}>刷新以更新</button>
+      : <button type="button" className="settings-action-button" disabled={state === 'checking'} onClick={() => void check()}>{state === 'checking' ? '正在检查…' : '检查更新'}</button>}
+  </SettingRow>;
+}
 
 function SettingRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return <div className="settings-entry"><div className="settings-entry-copy"><strong>{title}</strong>{description ? <span>{description}</span> : null}</div><div className="settings-entry-action">{children}</div></div>;
@@ -246,6 +268,9 @@ export function WorkspaceSettings({
               <SettingRow title="退出登录" description="退出此设备上的当前会话。"><button type="button" className="settings-action-button is-danger" onClick={onLogout}><LogOut size={15} /> 退出登录</button></SettingRow>
             </> : null}
             {active === 'about' ? <>
+              <h3>版本</h3>
+              <SettingRow title="当前版本" description="版本号后的短码是这次构建对应的提交。"><span className="settings-value">{versionLabel}</span></SettingRow>
+              <UpdateCheck />
               <h3>工作区</h3>
               <SettingRow title="笔记工作区" description="笔记、文件夹与记忆闪卡保存在服务端；旧版浏览器卡片不会自动合并。"><span className="settings-value">Web</span></SettingRow>
               <p className="settings-about-note">记忆闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器尚未接入。Agent 能力以当前服务端实际可用范围为准；第三方插件尚未开放。</p>
