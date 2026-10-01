@@ -1305,9 +1305,7 @@ export default function Workspace() {
       const deck = decks[0] ?? await createDeck('默认牌组');
       if (generation !== identityGeneration.current) return;
       if (!decks.length) decks = [deck];
-      const cards = await listAnkiCards(deck.id);
-      if (generation !== identityGeneration.current) return;
-      const lastStudyAt = await deckStudySummary(deck.id);
+      const [cards, lastStudyAt] = await Promise.all([listAnkiCards(deck.id), deckStudySummary(deck.id)]);
       if (generation !== identityGeneration.current) return;
       if (identityRef.current) {
         for (const card of cards) {
@@ -1351,6 +1349,8 @@ export default function Workspace() {
 
   async function loadWorkspaceData(libraryId: string, generation: number) {
     setLoadStep('entries');
+    // Flashcards do not depend on the note tree: both load at once.
+    const flashcards = loadAnkiData(generation);
     const items = await listEntries(libraryId);
     if (generation !== identityGeneration.current) return;
     setEntries(items);
@@ -1361,19 +1361,22 @@ export default function Workspace() {
     const remoteFolders = items.filter(item => item.kind === 'folder').map(item => ({ id: item.id, name: item.title, parentId: item.parent_id || null }));
     setFolders(remoteFolders);
     setPlacements(Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])));
-    setLoadStep('cards');
-    await loadAnkiData(generation);
-    if (generation !== identityGeneration.current) return;
     // A new workspace always contains the guide agent, but opening that agent
     // automatically would switch the user away from the notes home and hide
     // the primary "new note" action. Only restore a real note here; otherwise
     // keep the notes home visible.
     const firstNote = items.find(item => item.kind === 'note' || item.kind === 'rich_text');
     // Open the last note before the loading screen ends, so the workspace
-    // appears on that note instead of flashing the new-note home first.
-    if (firstNote) {
+    // appears on that note instead of flashing the new-note home first. Its
+    // body is requested now, while the flashcards are still loading.
+    const opening = firstNote ? openEntry(firstNote.id, firstNote) : null;
+    opening?.catch(() => undefined);
+    setLoadStep('cards');
+    await flashcards;
+    if (generation !== identityGeneration.current) return;
+    if (opening) {
       setLoadStep('note');
-      await openEntry(firstNote.id, firstNote);
+      await opening;
     }
     else {
       ++chatRequestRef.current;
@@ -1408,14 +1411,14 @@ export default function Workspace() {
     }
   }
 
-  async function load(generation: number) {
+  async function load(generation: number, early?: { libraries: Promise<Library[]>; verification: ReturnType<typeof workspaceVerification> }) {
     try {
       setLoadStep('library');
-      const libs = await listLibraries();
+      // Neither answer depends on the other, and the first page load already
+      // asked for both while the session was being confirmed.
+      const [libs, verification] = await Promise.all([early?.libraries ?? listLibraries(), early?.verification ?? workspaceVerification()]);
       if (generation !== identityGeneration.current) return;
       setLibraries(libs);
-      const verification = await workspaceVerification();
-      if (generation !== identityGeneration.current) return;
       const activeLibrary = libs[0];
       if (!activeLibrary) {
         setWorkspaceGate({ workspaceId: null, workspaceName: '', mode: 'setup', verification, firstWorkspace: true });
@@ -1449,6 +1452,12 @@ export default function Workspace() {
     let active = true;
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
+      // On the first load, ask for the workspace list and vault mode together
+      // with the session instead of after it; a signed-out visitor is
+      // redirected by the session answer and these are simply dropped.
+      const early = identityRef.current ? undefined : { libraries: listLibraries(), verification: workspaceVerification() };
+      early?.libraries.catch(() => undefined);
+      early?.verification.catch(() => undefined);
       void readSession().then(next => {
         if (!active) return;
         if (!next) { location.replace('/auth/login'); return; }
@@ -1519,7 +1528,7 @@ export default function Workspace() {
         sendingRef.current = false;
         setSaving(false);
         setLoading(true);
-        void load(generation);
+        void load(generation, early);
       }).catch(() => { if (active && !identityRef.current) setLoading(false); });
     };
     refresh();
