@@ -4,7 +4,9 @@ export default defineConfig({
   testDir: '.',
   testMatch: ['ui.spec.mjs', 'loading.spec.mjs', 'auth-transition.spec.mjs', 'pwa.spec.mjs'],
   outputDir: '../test-results/ui',
-  workers: 1,
+  // Every test mocks its own page, so tests of one file can run side by side.
+  fullyParallel: true,
+  workers: 4,
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:1422',
