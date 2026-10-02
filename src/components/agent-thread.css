@@ -220,8 +220,6 @@ button.agent-pill-part:disabled { cursor: progress; }
   .agent-empty h2.agent-greeting { gap: 10px; margin-bottom: 22px; }
   .agent-greeting .brand-icon { width: 36px !important; height: 36px !important; }
 }
-/* Under the composer: replies are generated and are for reference only. */
-.agent-disclaimer { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; text-align: center; opacity: .8; }
 
 .agent-command-menu {
   position: absolute; z-index: 5; right: 0; bottom: calc(100% + 8px); left: 0; max-height: 280px; overflow: auto;

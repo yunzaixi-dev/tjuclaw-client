@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
   BookOpen, Brain, CalendarDays, ChevronRight, DoorOpen, FileInput, FilePen, FilePlus2, FileSearch, FileText, FileX2, FolderTree,
   GraduationCap, Image as ImageIcon, ListChecks, MessagesSquare, Search, SquareTerminal, Wrench, type LucideIcon,
@@ -168,10 +168,10 @@ export function ThinkingRow({ step }: { step: TurnStep }) {
 }
 
 /** What the model said before it went on to call tools, set like the reply itself. */
-export function SaidText({ text: value, renderMarkdown }: { text: string; renderMarkdown?: (markdown: string) => string }) {
+export const SaidText = memo(function SaidText({ text: value, renderMarkdown }: { text: string; renderMarkdown?: (markdown: string) => string }) {
   return renderMarkdown ? <div className="agent-step-said chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(value) }} />
     : <p className="agent-step-said chat-message-content">{value}</p>;
-}
+});
 
 /**
  * Splits a turn's steps where the model spoke: each run of thinking and tool
@@ -199,7 +199,7 @@ const VISIBLE_TOOLS = 5;
  * first few and fold the rest behind one toggle, unless the reply was just
  * written in front of the reader, who has already seen every step.
  */
-export function AgentSteps({ steps, tools, renderMarkdown, unfolded = false }: {
+export const AgentSteps = memo(function AgentSteps({ steps, tools, renderMarkdown, unfolded = false }: {
   steps?: TurnStep[];
   tools?: string[];
   renderMarkdown?: (markdown: string) => string;
@@ -229,4 +229,4 @@ export function AgentSteps({ steps, tools, renderMarkdown, unfolded = false }: {
     {/* The fold begins right after something the model said. */}
     {more && groups.length && 'said' in groups[groups.length - 1] ? <ol className="agent-steps-list" aria-label="思考与工具调用">{more}</ol> : null}
   </>;
-}
+});

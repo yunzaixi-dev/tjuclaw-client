@@ -188,6 +188,10 @@ function isStep(value: unknown): value is TurnStep {
 export interface ChatSession {
   id: string;
   entry_id: string;
+  /** The name the user gave the session, if any. */
+  name?: string;
+  /** How the session reads in a list: its name, or the start of the first question. Sent with a list of sessions, which has no messages. */
+  title?: string;
   messages?: ChatMessage[];
   created_at: string;
   updated_at: string;
@@ -304,6 +308,7 @@ function isSession(value: unknown): value is ChatSession {
   if (typeof r.id !== 'string' || !HEX_32.test(r.id) || typeof r.entry_id !== 'string' || !HEX_32.test(r.entry_id) || !isTime(r.created_at) || !isTime(r.updated_at)) {
     return false;
   }
+  if ((r.title !== undefined && typeof r.title !== 'string') || (r.name !== undefined && typeof r.name !== 'string')) return false;
   if (r.messages === undefined) return true;
   if (!Array.isArray(r.messages)) return false;
   return r.messages.every(item => {
@@ -438,6 +443,18 @@ export async function createSession(entryId: string, signal?: AbortSignal): Prom
   const data = await authRequest<{ session: unknown }>(`/api/entries/${entryId}/sessions`, { method: 'POST', signal });
   if (!isSession(data.session)) throw new AuthError(503);
   return data.session;
+}
+
+/** Names a session. An empty title returns it to being titled by its first question. Returns the name as stored. */
+export async function renameSession(id: string, title: string, signal?: AbortSignal): Promise<string> {
+  const data = await authRequest<{ name?: unknown }>(`/api/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ title }), signal });
+  if (typeof data.name !== 'string') throw new AuthError(503);
+  return data.name;
+}
+
+/** Deletes a session with its messages. This cannot be undone. */
+export async function deleteSession(id: string, signal?: AbortSignal): Promise<void> {
+  await authRequest(`/api/sessions/${id}`, { method: 'DELETE', signal });
 }
 
 export async function getSession(id: string, signal?: AbortSignal): Promise<ChatSession> {

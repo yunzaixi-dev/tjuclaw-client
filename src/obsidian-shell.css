@@ -2712,7 +2712,17 @@
 .search-palette-empty { margin: 14px 16px; color: var(--muted-foreground); font-size: 13px; }
 .search-palette-foot { display: flex; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 12px; }
 .search-palette-foot kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 11px; }
-@media (max-width: 720px) { .search-palette.search-palette { top: 8px; } .search-palette-foot { display: none; } }
+/* Phone: a sheet across the top, clear of the keyboard, sized by the screen
+   and not shifted by the desktop centring. */
+@media (max-width: 720px) {
+  .search-palette.search-palette {
+    top: calc(env(safe-area-inset-top) + 8px); bottom: auto; left: 8px; width: calc(100% - 16px); height: auto;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 24px); transform: none; border-radius: 14px;
+  }
+  .search-palette-results { max-height: min(52dvh, 420px); overscroll-behavior: contain; }
+  .search-palette-results button { min-height: 48px; }
+  .search-palette-foot { display: none; }
+}
 /* Tighter page: side margin 6% (28–72px), top = side ÷ 1.618. */
 @media (min-width: 721px) {
   .obsidian-app .note-editor, .obsidian-app .anki-content {
@@ -2756,4 +2766,36 @@
     padding-top: calc(env(safe-area-inset-top) + 10px);
     padding-bottom: 4px;
   }
+}
+
+/* Said after a back press that has nothing left to close. */
+.back-exit-hint {
+  position: fixed; z-index: var(--z-dialog); left: 50%; bottom: calc(env(safe-area-inset-bottom) + 84px); transform: translateX(-50%);
+  padding: 8px 14px; border-radius: 999px; background: var(--foreground); color: var(--background); font-size: 13px; pointer-events: none;
+  animation: agent-in 180ms var(--ease-out) both;
+}
+
+/* On-screen keyboard. Where the browser does not shrink the page for the
+   keyboard (iOS), the workspace sets --keyboard-inset and the app ends above
+   it, so the composer stays in view and the page is not pushed up to show
+   what lies under it. */
+@media (max-width: 720px) {
+  .obsidian-app, .obsidian-app.sidebar-collapsed { height: calc(100dvh - var(--contest-banner-height, 0px) - var(--keyboard-inset, 0px)); }
+}
+
+/* A conversation row: its menu button shows on hover or focus, and always
+   where there is no hover. */
+.conversation-row { position: relative; display: flex; align-items: center; }
+.conversation-row .session-tree-item { flex: 1; min-width: 0; }
+.conversation-row .session-tree-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-more {
+  display: grid; flex: none; width: 26px; height: 26px; margin-right: 2px; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted-foreground); opacity: 0; transition: opacity 120ms var(--ease-out), background-color 120ms;
+}
+.conversation-row:hover .conversation-more, .conversation-more:focus-visible, .conversation-row.is-active .conversation-more { opacity: 1; }
+.conversation-more:hover { background: var(--hover-wash); color: var(--foreground); }
+.conversation-more:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.conversation-name-input { flex: 1; min-width: 0; margin: 2px 4px; padding: 0 8px; background: var(--surface); color: var(--foreground); border: 1px solid var(--ring); }
+@media (hover: none), (max-width: 720px) {
+  .conversation-more { width: 40px; height: 40px; opacity: 1; }
 }

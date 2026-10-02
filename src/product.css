@@ -102,7 +102,11 @@
   --color-ring: var(--ring);
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+/* Whatever shows around or under the app, for instance while an on-screen
+   keyboard opens, is the theme's own background, and the page itself never
+   scrolls or bounces to reveal more of it. */
+html { overscroll-behavior: none; }
+body { margin: 0; min-width: 320px; background: var(--background); overscroll-behavior: none; }
 button, input { font: inherit; }
 textarea, select { font-family: inherit; }
 button { cursor: pointer; }

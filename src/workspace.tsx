@@ -25,7 +25,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -38,7 +38,7 @@ type SidebarView = 'notes' | 'sessions' | 'anki' | 'plugins' | 'tools';
 type SortMode = 'manual' | 'name-asc' | 'name-desc' | 'recent';
 type SidebarSort = Record<SidebarView, SortMode>;
 type Sortable = { id: string; title: string; updated_at?: string };
-type ContextMenuState = { x: number; y: number; kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar' | 'session'; id?: string; group?: string } | null;
+type ContextMenuState = { x: number; y: number; kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar' | 'session' | 'conversation'; id?: string; group?: string } | null;
 type WorkspaceGateState = { workspaceId: string | null; workspaceName: string; mode: WorkspacePassphraseState['mode']; verification: WorkspacePassphraseState['verification']; firstWorkspace?: boolean } | null;
 const ACTIVITY_RAIL_WIDTH = 48;
 const defaultSidebarSort: SidebarSort = { notes: 'manual', sessions: 'manual', anki: 'manual', plugins: 'manual', tools: 'manual' };
@@ -143,8 +143,9 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
       ? [['open', '打开'], ['outline', '大纲'], ['move', '移动到…'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
       : menu.kind === 'sidebar' ? [['move-up', '上移'], ['move-down', '下移']]
         : menu.kind === 'session' ? [['new-chat', '新会话'], ['history', '历史会话'], ['search', '搜索']]
+          : menu.kind === 'conversation' ? [['rename', '重命名'], ['delete', '删除']]
           : [['copy', '复制 Markdown'], ['select-all', '全选']];
-  return <div className="workspace-context-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={menu.kind === 'session' ? '会话操作' : '文档操作'} onContextMenu={event => event.preventDefault()}>
+  return <div className="workspace-context-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={menu.kind === 'session' || menu.kind === 'conversation' ? '会话操作' : '文档操作'} onContextMenu={event => event.preventDefault()}>
     {items.map(([action, label], index) => action === 'divider'
       ? <div className="workspace-context-divider" key={`divider-${index}`} />
       : <button key={action} type="button" className={action === 'delete' ? 'is-danger' : ''} role="menuitem" onClick={() => { onAction(action); onClose(); }}>{icons[action]}<span>{label}</span></button>)}
@@ -215,6 +216,8 @@ const clockNow = () => Date.now();
 
 /** A conversation is named by its first question. */
 function conversationTitle(session: ChatSession | null): string {
+  // A name the user gave comes before the first question.
+  if (session?.name) return session.name;
   const first = session?.messages?.find(message => message.role === 'user')?.content.trim().replace(/\s+/g, ' ');
   return first ? first.slice(0, 40) : '新对话';
 }
@@ -575,7 +578,8 @@ export default function Workspace() {
   // or nothing for the most recently active.
   const sessionChoiceRef = useRef<Record<string, string>>({});
   // Conversations are listed on their own; Agents are only where they are stored.
-  const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string }[]>([]);
+  // `named`: the title is a name the user gave, not the first question.
+  const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string; named?: boolean }[]>([]);
   const pendingChatRequestRef = useRef<PendingChatRequest | null>(null);
   const activeTabRef = useRef<string | null>(boot?.selected ? 'restored-note' : 'home');
   const identityRef = useRef<string | null>(boot?.session.id ?? null);
@@ -947,10 +951,14 @@ export default function Workspace() {
     };
   }
 
-  function openContextMenu(event: MouseEvent, kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar', id?: string, group?: string) {
+  function openContextMenu(event: MouseEvent, kind: 'folder' | 'note' | 'file' | 'editor' | 'sidebar' | 'conversation', id?: string, group?: string) {
     event.preventDefault();
     event.stopPropagation();
-    setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 250)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - (kind === 'sidebar' ? 100 : 360))), kind, id, group });
+    // Opened from the keyboard or a button, the event has no pointer position: use the element's place.
+    const box = event.clientX || event.clientY ? null : event.currentTarget.getBoundingClientRect();
+    const x = box ? box.left : event.clientX;
+    const y = box ? box.bottom + 4 : event.clientY;
+    setContextMenu({ x: Math.max(8, Math.min(x, window.innerWidth - 250)), y: Math.max(8, Math.min(y, window.innerHeight - (kind === 'sidebar' || kind === 'conversation' ? 100 : 360))), kind, id, group });
   }
 
   function handleContextAction(action: string) {
@@ -982,6 +990,11 @@ export default function Workspace() {
         void openEntry(id);
         window.setTimeout(() => titleRef.current?.focus(), 0);
       }
+    }
+    if (contextMenu.kind === 'conversation' && contextMenu.id) {
+      if (action === 'rename') setEditingConversationId(contextMenu.id);
+      if (action === 'delete') void removeConversation(contextMenu.id);
+      return;
     }
     if (contextMenu.kind === 'session') {
       if (action === 'new-chat') void startNewChat();
@@ -1362,17 +1375,25 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     let cancelled = false;
     void (async () => {
-      const lists = await Promise.all(agentKey.split(',').map(id => listSessions(id).then(list => list.map(item => ({ id: item.id, entryId: id, updatedAt: item.updated_at }))).catch(() => [])));
+      const lists = await Promise.all(agentKey.split(',').map(id => listSessions(id).then(list => list.map(item => ({ id: item.id, entryId: id, updatedAt: item.updated_at, listed: item.title, named: Boolean(item.name) }))).catch(() => [])));
       if (cancelled || generation !== identityGeneration.current) return;
       const merged = lists.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      setConversations(current => merged.map(item => ({ ...item, title: current.find(old => old.id === item.id)?.title })));
-      // The list has no messages; read the first question of recent ones.
-      for (const item of merged.slice(0, 40)) {
-        const full = await getSession(item.id).catch(() => null);
-        if (cancelled || generation !== identityGeneration.current) return;
-        const title = conversationTitle(full);
-        setConversations(current => current.map(old => old.id === item.id ? { ...old, title } : old));
-      }
+      // The list names each conversation, so every title shows at once.
+      const named = merged.some(item => item.listed !== undefined);
+      setConversations(current => merged.map(({ listed, ...item }) => ({ ...item, title: listed || (named ? '新对话' : current.find(old => old.id === item.id)?.title) })));
+      if (named) return;
+      // A server that lists no titles: read the first question of recent
+      // conversations, several at a time.
+      const queue = merged.slice(0, 40);
+      await Promise.all(Array.from({ length: 6 }, async () => {
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          const id = item.id;
+          const full = await getSession(id).catch(() => null);
+          if (cancelled || generation !== identityGeneration.current) return;
+          const title = conversationTitle(full);
+          setConversations(current => current.map(old => old.id === id ? { ...old, title } : old));
+        }
+      }));
     })();
     return () => { cancelled = true; };
   }, [agentKey]);
@@ -1381,7 +1402,7 @@ export default function Workspace() {
   const listedConversations = useMemo(() => {
     const known = agentKey ? conversations : [];
     if (!chat) return known;
-    const row = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title: conversationTitle(chat) };
+    const row = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title: conversationTitle(chat), named: Boolean(chat.name) };
     return [row, ...known.filter(item => item.id !== chat.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
   }, [agentKey, conversations, chat]);
 
@@ -1448,7 +1469,7 @@ export default function Workspace() {
     setChat(next);
     const title = conversationTitle(next);
     // Keep the row once the conversation is no longer the open one.
-    setConversations(current => [{ id: next.id, entryId: next.entry_id, updatedAt: next.updated_at, title },
+    setConversations(current => [{ id: next.id, entryId: next.entry_id, updatedAt: next.updated_at, title, named: Boolean(next.name) },
       ...current.filter(item => item.id !== next.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)));
     setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' && tab.title !== title ? { ...tab, title } : tab));
   }
@@ -1465,6 +1486,54 @@ export default function Workspace() {
     } catch {
       return entries.find(entry => entry.kind === 'agent') ?? null;
     }
+  }
+
+  // The conversation whose name is being edited in the sidebar.
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+
+  /** Saves a conversation's new name; an empty one returns it to its first question. */
+  async function saveConversationName(id: string, value: string) {
+    setEditingConversationId(null);
+    const row = conversations.find(item => item.id === id);
+    const title = value.trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!row || title === (row.title ?? '')) return;
+    const generation = identityGeneration.current;
+    try {
+      const name = await renameSession(id, title);
+      if (generation !== identityGeneration.current) return;
+      // The open conversation and its cached copy carry the name too.
+      const renamed = (session: ChatSession) => ({ ...session, name: name || undefined });
+      if (chatCacheRef.current[row.entryId]?.id === id) chatCacheRef.current[row.entryId] = renamed(chatCacheRef.current[row.entryId]);
+      setChat(current => current?.id === id ? renamed(current) : current);
+      // Without a name the title is the first question again, which the list knows.
+      const shown = name || conversationTitle(chat?.id === id ? renamed(chat) : await getSession(id).catch(() => null));
+      if (generation !== identityGeneration.current) return;
+      setConversations(current => current.map(item => item.id === id ? { ...item, title: shown, named: Boolean(name) } : item));
+      if (chat?.id === id) setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' ? { ...tab, title: shown } : tab));
+    } catch (cause) {
+      if (generation === identityGeneration.current) setError(describeLibraryError(cause));
+    }
+  }
+
+  /** Deletes a conversation after asking; the open one gives way to a new conversation. */
+  async function removeConversation(id: string) {
+    const row = conversations.find(item => item.id === id);
+    if (!row || !window.confirm(`删除会话「${row.title ?? '新对话'}」？其中的消息会一并删除，无法恢复。`)) return;
+    const generation = identityGeneration.current;
+    try {
+      await deleteSession(id);
+    } catch (cause) {
+      // Already gone on the server counts as deleted here too.
+      if (!(cause instanceof AuthError && cause.status === 404)) {
+        if (generation === identityGeneration.current) setError(describeLibraryError(cause));
+        return;
+      }
+    }
+    if (generation !== identityGeneration.current) return;
+    setConversations(current => current.filter(item => item.id !== id));
+    if (sessionChoiceRef.current[row.entryId] === id) delete sessionChoiceRef.current[row.entryId];
+    if (chatCacheRef.current[row.entryId]?.id === id) delete chatCacheRef.current[row.entryId];
+    if (chat?.id === id) void startNewChat(undefined, true);
   }
 
   async function startNewChat(tabKey?: string, preserveSidebar = false) {
@@ -1861,6 +1930,80 @@ export default function Workspace() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // The system back action on a phone. Without this the first back leaves the
+  // app: the workspace keeps everything in one page and has no history of its
+  // own. Back closes what is open on top, then the drawer, then returns to the
+  // previous note of the tab. Only with nothing left does it leave, and only
+  // on a second press, after saying so.
+  const backStepRef = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    backStepRef.current = () => {
+      if (contextMenu) { setContextMenu(null); return true; }
+      if (tabSheetOpen) { setTabSheetOpen(false); return true; }
+      if (commandOpen) { setCommandOpen(false); return true; }
+      if (historyOpen) { setHistoryOpen(false); return true; }
+      if (settingsOpen) { setSettingsOpen(false); return true; }
+      // Any other dialog or menu closes the way Escape closes it.
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [role="listbox"][data-state="open"]')) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return true;
+      }
+      if (sidebarOpen) { setSidebarOpen(false); return true; }
+      if (railOpen) { setRailOpen(false); return true; }
+      if (activeTab && activeTab.historyIndex > 0) { moveTabHistory(-1); return true; }
+      return false;
+    };
+  });
+  // The on-screen keyboard. Browsers that resize the page for it need nothing
+  // here. One that only shrinks the visual viewport (iOS) would push the page
+  // up instead; the app is made shorter by the keyboard's height and the page
+  // is kept where it was.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!isMobile || !viewport) return;
+    const root = document.documentElement;
+    const update = () => {
+      const inset = Math.round(window.innerHeight - viewport.height - viewport.offsetTop);
+      // Small differences are browser chrome, not a keyboard.
+      root.style.setProperty('--keyboard-inset', inset > 80 ? `${inset}px` : '0px');
+      if (inset > 80 && (window.scrollY > 0 || viewport.offsetTop > 0)) window.scrollTo(0, 0);
+    };
+    update();
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+      root.style.removeProperty('--keyboard-inset');
+    };
+  }, [isMobile]);
+  const [backHint, setBackHint] = useState(false);
+  useEffect(() => {
+    if (!isMobile) return;
+    // One extra history entry stands between the workspace and leaving it.
+    const arm = () => window.history.pushState({ ...(window.history.state ?? {}), tjuclawBack: true }, '');
+    let pressed = 0;
+    let leaving = false;
+    let timer = 0;
+    arm();
+    const onPop = () => {
+      if (leaving) return;
+      if (backStepRef.current()) { arm(); return; }
+      if (Date.now() - pressed < 2200) {
+        leaving = true;
+        window.history.back();
+        return;
+      }
+      pressed = Date.now();
+      setBackHint(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setBackHint(false), 2200);
+      arm();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => { window.removeEventListener('popstate', onPop); window.clearTimeout(timer); };
+  }, [isMobile]);
 
   useEffect(() => {
     if (!sidebarOpen || window.innerWidth > 720 || settingsOpen || moveEntryId || commandOpen) return;
@@ -2686,8 +2829,13 @@ export default function Workspace() {
           </div>
         </> : <>
           {listedConversations.filter(item => !query.trim() || (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item =>
-            <div key={item.id} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`}>
-              <button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
+            <div key={item.id} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`} onContextMenu={event => openContextMenu(event, 'conversation', item.id)}>
+              {editingConversationId === item.id
+                ? <input className="tree-inline-input conversation-name-input" autoFocus aria-label="会话名称" maxLength={60} defaultValue={item.named ? item.title ?? '' : ''} placeholder={item.title ?? '新对话'}
+                  onFocus={event => event.currentTarget.select()} onBlur={event => void saveConversationName(item.id, event.currentTarget.value)}
+                  onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.stopPropagation(); setEditingConversationId(null); } }} />
+                : <><button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
+                  <button type="button" className="conversation-more" aria-label={`「${item.title ?? '新对话'}」的操作`} title="重命名或删除" onClick={event => openContextMenu(event, 'conversation', item.id)}><MoreHorizontal size={15} /></button></>}
             </div>)}
           {!listedConversations.length ? <p className="plugin-sidebar-note">还没有对话</p> : null}
         </>}
@@ -2753,6 +2901,7 @@ export default function Workspace() {
       {selected?.kind === 'note' && gitStatus?.enabled && historyOpen ? <Suspense fallback={<OperationProgress label="正在加载版本历史" />}><NoteHistory key={selected.id} entryId={selected.id} title={title} open={historyOpen} onOpenChange={setHistoryOpen} current={body} renderMarkdown={renderMarkdown}
         onRestore={content => { setBody(content); queueSave(title, content); setRestoreNonce(value => value + 1); }} /></Suspense> : null}
     </main>
+    {backHint ? <div className="back-exit-hint" role="status">再按一次返回退出</div> : null}
     {contextMenu ? <><button className="mobile-context-backdrop" type="button" aria-label="关闭操作菜单" onClick={() => setContextMenu(null)} /><WorkspaceContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onAction={handleContextAction} /></> : null}
     <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载设置" /></div>}>{settingsOpen ? <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
       setSettingsOpen(false);

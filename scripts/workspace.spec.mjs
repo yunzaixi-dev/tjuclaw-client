@@ -278,15 +278,33 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
     }
     const sessions = path.match(/^\/api\/entries\/([0-9a-f]{32})\/sessions$/);
     if (sessions && method === 'GET') return json(route, 200, {
-      sessions: (state.sessionsByEntry[sessions[1]] ?? []).map(session => ({
-        id: session.id, entry_id: session.entry_id, created_at: session.created_at, updated_at: session.updated_at,
-      })),
+      // As the server lists them: no messages, and a title unless the state asks for an older server.
+      sessions: (state.sessionsByEntry[sessions[1]] ?? []).map(listed => {
+        const session = state.sessionById[listed.id] ?? listed;
+        const question = session.messages?.find(message => message.role === 'user')?.content.trim().replace(/\s+/g, ' ').slice(0, 40);
+        const title = session.name || question;
+        return { id: session.id, entry_id: session.entry_id, created_at: session.created_at, updated_at: session.updated_at,
+          ...(session.name ? { name: session.name } : {}), ...(title && !state.listWithoutTitles ? { title } : {}) };
+      }),
     });
     if (sessions && method === 'POST') {
       const sess = state.sessionsByEntry[sessions[1]]?.[0] ?? sessionA;
       return json(route, 201, { session: state.sessionById[sess.id] ?? sess });
     }
     const oneSession = path.match(/^\/api\/sessions\/([0-9a-f]{32})$/);
+    if (oneSession && method === 'PATCH') {
+      const name = String(route.request().postDataJSON().title ?? '').trim().replace(/\s+/g, ' ');
+      const found = state.sessionById[oneSession[1]];
+      if (!found) return json(route, 404, { error: { id: 'session_not_found' } });
+      state.sessionById[oneSession[1]] = { ...found, name: name || undefined };
+      return json(route, 200, { id: found.id, name });
+    }
+    if (oneSession && method === 'DELETE') {
+      if (!state.sessionById[oneSession[1]]) return json(route, 404, { error: { id: 'session_not_found' } });
+      delete state.sessionById[oneSession[1]];
+      for (const entry of Object.keys(state.sessionsByEntry)) state.sessionsByEntry[entry] = state.sessionsByEntry[entry].filter(session => session.id !== oneSession[1]);
+      return route.fulfill({ status: 204 });
+    }
     if (oneSession && method === 'GET') {
       const found = state.sessionById[oneSession[1]] ?? sessionA;
       return json(route, 200, { session: found });
@@ -4234,4 +4252,133 @@ test('with motion on, the newest characters of a streamed reply fade in and sett
   await expect(page.getByRole('status', { name: /正在处理/ }).getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'false');
   finish();
   release();
+});
+
+const threeConversations = () => {
+  const state = defaultState();
+  const make = (id, question, at) => ({ id: id.repeat(32), entry_id: guideA.id, created_at: at, updated_at: at,
+    messages: [{ role: 'user', content: question, created_at: at }, { role: 'assistant', content: '好的。', created_at: at }] });
+  const list = [make('1', '第一个问题：电路', '2026-01-03T00:00:00.000Z'), make('2', '第二个问题：信号', '2026-01-02T00:00:00.000Z'), make('3', '第三个问题：高数', '2026-01-01T00:00:00.000Z')];
+  state.sessionsByEntry[guideA.id] = list;
+  for (const session of list) state.sessionById[session.id] = session;
+  return { state, list };
+};
+
+test('conversation titles come with the list, all at once, without reading each conversation', async ({ page }) => {
+  const { state, list } = threeConversations();
+  await mockWorkspace(page, state);
+  const reads = [];
+  page.on('request', request => { if (/\/api\/sessions\/[0-9a-f]{32}$/.test(new URL(request.url()).pathname) && request.method() === 'GET') reads.push(request.url().slice(-32)); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const rows = page.locator('.conversation-row .session-tree-item');
+  await expect(rows.filter({ hasText: '第二个问题：信号' })).toBeVisible();
+  await expect(rows.filter({ hasText: '第三个问题：高数' })).toBeVisible();
+  // Only the conversation being opened is read; the others were named by the list.
+  expect(reads.filter(id => id === list[1].id || id === list[2].id)).toEqual([]);
+  await expect(page.getByText('以上内容由智能体生成')).toHaveCount(0);
+});
+
+test('a server that lists no titles still names every conversation', async ({ page }) => {
+  const { state } = threeConversations();
+  state.listWithoutTitles = true;
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  for (const title of ['第一个问题：电路', '第二个问题：信号', '第三个问题：高数']) await expect(page.locator('.conversation-row').filter({ hasText: title })).toBeVisible();
+});
+
+test('a conversation can be renamed in place and deleted from its row', async ({ page }) => {
+  const { state, list } = threeConversations();
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const row = title => page.locator('.conversation-row').filter({ hasText: title });
+  await expect(row('第二个问题：信号')).toBeVisible();
+  // Rename from the row's menu: the field starts empty with the current title as its hint.
+  await row('第二个问题：信号').getByRole('button', { name: '「第二个问题：信号」的操作' }).click();
+  await page.getByRole('menu', { name: '会话操作' }).getByRole('menuitem', { name: '重命名' }).click();
+  const field = page.getByRole('textbox', { name: '会话名称' });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('');
+  await field.fill('  信号与系统  复习 ');
+  await field.press('Enter');
+  await expect(row('信号与系统 复习')).toBeVisible();
+  expect(state.sessionById[list[1].id].name).toBe('信号与系统 复习');
+  // The name survives a reload, and editing it again starts from the name.
+  await page.reload();
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(row('信号与系统 复习')).toBeVisible();
+  await row('信号与系统 复习').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '重命名' }).click();
+  await expect(page.getByRole('textbox', { name: '会话名称' })).toHaveValue('信号与系统 复习');
+  // Escape leaves it as it was; clearing the name returns to the first question.
+  await page.getByRole('textbox', { name: '会话名称' }).press('Escape');
+  await expect(row('信号与系统 复习')).toBeVisible();
+  await row('信号与系统 复习').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '重命名' }).click();
+  await page.getByRole('textbox', { name: '会话名称' }).fill('');
+  await page.getByRole('textbox', { name: '会话名称' }).press('Enter');
+  await expect(row('第二个问题：信号')).toBeVisible();
+  // Deleting asks first; declining keeps the conversation.
+  page.once('dialog', dialog => { expect(dialog.message()).toContain('第三个问题：高数'); void dialog.dismiss(); });
+  await row('第三个问题：高数').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除' }).click();
+  await expect(row('第三个问题：高数')).toBeVisible();
+  page.once('dialog', dialog => void dialog.accept());
+  await row('第三个问题：高数').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除' }).click();
+  await expect(row('第三个问题：高数')).toHaveCount(0);
+  expect(state.sessionById[list[2].id]).toBeUndefined();
+  // Deleting the open conversation leaves a fresh one in its place.
+  await row('第一个问题：电路').locator('.session-tree-item').click();
+  await expect(page.locator('.chat-message.user')).toContainText('第一个问题：电路');
+  page.once('dialog', dialog => void dialog.accept());
+  await row('第一个问题：电路').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除' }).click();
+  await expect(row('第一个问题：电路')).toHaveCount(0);
+  await expect(page.locator('.chat-message.user')).toHaveCount(0);
+});
+
+test('on a phone the search sheet fits the screen, the app ends above the keyboard, and back closes layers before leaving', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue('First note for user A');
+  expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('interactive-widget=resizes-content');
+  // Search: the whole sheet is on screen and its field can be typed in.
+  await page.keyboard.press('Control+k');
+  const sheet = page.locator('.search-palette');
+  await expect(sheet).toBeVisible();
+  const box = await sheet.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.width).toBeGreaterThan(340);
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+  await page.getByRole('textbox', { name: '搜索' }).fill('First');
+  const result = page.getByRole('listbox', { name: '搜索结果' }).getByRole('option').first();
+  await expect(result).toBeVisible();
+  expect((await result.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  // Back closes the sheet and stays in the app.
+  await page.goBack();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/workspace$/);
+  // Back closes the drawer next.
+  await page.getByRole('button', { name: '打开侧栏' }).first().click();
+  await expect(page.locator('.obsidian-app')).not.toHaveClass(/sidebar-collapsed/);
+  await page.goBack();
+  await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
+  // With nothing left to close, back says how to leave and does not leave.
+  await page.goBack();
+  await expect(page.getByRole('status').filter({ hasText: '再按一次返回退出' })).toBeVisible();
+  await expect(page).toHaveURL(/\/workspace$/);
+  await expect(page.locator('.note-title')).toHaveValue('First note for user A');
+  // The keyboard's height comes off the app, and the page behind it is the theme's colour.
+  const before = (await page.locator('.obsidian-app').boundingBox()).height;
+  await page.evaluate(() => document.documentElement.style.setProperty('--keyboard-inset', '300px'));
+  expect(Math.round((await page.locator('.obsidian-app').boundingBox()).height)).toBe(Math.round(before - 300));
+  const colours = await page.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).overscrollBehaviorY]);
+  expect(colours[0]).toBe(colours[1]);
+  expect(colours[0]).not.toBe('rgba(0, 0, 0, 0)');
+  expect(colours[2]).toBe('none');
 });

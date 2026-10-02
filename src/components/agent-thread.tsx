@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, Check, Copy, FileText, Loader2, Square } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
@@ -129,6 +129,15 @@ function allowanceText(status: ModelStatus | null): { text: string; warning: boo
   const tightest = [...windows].sort((x, y) => quotaShareLeft(x) - quotaShareLeft(y))[0];
   return tightest ? { text: `${quotaWindowName(tightest.id)}额度剩余 ${quotaShareLeft(tightest)}%`, warning: quotaShareLeft(tightest) <= 10 } : { text: '', warning: false };
 }
+
+/**
+ * A saved reply's text. Rendering Markdown (and highlighting its code) is the
+ * costly part of the thread, so each reply is rendered once and again only
+ * when its own text changes, not on every keystroke in the composer.
+ */
+const ReplyText = memo(function ReplyText({ content, renderMarkdown }: { content: string; renderMarkdown: (markdown: string) => string }) {
+  return <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
+});
 
 export function AgentThread({ title, chat, loading, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
@@ -324,7 +333,6 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
           <EffortPicker />
         </div>
       </div>
-      <p className="agent-disclaimer">以上内容由智能体生成，仅供参考</p>
       {commandNote ? <p className="agent-command-note" role="status">{commandNote}</p> : null}
       </>
   );
@@ -353,7 +361,7 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
               {message.interrupted ? <span className="agent-reply-stopped">已停止</span> : null}
             </header>
             <AgentSteps steps={message.steps} tools={message.tools} renderMarkdown={renderMarkdown} unfolded={index === watchedReply} />
-            <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+            <ReplyText content={message.content} renderMarkdown={renderMarkdown} />
             {message.notes?.length && onOpenNote ? <ul className="agent-reply-notes" aria-label="本次写入的笔记">
               {message.notes.map(note => <li key={note.entry_id}>
                 <button type="button" onClick={() => onOpenNote(note.entry_id)} title={`打开笔记「${note.title}」`}>
