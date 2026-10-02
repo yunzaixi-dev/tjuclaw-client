@@ -89,9 +89,15 @@
   .agent-step-status.is-running .ring { stroke-dasharray: none; }
 }
 /* The running turn: one row per call, appearing as each call starts. */
-/* Rows of the running turn arrive one by one. */
-.agent-step.is-live { animation: agent-step-in 220ms var(--ease-out, ease-out) both; }
-.agent-step.is-thinking.is-live { padding: 2px 8px 4px 4px; }
+/* Rows of the running turn arrive one by one: each opens from nothing to its
+   row height while it fades in, so the rows below are pushed down smoothly. */
+@keyframes agent-step-in {
+  from { max-height: 0; opacity: 0; transform: translateY(-4px); overflow: hidden; }
+  to { max-height: 32px; opacity: 1; transform: none; overflow: hidden; }
+}
+.agent-step.is-live { animation: agent-step-in 300ms var(--ease-out, ease-out) backwards; }
+.agent-step-changes > span { animation: agent-steps-in 240ms var(--ease-out, ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .agent-step.is-live, .agent-step-changes > span { animation: none; } }
 /* Lines a file change adds and removes; while a file is written, the lines so far. */
 .agent-step-changes { display: inline-flex; flex: none; gap: 6px; font: 12px/1.6 var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 .agent-step-changes .is-added { color: oklch(52% .13 150); }

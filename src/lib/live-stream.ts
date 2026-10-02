@@ -7,13 +7,13 @@ export interface TimelineItem {
   /** Bytes of `text` the server has sent, the offset for the next poll. */
   next: number;
   name: string; input: string; status: LiveStatus;
-  lines: number; added: number; removed: number;
+  lines: number; added: number; removed: number; unit: '' | 'char';
   output: string;
 }
 
 const asTimelineItem = (item: LiveItem, text: string): TimelineItem => ({
   kind: item.kind, text, next: item.next, name: item.name, input: item.input, status: item.status,
-  lines: item.lines, added: item.added, removed: item.removed, output: item.output,
+  lines: item.lines, added: item.added, removed: item.removed, unit: item.unit, output: item.output,
 });
 
 /**

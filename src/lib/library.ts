@@ -76,9 +76,10 @@ export interface TurnStep {
   input?: string;
   output?: string;
   failed?: boolean;
-  /** Lines a file write or edit added and removed. */
+  /** What the step added and removed: lines of a file, or with `unit` "char" the characters of a note. */
   added?: number;
   removed?: number;
+  unit?: 'char';
 }
 
 /** Where a tool call of the running turn stands: its arguments are being written, it runs, or it ended. */
@@ -97,6 +98,8 @@ export interface LiveItem {
   /** Lines written so far, while a file is being written. */
   lines: number;
   added: number; removed: number;
+  /** "char" when `added` and `removed` count a note's characters instead of a file's lines. */
+  unit: '' | 'char';
   output: string;
 }
 
@@ -145,7 +148,7 @@ export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: A
       text: words(item.text), from: whole(item.from), next: whole(item.next),
       name: words(item.name), input: words(item.input),
       status: liveStatuses.includes(item.status as string) ? item.status as LiveStatus : 'running',
-      lines: whole(item.lines), added: whole(item.added), removed: whole(item.removed), output: words(item.output),
+      lines: whole(item.lines), added: whole(item.added), removed: whole(item.removed), unit: item.unit === 'char' ? 'char' : '', output: words(item.output),
     });
   }
   return {
@@ -178,7 +181,8 @@ function isStep(value: unknown): value is TurnStep {
   const lines = (key: string) => r[key] === undefined || (Number.isSafeInteger(r[key]) && (r[key] as number) >= 0);
   return (r.kind === 'thinking' || r.kind === 'tool') && optional('text') && optional('name') && optional('input')
     && optional('output') && (r.failed === undefined || typeof r.failed === 'boolean')
-    && (r.said === undefined || typeof r.said === 'boolean') && lines('added') && lines('removed');
+    && (r.said === undefined || typeof r.said === 'boolean') && lines('added') && lines('removed')
+    && (r.unit === undefined || r.unit === 'char');
 }
 
 export interface ChatSession {

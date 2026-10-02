@@ -1,14 +1,22 @@
 /* The running turn's thinking and reply, written as the model produces them. */
-.agent-live-thinking { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; color: var(--muted-foreground); animation: agent-in 240ms var(--ease-out) both; }
-/* The same icon tile as a step row, so the thought folds into one without moving. */
-.agent-live-thinking > svg { z-index: 1; box-sizing: content-box; margin-top: 1px; padding: 3px; border-radius: 6px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
-.agent-live-thinking > p {
-  max-height: 7.2em; margin: 0; padding: 2px 0 2px 12px; overflow-y: auto; border-left: 2px solid var(--border);
-  font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none;
+/* A thought is a step row whose body opens while it is written and folds
+   away, in place, when the turn moves on. Animating the grid row lets the
+   body close from whatever height the text had. */
+.agent-live-thought { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 320ms var(--ease-out), opacity 220ms var(--ease-out); }
+.agent-step.is-open > .agent-live-thought { grid-template-rows: 1fr; opacity: 1; }
+/* Folded, the body takes no room at all: its own padding would keep a few pixels. */
+.agent-live-thought > p { min-height: 0; margin-bottom: 0; padding-block: 0; overflow: hidden; }
+.agent-step.is-open > .agent-live-thought > p { margin-bottom: 8px; padding-block: 2px; }
+.agent-step.is-active > .agent-live-thought > p {
+  max-height: 7.2em; overflow-y: auto; scrollbar-width: none;
   /* Older thoughts fade out at the top as new ones arrive below. */
   mask-image: linear-gradient(to bottom, transparent, #000 1.6em);
 }
-.agent-live-thinking > p::-webkit-scrollbar { display: none; }
+.agent-step.is-active > .agent-live-thought > p::-webkit-scrollbar { display: none; }
+.agent-step.is-thinking.is-active > button { cursor: default; }
+.agent-step.is-thinking.is-active .agent-step-chevron { visibility: hidden; }
+/* The newest characters of the reply fade in; see fadeTail. */
+.agent-tail { transition: opacity 90ms linear; }
 .agent-live-text { animation: agent-in 240ms var(--ease-out) both; }
 /* A caret after the last written character while the reply is still coming. */
 .agent-live-text > :last-child::after {
@@ -17,6 +25,7 @@
 }
 @keyframes agent-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .agent-live-thinking, .agent-live-text { animation: none; }
+  .agent-live-text { animation: none; }
+  .agent-live-thought, .agent-tail { transition: none; }
   .agent-live-text > :last-child::after { animation: none; }
 }

@@ -23,6 +23,53 @@ export type WorkspacePassphraseState = {
 };
 const remoteUnlocks = new Map<string, string>();
 
+// "Keep this device unlocked": after a correct passphrase the device may skip
+// the gate for a while. What is kept is not the passphrase and not a key, only
+// which verifier was unlocked and until when, so a passphrase changed on
+// another device asks again here. Private notes are encrypted with the
+// passphrase itself and still ask for it when they are opened.
+const REMEMBER_PREFIX = 'tjuclaw.workspace.remembered.v1';
+export const REMEMBER_DAYS = 30;
+
+function rememberKey(identity: string, workspaceId: string) {
+  return `${REMEMBER_PREFIX}.${identity}.${workspaceId}`;
+}
+
+/** What the unlock is tied to: the remote verifier's revision, or the local record's creation time. */
+function unlockBinding(identity: string, workspaceId: string, verification: WorkspaceVerification) {
+  return verification === 'remote' ? remoteUnlocks.get(remoteKey(identity, workspaceId)) ?? '' : readRecord(identity, workspaceId)?.created_at ?? '';
+}
+
+function remembered(identity: string, workspaceId: string, binding: string) {
+  if (!binding) return false;
+  try {
+    const value = JSON.parse(localStorage.getItem(rememberKey(identity, workspaceId)) ?? 'null');
+    if (value?.binding === binding && typeof value.until === 'number' && value.until > Date.now()) return true;
+    if (value) localStorage.removeItem(rememberKey(identity, workspaceId));
+  } catch { /* Storage is unavailable or the record is damaged: ask for the passphrase. */ }
+  return false;
+}
+
+/** Keeps the workspace just unlocked on this device open for the next REMEMBER_DAYS days. */
+export function rememberWorkspace(identity: string, workspaceId: string, verification: WorkspaceVerification) {
+  const binding = unlockBinding(identity, workspaceId, verification);
+  if (!binding) return;
+  try {
+    localStorage.setItem(rememberKey(identity, workspaceId), JSON.stringify({ binding, until: Date.now() + REMEMBER_DAYS * 86_400_000 }));
+  } catch { /* Without storage the unlock lasts for this page only. */ }
+}
+
+/** Forgets every workspace this identity kept unlocked on this device, for sign-out. */
+export function forgetRememberedWorkspaces(identity: string) {
+  try {
+    const prefix = `${REMEMBER_PREFIX}.${identity}.`;
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(prefix)) localStorage.removeItem(key);
+    }
+  } catch { /* Nothing was kept. */ }
+}
+
 function remoteKey(identity: string, workspaceId: string) {
   return `${identity}:${workspaceId}`;
 }
@@ -71,6 +118,8 @@ export async function workspacePassphraseState(identity: string, workspaceId: st
   const revision = response.headers.get('ETag');
   const key = remoteKey(identity, workspaceId);
   if (exists && remoteUnlocks.has(key) && remoteUnlocks.get(key) !== revision) remoteUnlocks.delete(key);
+  // The same verifier this device was told to keep unlocked.
+  if (exists && revision && !remoteUnlocks.has(key) && remembered(identity, workspaceId, revision)) remoteUnlocks.set(key, revision);
   return {
     verification, mode: exists ? 'unlock' : hasWorkspacePassphrase(identity, workspaceId) ? 'migrate' : 'setup',
     unlocked: exists && remoteUnlocks.has(key),
@@ -141,7 +190,8 @@ export function hasWorkspacePassphrase(identity: string, workspaceId: string) {
 
 export function isWorkspaceUnlocked(identity: string, workspaceId: string, verification: WorkspaceVerification = 'local') {
   if (verification === 'remote') return remoteUnlocks.has(remoteKey(identity, workspaceId));
-  return sessionStorage.getItem(sessionKey(identity, workspaceId)) === 'unlocked';
+  return sessionStorage.getItem(sessionKey(identity, workspaceId)) === 'unlocked'
+    || remembered(identity, workspaceId, unlockBinding(identity, workspaceId, 'local'));
 }
 
 export function markWorkspaceUnlocked(identity: string, workspaceId: string) {
@@ -151,6 +201,7 @@ export function markWorkspaceUnlocked(identity: string, workspaceId: string) {
 export function clearWorkspaceUnlock(identity: string, workspaceId: string) {
   sessionStorage.removeItem(sessionKey(identity, workspaceId));
   remoteUnlocks.delete(remoteKey(identity, workspaceId));
+  try { localStorage.removeItem(rememberKey(identity, workspaceId)); } catch { /* Nothing was kept. */ }
 }
 
 export function clearRemoteWorkspaceUnlocks() {

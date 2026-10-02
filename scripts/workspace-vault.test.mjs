@@ -36,9 +36,13 @@ const sha = '"0123456789abcdef0123456789abcdef01234567"';
 const media = 'application/vnd.tjuclaw.sealed+json';
 const savedFetch = globalThis.fetch;
 const storage = new Map();
+const localKeys = () => [...storage.keys()].filter(key => !key.startsWith('session:'));
 globalThis.localStorage = {
   getItem: key => storage.get(key) ?? null,
   setItem: (key, value) => storage.set(key, value),
+  removeItem: key => storage.delete(key),
+  key: index => localKeys()[index] ?? null,
+  get length() { return localKeys().length; },
 };
 globalThis.sessionStorage = {
   getItem: key => storage.get(`session:${key}`) ?? null,
@@ -147,4 +151,41 @@ test('configured gateway failures and malformed capability status never downgrad
     vault.clearWorkspaceUnlock('user-a', library);
     globalThis.fetch = savedFetch;
   }
+});
+
+test('a device can stay unlocked without keeping the passphrase, until it is locked, signed out or the time runs out', async () => {
+  storage.clear();
+  await vault.createWorkspacePassphrase('user-r', library, 'keep me unlocked');
+  await vault.createWorkspacePassphrase('user-r', secondLibrary, 'keep me unlocked');
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), false);
+  vault.rememberWorkspace('user-r', library, 'local');
+  vault.rememberWorkspace('user-r', secondLibrary, 'local');
+  // A new browser session has no session mark; the device is still unlocked.
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), true);
+  assert.equal((await vault.workspacePassphraseState('user-r', library, 'local')).unlocked, true);
+  const key = `tjuclaw.workspace.remembered.v1.user-r.${library}`;
+  const kept = JSON.parse(storage.get(key));
+  assert.deepEqual(Object.keys(kept).sort(), ['binding', 'until']);
+  assert.ok(!JSON.stringify([...storage.entries()]).includes('keep me unlocked'));
+  assert.ok(kept.until > Date.now() + 29 * 86_400_000 && kept.until <= Date.now() + 30 * 86_400_000);
+  // Another identity on the same device is not unlocked by it.
+  assert.equal(vault.isWorkspaceUnlocked('user-s', library), false);
+  // Past its time, or tied to a verifier that is no longer the current one, it asks again and is dropped.
+  storage.set(key, JSON.stringify({ ...kept, until: Date.now() - 1 }));
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), false);
+  assert.equal(storage.has(key), false);
+  storage.set(key, JSON.stringify({ ...kept, binding: '2020-01-01T00:00:00.000Z' }));
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), false);
+  // Locking one workspace forgets it; signing out forgets every workspace of the identity.
+  vault.rememberWorkspace('user-r', library, 'local');
+  vault.clearWorkspaceUnlock('user-r', library);
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), false);
+  assert.equal(vault.isWorkspaceUnlocked('user-r', secondLibrary), true);
+  vault.rememberWorkspace('user-r', library, 'local');
+  vault.forgetRememberedWorkspaces('user-r');
+  assert.equal(vault.isWorkspaceUnlocked('user-r', library), false);
+  assert.equal(vault.isWorkspaceUnlocked('user-r', secondLibrary), false);
+  // A workspace that was never unlocked here has nothing to remember.
+  vault.rememberWorkspace('user-r', 'cccccccccccccccccccccccccccccccc', 'local');
+  assert.equal(localKeys().some(name => name.includes('cccccccc') && name.includes('remembered')), false);
 });

@@ -388,9 +388,20 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('heading', { name: '口令已创建' })).toBeVisible();
     await page.getByRole('button', { name: '我已安全备份，进入工作区' }).click();
     await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    // The device that created the passphrase stays unlocked across browser sessions.
     await page.evaluate(() => sessionStorage.clear());
     await page.reload();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '解锁工作区' })).toHaveCount(0);
+    // What is kept is not the passphrase, and without it the gate is back.
+    const kept = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('tjuclaw.workspace.remembered.v1.')).map(key => [key, localStorage.getItem(key)]));
+    expect(kept).toHaveLength(1);
+    expect(kept[0][1]).not.toContain('workspace-secret-2026');
+    expect(Object.keys(JSON.parse(kept[0][1])).sort()).toEqual(['binding', 'until']);
+    await page.evaluate(key => { sessionStorage.clear(); localStorage.removeItem(key); }, kept[0][0]);
+    await page.reload();
     await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: '在这台设备上保持解锁 30 天' })).toBeChecked();
     await page.getByLabel('工作区口令').fill('wrong-workspace-secret');
     await page.getByRole('button', { name: '解锁进入工作区' }).click();
     await expect(page.getByRole('alert')).toHaveText('口令错误，或此设备上的验证材料已损坏。');
@@ -414,14 +425,44 @@ test.describe('Workspace mocked contract suite', () => {
     expect(state.vaultWrites).toHaveLength(1);
     expect(state.vaultWrites[0]).not.toContain('remote-workspace-secret');
     expect(await page.evaluate(id => localStorage.getItem(`tjuclaw.workspace.vault.v1.user-identity-uuid-aaaa.${id}`), libA.id)).toBeNull();
+    // This device stays unlocked after a reload, without the passphrase being kept anywhere.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('remote-workspace-secret');
+    // Another device, or this one once it forgets, is asked for the passphrase.
+    const rememberedKey = `tjuclaw.workspace.remembered.v1.user-identity-uuid-aaaa.${libA.id}`;
+    await page.evaluate(key => localStorage.removeItem(key), rememberedKey);
     await page.reload();
     await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
     await page.getByLabel('工作区口令').fill('wrong-remote-secret');
     await page.getByRole('button', { name: '解锁进入工作区' }).click();
     await expect(page.getByRole('alert')).toContainText('口令不正确');
+    // Unlocking without keeping the device unlocked lasts for this page only.
+    await page.getByRole('checkbox', { name: '在这台设备上保持解锁 30 天' }).uncheck();
     await page.getByLabel('工作区口令').fill('remote-workspace-secret');
     await page.getByRole('button', { name: '解锁进入工作区' }).click();
     await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    expect(await page.evaluate(key => localStorage.getItem(key), rememberedKey)).toBeNull();
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
+    await page.getByLabel('工作区口令').fill('remote-workspace-secret');
+    await page.getByRole('button', { name: '解锁进入工作区' }).click();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    // A passphrase changed on another device gives the verifier a new revision: this device asks again.
+    await page.evaluate(key => localStorage.setItem(key, JSON.stringify({ binding: '"' + '0'.repeat(40) + '"', until: Date.now() + 1e9 })), rememberedKey);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
+    await page.getByLabel('工作区口令').fill('remote-workspace-secret');
+    await page.getByRole('button', { name: '解锁进入工作区' }).click();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    // A kept unlock that has run out asks again too.
+    await page.evaluate(key => { const kept = JSON.parse(localStorage.getItem(key)); localStorage.setItem(key, JSON.stringify({ ...kept, until: Date.now() - 1000 })); }, rememberedKey);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '解锁工作区' })).toBeVisible();
+    await page.getByLabel('工作区口令').fill('remote-workspace-secret');
+    await page.getByRole('button', { name: '解锁进入工作区' }).click();
+    await expect(page.getByRole('button', { name: 'First note for user A', exact: true })).toBeVisible();
+    // Kept unlocked or not, the workspace does not open while the verifier cannot be read.
     state.vaultOffline = true;
     await page.reload();
     await expect(page.getByText('工作区暂时无法连接，请稍后重试。')).toBeVisible();
@@ -3256,6 +3297,7 @@ test('a running turn shows thinking, words and every tool call in order, and the
       { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', status: 'running', added: 48 },
       { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', status: 'running', added: 2, removed: 1 },
       { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', status: 'running' },
+      { kind: 'tool', name: 'update_entry', input: '{"id":"n1","title":"电路"}', status: 'running' },
       { kind: 'tool', name: 'campus_exams', input: '{}', status: 'running' }] },
     { stage: 'writing', items: [
       { kind: 'thinking', text: '先想想怎么整理' },
@@ -3263,6 +3305,8 @@ test('a running turn shows thinking, words and every tool call in order, and the
       { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', status: 'done', added: 48, output: 'Successfully wrote' },
       { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', status: 'done', added: 2, removed: 1 },
       { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', status: 'done' },
+      // A note written through the knowledge-base tool is counted in characters.
+      { kind: 'tool', name: 'update_entry', input: '{"id":"n1","title":"电路"}', status: 'done', added: 320, removed: 45, unit: 'char' },
       { kind: 'tool', name: 'campus_exams', input: '{}', status: 'failed' },
       { kind: 'thinking', text: '都处理完了' },
       { kind: 'text', text: '笔记已经**整理好**。' }] },
@@ -3285,6 +3329,7 @@ test('a running turn shows thinking, words and every tool call in order, and the
     { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', output: 'Successfully wrote to notes/电路.md', added: 48 },
     { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', output: ' 1 line one\n-2 line two\n+2 line 2\n+3 line 2b\n 3 line three', added: 2, removed: 1 },
     { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', output: 'Read image file [image/png]' },
+    { kind: 'tool', name: 'update_entry', input: '{"id":"n1","title":"电路"}', output: '{"id":"n1","title":"电路"}', added: 320, removed: 45, unit: 'char' },
     { kind: 'tool', name: 'campus_exams', input: '{}', output: '{"ok":false}', failed: true },
     { kind: 'thinking', text: '都处理完了' },
   ];
@@ -3321,13 +3366,14 @@ test('a running turn shows thinking, words and every tool call in order, and the
   await expect(write.getByRole('img', { name: '新增 48 行' })).toBeVisible();
   await expect(working.getByRole('button', { name: /编辑文件/ }).getByRole('img', { name: '新增 2 行，删除 1 行' })).toBeVisible();
   await expect(working.getByRole('button', { name: /查看图片/ })).toContainText('波形.png');
-  await expect(working.getByRole('img', { name: '进行中' })).toHaveCount(4);
+  await expect(working.getByRole('img', { name: '进行中' })).toHaveCount(5);
   // A tool run has no writing speed.
   await expect(working.locator('.agent-working-rate')).toHaveCount(0);
 
   // The results arrive with the next model call, then the reply is written.
   moment = 2;
-  await expect(working.getByRole('img', { name: '已完成' })).toHaveCount(3);
+  await expect(working.getByRole('img', { name: '已完成' })).toHaveCount(4);
+  await expect(working.getByRole('button', { name: /修改《电路》/ }).getByRole('img', { name: '新增 320 字，删除 45 字' })).toBeVisible();
   await expect(working.getByRole('button', { name: /查询考试安排.*失败/ })).toBeVisible();
   await expect(working.getByRole('button', { name: /思考过程/ })).toHaveCount(2);
   await expect(working.locator('.agent-live-text strong')).toHaveText('整理好');
@@ -3346,6 +3392,8 @@ test('a running turn shows thinking, words and every tool call in order, and the
   const after = await reply.locator('.agent-step, .agent-step-said, .agent-reply-body > .chat-message-content').evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
   expect(after.length).toBe(before.length);
   after.forEach((top, index) => expect(Math.abs(top - before[index]), `row ${index}`).toBeLessThanOrEqual(3));
+  await expect(reply.getByRole('button', { name: /修改《电路》/ }).getByRole('img', { name: '新增 320 字，删除 45 字' })).toBeVisible();
+  await expect(reply.getByRole('button', { name: /写入文件/ }).getByRole('img', { name: '新增 48 行' })).toHaveText('+48 行');
   // The edit opens to what it changed.
   await reply.getByRole('button', { name: /编辑文件/ }).click();
   await expect(reply.locator('.agent-step-diff-line.is-added')).toHaveCount(2);
@@ -4140,4 +4188,50 @@ test('the conversation background is still by default, and the Game of Life is a
   await page.reload();
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
   await expect(page.locator('canvas.life-background')).toHaveCount(1);
+});
+
+test('with motion on, the newest characters of a streamed reply fade in and settle fully opaque', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mockWorkspace(page, defaultState());
+  const text = '基尔霍夫电流定律说的是：**流入节点的电流之和为零**，这是电荷守恒的直接结果。';
+  let finish;
+  const finished = new Promise(resolve => { finish = resolve; });
+  await page.route('**/api/sessions/*/live*', async route => {
+    if (new URL(route.request().url()).searchParams.has('version')) await finished;
+    return json(route, 200, { version: 1, count: 2, stage: { id: 'writing', ms: 0 }, rate: { tokens: 40, ms: 1000 }, items: [
+      { i: 0, kind: 'thinking', text: '想一下', next: 9 },
+      { i: 1, kind: 'text', text, next: new TextEncoder().encode(text).length }] });
+  });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('什么是 KCL');
+  // Catch the reply while it is still being revealed.
+  await page.evaluate(() => {
+    window.__tails = [];
+    new MutationObserver(() => {
+      const spans = [...document.querySelectorAll('.agent-live-text .agent-tail')];
+      if (spans.length) window.__tails.push(spans.map(span => Number(span.style.opacity)));
+    }).observe(document.body, { subtree: true, childList: true, attributes: true });
+  });
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const reply = page.locator('.agent-live-text');
+  // The text is complete and, once the fade has run out, plain again: nothing is left dimmed.
+  await expect(reply).toHaveText(text.replaceAll('**', ''));
+  await expect(reply.locator('.agent-tail')).toHaveCount(0);
+  await expect(reply.locator('strong')).toHaveText('流入节点的电流之和为零');
+  const tails = await page.evaluate(() => window.__tails);
+  expect(tails.length).toBeGreaterThan(3);
+  // While it was written, the newest characters were the lightest, never invisible, and at most a short tail.
+  for (const tail of tails) {
+    expect(tail.length).toBeLessThanOrEqual(14);
+    expect(Math.min(...tail)).toBeGreaterThan(0);
+    expect([...tail].sort((a, b) => b - a)).toEqual(tail);
+  }
+  // The thought before it folded into a row in place.
+  await expect(page.getByRole('status', { name: /正在处理/ }).getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'false');
+  finish();
+  release();
 });

@@ -101,13 +101,15 @@ export function toolView(step: TurnStep) {
  * The lines a file change adds and removes. While a file is still being
  * written only the lines so far are known.
  */
-function Changes({ added = 0, removed = 0, lines = 0 }: { added?: number; removed?: number; lines?: number }) {
+function Changes({ added = 0, removed = 0, lines = 0, unit }: { added?: number; removed?: number; lines?: number; unit?: 'char' }) {
   if (!added && !removed && !lines) return null;
-  const label = lines ? `已写入 ${lines} 行` : [added ? `新增 ${added} 行` : '', removed ? `删除 ${removed} 行` : ''].filter(Boolean).join('，');
+  // A note is counted in characters, a file in lines; the unit is always shown.
+  const word = unit === 'char' ? '字' : '行';
+  const label = lines ? `已写入 ${lines} 行` : [added ? `新增 ${added} ${word}` : '', removed ? `删除 ${removed} ${word}` : ''].filter(Boolean).join('，');
   return <span className="agent-step-changes" role="img" aria-label={label}>
-    {lines ? <span className="is-added" aria-hidden="true">+{lines}</span> : null}
-    {added ? <span className="is-added" aria-hidden="true">+{added}</span> : null}
-    {removed ? <span className="is-removed" aria-hidden="true">−{removed}</span> : null}
+    {lines ? <span className="is-added" aria-hidden="true">+{lines} 行</span> : null}
+    {added ? <span className="is-added" aria-hidden="true">+{added} {word}</span> : null}
+    {removed ? <span className="is-removed" aria-hidden="true">−{removed} {word}</span> : null}
   </span>;
 }
 
@@ -138,7 +140,7 @@ export function ToolRow({ step, status, lines }: { step: TurnStep; status?: Live
       <Icon size={14} aria-hidden="true" />
       <span className="agent-step-label">{view.label}</span>
       {view.detail ? <span className={`agent-step-detail${view.code ? ' is-code' : ''}`}>{view.detail}</span> : null}
-      {failed ? null : <Changes added={step.added} removed={step.removed} lines={lines} />}
+      {failed ? null : <Changes added={step.added} removed={step.removed} lines={lines} unit={step.unit} />}
       {failed ? <span className="agent-step-flag">失败</span> : null}
       {hasDetail ? <ChevronRight size={13} className="agent-step-chevron" aria-hidden="true" /> : null}
       <StepStatus status={shown} />

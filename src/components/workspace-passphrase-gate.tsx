@@ -17,6 +17,8 @@ import {
   createWorkspacePassphrase,
   createRemoteWorkspacePassphrase,
   markWorkspaceUnlocked,
+  REMEMBER_DAYS,
+  rememberWorkspace,
   MAX_WORKSPACE_PASSPHRASE_LENGTH,
   migrateWorkspacePassphrase,
   MIN_WORKSPACE_PASSPHRASE_LENGTH,
@@ -100,6 +102,8 @@ export function WorkspacePassphraseGate({
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
+  // Keep this device unlocked after a correct passphrase, unless the user opts out.
+  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [stage, setStage] = useState<GateStage>('form');
@@ -151,11 +155,14 @@ export function WorkspacePassphraseGate({
           await createWorkspacePassphrase(identity, target.id, passphrase);
           markWorkspaceUnlocked(identity, target.id);
         }
+        // The device that just created the passphrase stays unlocked.
+        rememberWorkspace(identity, target.id, verification);
         downloadPassphraseBackup(target.id, target.name, passphrase, verification);
         setDownloaded(true);
         setStage('backup');
       } else if (mode === 'migrate') {
         await migrateWorkspacePassphrase(identity, target.id, passphrase);
+        if (remember) rememberWorkspace(identity, target.id, verification);
         await onUnlocked();
       } else {
         if (verification === 'remote') await unlockRemoteWorkspace(identity, target.id, passphrase);
@@ -163,6 +170,7 @@ export function WorkspacePassphraseGate({
           await unlockWorkspace(identity, target.id, passphrase);
           markWorkspaceUnlocked(identity, target.id);
         }
+        if (remember) rememberWorkspace(identity, target.id, verification);
         await onUnlocked();
       }
     } catch (cause) {
@@ -341,7 +349,12 @@ export function WorkspacePassphraseGate({
                       <span><Check size={14} />我已了解口令规则，并准备好安全备份。</span>
                     </label>
                   </>
-                ) : null}
+                ) : (
+                  <label className="workspace-vault-check">
+                    <input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} />
+                    <span><Check size={14} />在这台设备上保持解锁 {REMEMBER_DAYS} 天</span>
+                  </label>
+                )}
                 <AnimatePresence initial={false}>
                   {error ? (
                     <m.p

@@ -27,7 +27,7 @@ import { AuthError, logout, readSession, type IdentitySession } from './lib/auth
 import { VaultError } from './lib/sealed-vault';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
-import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
+import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
@@ -2496,6 +2496,8 @@ export default function Workspace() {
     clearEntryCache();
     dropSessionSnapshot();
     if (session && library) clearWorkspaceUnlock(session.id, library.id);
+    // Signing out ends "keep this device unlocked" for every workspace of this account.
+    if (session) forgetRememberedWorkspaces(session.id);
     void logout();
   }
 

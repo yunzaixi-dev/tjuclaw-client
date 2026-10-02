@@ -1,54 +1,135 @@
-import { useEffect, useRef, useState } from 'react';
-import { Brain } from 'lucide-react';
-import { SaidText, ThinkingRow, ToolRow, groupSteps, toolView } from './agent-steps';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Brain, ChevronRight } from 'lucide-react';
+import { SaidText, ToolRow, groupSteps, toolView } from './agent-steps';
 import { getLive, type LiveCursor } from '../lib/library';
 import { formatTokenRate, mergeTimeline, stageText, timelineCursor, type TimelineItem } from '../lib/live-stream';
 import './agent-live.css';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/** How many of the newest characters are still fading in. */
+const TAIL = 14;
+
 /**
  * Text that arrives in bursts, shown as a steady flow: each frame reveals a
  * share of what is still hidden, so a large burst catches up within a few
  * frames and a slow trickle stays character by character. The owner remounts
  * it (by key) when a different text starts.
+ *
+ * The newest characters fade in: `lead` is how far the fade has moved past
+ * the end of the text, 0 while text is still arriving and TAIL once the last
+ * character is fully shown.
  */
-function useFlowingText(target: string): string {
-  const [shown, setShown] = useState(0);
+function useFlowingText(target: string): { shown: string; lead: number } {
+  const [flow, setFlow] = useState({ shown: 0, lead: 0 });
   const still = reducedMotion();
+  const done = flow.shown >= target.length;
   useEffect(() => {
-    if (still || shown >= target.length) return;
+    if (still || (done && flow.lead >= TAIL)) return;
     const frame = requestAnimationFrame(() => {
-      setShown(current => {
-        let next = Math.min(target.length, current + Math.max(1, Math.ceil((target.length - current) / 10)));
+      setFlow(current => {
+        // Caught up: let the last characters finish fading in.
+        if (current.shown >= target.length) return { shown: current.shown, lead: Math.min(TAIL, current.lead + 1) };
+        let next = Math.min(target.length, current.shown + Math.max(1, Math.ceil((target.length - current.shown) / 10)));
         // Never cut a surrogate pair in half.
         const code = target.charCodeAt(next);
         if (next < target.length && code >= 0xdc00 && code <= 0xdfff) next++;
-        return next;
+        return { shown: next, lead: 0 };
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [shown, target, still]);
-  return still ? target : target.slice(0, Math.min(shown, target.length));
+  }, [flow, target, still, done]);
+  return still ? { shown: target, lead: TAIL } : { shown: target.slice(0, Math.min(flow.shown, target.length)), lead: flow.lead };
 }
 
-function LiveThinking({ text, onProgress }: { text: string; onProgress?: () => void }) {
-  const shown = useFlowingText(text);
+/** The opacity of the character `distance` places before the end of the text. */
+const tailOpacity = (distance: number, lead: number) => Math.min(1, (distance + lead + 1) / TAIL);
+
+/** Plain text with its newest characters fading in. */
+function FadingText({ text, lead }: { text: string; lead: number }) {
+  const fading = Math.max(0, TAIL - lead);
+  if (!fading) return <>{text}</>;
+  const tail = Array.from(text).slice(-fading);
+  const head = text.slice(0, text.length - tail.join('').length);
+  return <>{head}{tail.map((char, index) => <span key={index} style={{ opacity: tailOpacity(tail.length - 1 - index, lead) }}>{char}</span>)}</>;
+}
+
+/**
+ * Fades in the newest characters of rendered Markdown: the last text of the
+ * element is split into one span per character, each lighter the newer it
+ * is. Spans from the previous frame are folded back into plain text first.
+ */
+function fadeTail(root: HTMLElement, lead: number) {
+  for (const span of Array.from(root.querySelectorAll('span.agent-tail'))) {
+    const parent = span.parentNode;
+    span.replaceWith(document.createTextNode(span.textContent ?? ''));
+    parent?.normalize();
+  }
+  let fading = Math.max(0, TAIL - lead);
+  let distance = 0;
+  // Walk the text backwards from the end, leaving formulas and drawings whole.
+  const visit = (node: Node): boolean => {
+    if (fading <= 0) return false;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const chars = Array.from((node as Text).data);
+      const take = Math.min(fading, chars.length);
+      if (!take) return true;
+      const fragment = document.createDocumentFragment();
+      fragment.append(chars.slice(0, chars.length - take).join(''));
+      chars.slice(chars.length - take).forEach((char, index) => {
+        const span = document.createElement('span');
+        span.className = 'agent-tail';
+        span.style.opacity = String(tailOpacity(distance + take - 1 - index, lead));
+        span.textContent = char;
+        fragment.append(span);
+      });
+      (node as Text).replaceWith(fragment);
+      fading -= take;
+      distance += take;
+      return fading > 0;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || (node as Element).matches('math, svg, .math-block, .mermaid-block, button')) return true;
+    for (const child of Array.from(node.childNodes).reverse()) if (!visit(child)) return false;
+    return true;
+  };
+  visit(root);
+}
+
+/**
+ * One stretch of the model's thinking in the running turn. While it is being
+ * written it is open and flows; once the turn has moved on it folds into a
+ * row, in place, that opens again on demand.
+ */
+function LiveThought({ text, active, onProgress }: { text: string; active: boolean; onProgress?: () => void }) {
+  const { shown, lead } = useFlowingText(text);
+  const [open, setOpen] = useState(false);
   const box = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
-    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+    if (active && box.current) box.current.scrollTop = box.current.scrollHeight;
     onProgress?.();
-  }, [shown, onProgress]);
-  return <div className="agent-live-thinking" aria-label="思考过程">
-    <Brain size={14} aria-hidden="true" />
-    <p ref={box}>{shown}</p>
-  </div>;
+  }, [shown, active, onProgress]);
+  const expanded = active || open;
+  return <li className={`agent-step is-thinking is-live${expanded ? ' is-open' : ''}${active ? ' is-active' : ''}`}>
+    <button type="button" aria-expanded={expanded} disabled={active} onClick={() => setOpen(value => !value)}>
+      <Brain size={14} aria-hidden="true" />
+      <span className="agent-step-label">思考过程</span>
+      {!expanded ? <span className="agent-step-detail">{text.trim().replace(/\s+/g, ' ')}</span> : null}
+      <ChevronRight size={13} className="agent-step-chevron" aria-hidden="true" />
+    </button>
+    <div className="agent-live-thought" aria-label={active ? '思考过程' : undefined} aria-hidden={expanded ? undefined : true}>
+      <p ref={box} className="agent-step-thought">{active ? <FadingText text={shown} lead={lead} /> : text.trim()}</p>
+    </div>
+  </li>;
 }
 
 function LiveText({ text, renderMarkdown, onProgress }: { text: string; renderMarkdown: (markdown: string) => string; onProgress?: () => void }) {
-  const shown = useFlowingText(text);
+  const { shown, lead } = useFlowingText(text);
+  const box = useRef<HTMLDivElement | null>(null);
+  const html = renderMarkdown(shown);
   useEffect(() => { onProgress?.(); }, [shown, onProgress]);
-  return <div className="agent-live-text chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(shown) }} />;
+  // After React has written the Markdown, and again as the fade moves on.
+  useLayoutEffect(() => { if (box.current) fadeTail(box.current, lead); }, [html, lead]);
+  return <div ref={box} className="agent-live-text chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 /** Stages in which the model itself is writing, so its speed means something. */
@@ -127,7 +208,7 @@ export function Working({ name, sessionId, stopping, renderMarkdown, onProgress 
 
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
   const asStep = (item: TimelineItem) => ({ kind: 'tool' as const, name: item.name, input: item.input, output: item.output,
-    failed: item.status === 'failed', added: item.added, removed: item.removed });
+    failed: item.status === 'failed', added: item.added, removed: item.removed, unit: item.unit || undefined });
   const active = [...items].reverse().find(item => item.kind === 'tool' && (item.status === 'running' || item.status === 'writing'));
   const activeView = active ? toolView(asStep(active)) : null;
   const hasTools = items.some(item => item.kind === 'tool');
@@ -148,9 +229,8 @@ export function Working({ name, sessionId, stopping, renderMarkdown, onProgress 
         ? <SaidText key={`said:${group.index}`} text={group.said.text} renderMarkdown={renderMarkdown} />
         : <ol key={`rows:${group.rows[0].index}`} className="agent-steps-list agent-live-steps" aria-label="正在进行的步骤">
           {group.rows.map(({ step: item, index }) => item.kind === 'tool' ? <ToolRow key={index} step={asStep(item)} status={item.status} lines={item.lines} />
-            // The thought being written is open; one the turn has moved past folds into a row.
-            : index === last ? <li key={`live:${index}`} className="agent-step is-thinking is-live"><LiveThinking text={item.text} onProgress={onProgress} /></li>
-              : <ThinkingRow key={index} step={{ kind: 'thinking', text: item.text }} />)}
+            // The thought being written is open; once the turn has moved past it, it folds into a row in place.
+            : <LiveThought key={index} text={item.text} active={index === last} onProgress={onProgress} />)}
         </ol>)}
       {/* The text being written now is the reply unless a tool call follows it. */}
       {tail?.kind === 'text' ? <LiveText key={`text:${last}`} text={tail.text} renderMarkdown={renderMarkdown} onProgress={onProgress} /> : null}
