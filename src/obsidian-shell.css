@@ -2237,7 +2237,10 @@
 .notion-home-greeting { margin: 0 0 32px; font-size: 30px; font-weight: 700; letter-spacing: -.01em; text-align: center; }
 .notion-section { margin-bottom: 30px; }
 .notion-section-head { margin: 0 0 10px 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
-.notion-recents { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 12px; scroll-snap-type: x proximity; scrollbar-width: none; }
+/* The padding leaves room for the cards' outline and shadow; scroll-padding
+   makes snapping stop there too, instead of pulling the first card flush
+   against the edge, where its left outline was cut off. */
+.notion-recents { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 12px; scroll-padding-inline: 4px; scroll-snap-type: x proximity; scrollbar-width: none; }
 .notion-recents::-webkit-scrollbar { display: none; }
 .notion-recent-card {
   /* A minimum, not a fixed height: a two-line title makes the whole row taller
@@ -2776,12 +2779,22 @@
   animation: agent-in 180ms var(--ease-out) both;
 }
 
-/* On-screen keyboard. Where the browser does not shrink the page for the
-   keyboard (iOS), the workspace sets --keyboard-inset and the app ends above
-   it, so the composer stays in view and the page is not pushed up to show
-   what lies under it. */
+/* On-screen keyboard. The app ends above it, so the composer and whatever
+   is being typed in stay in view and the page never has to move. The height
+   comes from the keyboard itself where it lies over the page
+   (env(keyboard-inset-height)), or from the workspace's own measurement
+   (--keyboard-inset) where the browser only reports a smaller viewport;
+   --keyboard-height in product.css is whichever applies. */
 @media (max-width: 720px) {
-  .obsidian-app, .obsidian-app.sidebar-collapsed { height: calc(100dvh - var(--contest-banner-height, 0px) - var(--keyboard-inset, 0px)); }
+  .obsidian-app, .obsidian-app.sidebar-collapsed {
+    height: calc(100dvh - var(--keyboard-height));
+  }
+  .back-exit-hint { bottom: calc(env(safe-area-inset-bottom) + 84px + var(--keyboard-height)); }
+  /* Sheets and the passphrase screen keep clear of the keyboard as well. */
+  .mobile-tab-sheet-backdrop { padding-bottom: var(--keyboard-height); }
+  .workspace-vault-screen { min-height: calc(100dvh - var(--keyboard-height)); }
+  .search-palette.search-palette { max-height: calc(100dvh - env(safe-area-inset-top) - 24px - var(--keyboard-height)); }
+  .search-palette-results { max-height: min(52dvh, 420px, calc(100dvh - env(safe-area-inset-top) - 96px - var(--keyboard-height))); }
 }
 
 /* A conversation row: its menu button shows on hover or focus, and always

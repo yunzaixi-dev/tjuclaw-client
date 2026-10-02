@@ -1955,27 +1955,37 @@ export default function Workspace() {
       return false;
     };
   });
-  // The on-screen keyboard. Browsers that resize the page for it need nothing
-  // here. One that only shrinks the visual viewport (iOS) would push the page
-  // up instead; the app is made shorter by the keyboard's height and the page
-  // is kept where it was.
+  // The on-screen keyboard. Left to itself a phone either resizes the page
+  // view or pushes the page up, and for a moment shows what lies behind the
+  // page: the installed app's window, which has no theme. So the keyboard is
+  // asked to lie over the page instead, where that is possible, and the app
+  // itself ends above it (see --keyboard-inset in the stylesheet). Browsers
+  // without that request (iOS) report the keyboard through the visual
+  // viewport; there the page is also kept from being pushed up.
   useEffect(() => {
+    if (!isMobile) return;
+    const keyboard = (navigator as Navigator & { virtualKeyboard?: { overlaysContent: boolean } }).virtualKeyboard;
+    const before = keyboard?.overlaysContent;
+    // With this on, the keyboard's height reaches CSS as env(keyboard-inset-height).
+    if (keyboard) keyboard.overlaysContent = true;
     const viewport = window.visualViewport;
-    if (!isMobile || !viewport) return;
     const root = document.documentElement;
     const update = () => {
-      const inset = Math.round(window.innerHeight - viewport.height - viewport.offsetTop);
+      if (!viewport) return;
+      // The keyboard's height, however far the page has been pushed meanwhile.
+      const inset = Math.round(window.innerHeight - viewport.height);
       // Small differences are browser chrome, not a keyboard.
       root.style.setProperty('--keyboard-inset', inset > 80 ? `${inset}px` : '0px');
       if (inset > 80 && (window.scrollY > 0 || viewport.offsetTop > 0)) window.scrollTo(0, 0);
     };
     update();
-    viewport.addEventListener('resize', update);
-    viewport.addEventListener('scroll', update);
+    viewport?.addEventListener('resize', update);
+    viewport?.addEventListener('scroll', update);
     return () => {
-      viewport.removeEventListener('resize', update);
-      viewport.removeEventListener('scroll', update);
+      viewport?.removeEventListener('resize', update);
+      viewport?.removeEventListener('scroll', update);
       root.style.removeProperty('--keyboard-inset');
+      if (keyboard && before !== undefined) keyboard.overlaysContent = before;
     };
   }, [isMobile]);
   const [backHint, setBackHint] = useState(false);

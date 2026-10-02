@@ -105,6 +105,10 @@
 /* Whatever shows around or under the app, for instance while an on-screen
    keyboard opens, is the theme's own background, and the page itself never
    scrolls or bounces to reveal more of it. */
+/* How much of the bottom of the screen an on-screen keyboard covers: reported
+   by the keyboard where it lies over the page, or measured by the workspace
+   (--keyboard-inset) where the browser only shrinks the visual viewport. */
+:root { --keyboard-height: max(var(--keyboard-inset, 0px), env(keyboard-inset-height, 0px)); }
 html { overscroll-behavior: none; }
 body { margin: 0; min-width: 320px; background: var(--background); overscroll-behavior: none; }
 button, input { font: inherit; }
@@ -244,7 +248,8 @@ svg { flex-shrink: 0; }
   .conversation-list p { font-size: 13px; }
   .home-heading > span, .list-sample { display: none; }
   .home-footer { gap: 10px; font-size: 10px; }
-  .ui-dialog-content { top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; transform: none; width: calc(100% - 16px); height: min(740px, calc(100dvh - 116px)); max-height: calc(100dvh - 32px); border-radius: 40px; }
+  /* A sheet sits on the keyboard when one is open, and fits above it. */
+  .ui-dialog-content { top: auto; bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--keyboard-height)); left: 8px; transform: none; width: calc(100% - 16px); height: min(740px, calc(100dvh - 116px - var(--keyboard-height))); max-height: calc(100dvh - 32px - var(--keyboard-height)); border-radius: 40px; }
   .appearance-header { padding: 18px 16px; gap: 16px; }
   .appearance-header h2 { font-size: 20px; }
   .appearance-header p, .settings-label { display: none; }

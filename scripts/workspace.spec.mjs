@@ -4158,8 +4158,10 @@ test('the phone top bar keeps the tab pill clear of the edge above it', async ({
 test('a recent card with a two-line title keeps its date inside the card', async ({ page }) => {
   const state = defaultState();
   const long = { ...noteA, id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', title: '信号与系统期末复习提纲与历年真题整理', updated_at: '2026-10-02T08:00:00Z' };
-  state.entries = [...state.entries, long];
-  state.entryById[long.id] = long;
+  // Enough notes that the row is wider than a phone and scrolls sideways.
+  const more = ['高数', '大学物理', '线性代数', '概率论'].map((title, index) => ({ ...noteA, id: String(index + 1).repeat(32), title, updated_at: `2026-09-0${index + 1}T08:00:00Z` }));
+  state.entries = [...state.entries, long, ...more];
+  for (const entry of [long, ...more]) state.entryById[entry.id] = entry;
   await mockWorkspace(page, state);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -4184,6 +4186,10 @@ test('a recent card with a two-line title keeps its date inside the card', async
     // Every card in the row is the same height.
     const heights = await cards.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().height)));
     expect(new Set(heights).size).toBe(1);
+    // The row rests with its first card whole: its outline is inside the row, not cut off at the left.
+    const rest = await page.locator('.notion-recents').evaluate(list => ({ scrolled: list.scrollLeft, inset: list.querySelector('.notion-recent-card').getBoundingClientRect().left - list.getBoundingClientRect().left }));
+    expect(rest.scrolled).toBe(0);
+    expect(rest.inset).toBeGreaterThanOrEqual(2);
     if (process.env.SHOT) await page.locator('.notion-recents').screenshot({ path: `${process.env.SHOT}-${width}.png` });
   }
 });
@@ -4381,4 +4387,33 @@ test('on a phone the search sheet fits the screen, the app ends above the keyboa
   expect(colours[0]).toBe(colours[1]);
   expect(colours[0]).not.toBe('rgba(0, 0, 0, 0)');
   expect(colours[2]).toBe('none');
+});
+
+test('on a phone an empty conversation starts with the composer at the bottom', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '打开侧栏' }).first().click();
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const greeting = page.locator('.agent-greeting');
+  await expect(greeting).toBeVisible();
+  // One composer, in the dock at the foot of the screen, under the greeting and not beside it.
+  const composer = page.locator('form.agent-composer');
+  await expect(composer).toHaveCount(1);
+  await expect(page.locator('.agent-dock form.agent-composer')).toHaveCount(1);
+  const form = await composer.boundingBox();
+  const hello = await greeting.boundingBox();
+  expect(form.y + form.height).toBeGreaterThan(844 - 120);
+  expect(form.y).toBeGreaterThan(hello.y + hello.height + 80);
+  expect(form.x).toBeGreaterThanOrEqual(8);
+  expect(form.x + form.width).toBeLessThanOrEqual(390 - 8);
+  // The keyboard's height comes off the app, so the composer rides above it.
+  await page.evaluate(() => document.documentElement.style.setProperty('--keyboard-inset', '300px'));
+  const raised = await composer.boundingBox();
+  expect(Math.round(form.y - raised.y)).toBe(300);
+  await page.evaluate(() => document.documentElement.style.removeProperty('--keyboard-inset'));
+  // At a desk the same empty conversation centres the composer under the greeting.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('.agent-empty form.agent-composer')).toHaveCount(1);
+  await expect(page.locator('.agent-dock form.agent-composer')).toHaveCount(0);
 });

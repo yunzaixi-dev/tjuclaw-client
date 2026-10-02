@@ -341,6 +341,11 @@ export const justLoaded = (id: string, withinMs = 10_000) => Date.now() - (loade
  */
 export function loadEntry(id: string): Promise<Entry> {
   let request = inflight.get(id);
+  // Two callers can ask one after the other instead of at once: pointing at a
+  // note finishes its read just before the click's own begins. The copy read
+  // a moment ago is the answer to both.
+  const recent = !request && justLoaded(id, 1000) ? memory.get(id) : undefined;
+  if (recent) return Promise.resolve(recent);
   if (!request) {
     const identity = owner;
     request = getEntry(id).then(entry => {

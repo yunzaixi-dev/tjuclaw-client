@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, Check, Copy, FileText, Loader2, Square } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
@@ -129,6 +129,15 @@ function allowanceText(status: ModelStatus | null): { text: string; warning: boo
   const tightest = [...windows].sort((x, y) => quotaShareLeft(x) - quotaShareLeft(y))[0];
   return tightest ? { text: `${quotaWindowName(tightest.id)}额度剩余 ${quotaShareLeft(tightest)}%`, warning: quotaShareLeft(tightest) <= 10 } : { text: '', warning: false };
 }
+
+const phoneWidth = () => window.matchMedia('(max-width: 720px)');
+const watchPhoneWidth = (changed: () => void) => {
+  const media = phoneWidth();
+  media.addEventListener('change', changed);
+  return () => media.removeEventListener('change', changed);
+};
+/** Whether the window is as narrow as a phone. */
+const usePhoneWidth = () => useSyncExternalStore(watchPhoneWidth, () => phoneWidth().matches, () => false);
 
 /**
  * A saved reply's text. Rendering Markdown (and highlighting its code) is the
@@ -298,6 +307,11 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
   // loaded or not, so the field cannot tell "still loading" from "empty": what
   // is on screen now decides, and the server copy replaces it quietly.
   const empty = Boolean(chat) && !messages.length && !sending && !pending;
+  // An empty conversation centres the composer under the greeting, except on
+  // a phone, where it starts at the bottom: within reach of the thumb, and
+  // where it stays once the conversation begins.
+  const phone = usePhoneWidth();
+  const centred = empty && !phone;
   const composer = (
       <>
       <form className="agent-composer" onSubmit={submitComposer}>
@@ -345,9 +359,8 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
     // The same condition places the composer here instead of the dock, so there is always exactly one.
     body = <div className="agent-empty">
       <h2 className="agent-greeting"><BrandIcon size={44} /><span>{hello}</span></h2>
-      {composer}
-      {notice}
-
+      {centred ? composer : null}
+      {centred ? notice : null}
     </div>;
   } else {
     body = <div className="session-transcript">
@@ -389,8 +402,8 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
       {body}
     </div>
     <div className="agent-dock">
-      {empty ? null : composer}
-      {empty ? null : notice}
+      {centred ? null : composer}
+      {centred ? null : notice}
     </div>
   </section>;
 }
