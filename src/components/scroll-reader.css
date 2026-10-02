@@ -1,0 +1,10 @@
+/* A note read as one scrolling page. Blocks keep their shape; a block wider
+   than the page scrolls sideways in its own box instead of being cut. */
+.scroll-reader { min-width: 0; }
+.scroll-reader-content.markdown-preview { margin: 0; }
+.scroll-reader-content :is(img, svg, video) { max-width: 100%; height: auto; }
+.scroll-reader-content :is(pre, .math-block, .mermaid-block) { max-width: 100%; overflow-x: auto; }
+/* A table sizes to its content and scrolls when that is wider than the page. */
+.scroll-reader-content table { display: block; width: max-content; max-width: 100%; overflow-x: auto; }
+/* An outline jump lands the heading below the top bar, not under it. */
+.scroll-reader-content :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: 24px; }

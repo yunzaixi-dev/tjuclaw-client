@@ -9,6 +9,7 @@ export interface BrandIconProps extends Omit<ImgHTMLAttributes<HTMLImageElement>
   monochrome?: boolean;
 }
 
+/** The brand mark: the crystal alone on a transparent ground. */
 export function BrandIcon({
   alt,
   label,

@@ -2239,7 +2239,9 @@
 .notion-recents { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 12px; scroll-snap-type: x proximity; scrollbar-width: none; }
 .notion-recents::-webkit-scrollbar { display: none; }
 .notion-recent-card {
-  position: relative; display: flex; flex: 0 0 148px; flex-direction: column; align-items: flex-start; gap: 4px; height: 142px;
+  /* A minimum, not a fixed height: a two-line title makes the whole row taller
+     instead of pushing the date out of the card. */
+  position: relative; display: flex; flex: 0 0 148px; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 142px;
   padding: 0 12px 12px; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface); color: var(--foreground); text-align: left;
   box-shadow: 0 0 0 1px var(--control-border), 0 2px 4px rgba(15, 15, 15, .04); scroll-snap-align: start;
   transition: transform 200ms var(--spring), box-shadow 200ms var(--ease-out);
@@ -2249,7 +2251,8 @@
 .notion-recent-cover { display: block; flex: none; width: calc(100% + 24px); height: 50px; margin: 0 -12px; background: var(--muted); }
 .notion-recent-icon { display: grid; width: 32px; height: 32px; place-items: center; margin-top: -16px; border-radius: 8px; background: var(--surface); color: var(--muted-foreground); box-shadow: 0 0 0 1px var(--control-border); }
 .notion-recent-card strong { display: -webkit-box; margin-top: 6px; overflow: hidden; font-size: 14px; font-weight: 600; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.notion-recent-card small { margin-top: auto; color: var(--muted-foreground); font-size: 12px; }
+.notion-recent-card strong, .notion-recent-card small { flex: none; }
+.notion-recent-card small { margin-top: auto; padding-top: 4px; color: var(--muted-foreground); font-size: 12px; }
 .notion-recent-card.is-empty { flex-basis: 220px; }
 .notion-list { display: grid; gap: 2px; }
 .notion-list button {
@@ -2717,8 +2720,6 @@
   }
 }
 /* Reading mode is a book page: title on top, the text turned page by page. */
-.obsidian-app .note-editor.is-reading { display: flex; height: 100%; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
-.obsidian-app .note-editor.is-reading .note-title { flex: none; }
 
 /* Keep the current document visible while remote operations are pending. */
 .workspace-operation {
@@ -2745,3 +2746,14 @@
 /* MathML shares the document scale in both live preview and reading mode. */
 .obsidian-app :is(.markdown-preview, .note-reader) math { font-family: 'Latin Modern Math', 'STIX Two Math', 'Cambria Math', serif; font-size: 1.15em; }
 .obsidian-app :is(.markdown-preview, .note-reader) .math-block { margin: 1em 0; overflow-x: auto; text-align: center; }
+
+/* Phone top bar: room above the tab pill, so it does not sit against the
+   edge or the notice above it. Placed last: the page chrome rules above set
+   the bar's height for every width. */
+@media (max-width: 720px) {
+  .obsidian-app .obsidian-topbar {
+    height: calc(60px + env(safe-area-inset-top));
+    padding-top: calc(env(safe-area-inset-top) + 10px);
+    padding-bottom: 4px;
+  }
+}

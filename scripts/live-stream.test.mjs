@@ -107,3 +107,11 @@ test('token allowances read in 万 and 亿, with the share left and a model\'s r
   assert.equal(formatModelRate(2.5), '2.5 倍额度');
   assert.equal(formatModelRate(0.5), '0.5 倍额度');
 });
+
+test('the greeting follows the hour', async () => {
+  const { greeting } = await import('../src/lib/greeting.ts');
+  const starts = hour => greeting(hour).slice(0, 3);
+  assert.deepEqual([4, 5, 8, 9, 11, 12, 13, 14, 17, 18, 22, 23, 0].map(starts),
+    ['夜深了', '早上好', '早上好', '上午好', '上午好', '中午好', '中午好', '下午好', '下午好', '晚上好', '晚上好', '夜深了', '夜深了']);
+  for (let hour = 0; hour < 24; hour++) assert.match(greeting(hour), /？$/);
+});

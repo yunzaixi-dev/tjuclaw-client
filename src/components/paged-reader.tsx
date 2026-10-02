@@ -66,9 +66,6 @@ export function PagedReader({ chapters, storageKey, className = '', heading, onC
     return () => observer.disconnect();
   }, [measure, pages]);
 
-  // Tell the outline which page is in view.
-  useEffect(() => { window.dispatchEvent(new Event('tjuclaw:reader-page')); }, [page, chapter]);
-
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify({ chapter, fraction: pages > 1 ? page / (pages - 1) : 0 })); } catch { /* position lasts for this page */ }
   }, [storageKey, chapter, page, pages]);
@@ -85,20 +82,6 @@ export function PagedReader({ chapters, storageKey, className = '', heading, onC
     else if (step > 0) goChapter(chapter + 1);
     else goChapter(chapter - 1, true);
   }, [pages, chapter, goChapter]);
-
-  // Outline jumps (reading mode) arrive as an event carrying the element.
-  useEffect(() => {
-    const goto = (event: Event) => {
-      const target = (event as CustomEvent<Element>).detail;
-      const content = contentRef.current;
-      const viewport = viewportRef.current;
-      if (!content || !viewport || !content.contains(target)) return;
-      const left = target.getBoundingClientRect().left - content.getBoundingClientRect().left;
-      setPage(Math.max(0, Math.min(pages - 1, Math.floor(left / (viewport.clientWidth + GAP)))));
-    };
-    window.addEventListener('tjuclaw:reader-goto', goto);
-    return () => window.removeEventListener('tjuclaw:reader-goto', goto);
-  }, [pages]);
 
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {

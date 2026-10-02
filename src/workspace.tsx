@@ -25,7 +25,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -67,7 +67,7 @@ const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
 const AgentThread = lazy(() => import('./components/agent-thread').then(module => ({ default: module.AgentThread })));
 const NoteHistory = lazy(() => import('./components/note-history').then(module => ({ default: module.NoteHistory })));
 const SearchPalette = lazy(() => import('./components/search-palette').then(module => ({ default: module.SearchPalette })));
-const PagedReader = lazy(() => import('./components/paged-reader').then(module => ({ default: module.PagedReader })));
+const ScrollReader = lazy(() => import('./components/scroll-reader').then(module => ({ default: module.ScrollReader })));
 const FilePreview = lazy(() => import('./components/file-preview').then(module => ({ default: module.FilePreview })));
 const KnowledgeGraph = lazy(() => import('./components/knowledge-graph').then(module => ({ default: module.KnowledgeGraph })));
 const WorkspaceSettings = lazy(() => import('./components/workspace-settings').then(module => ({ default: module.WorkspaceSettings })));
@@ -423,19 +423,6 @@ function bootCachedWorkspace(): CachedBoot | null {
 export default function Workspace() {
   const [boot] = useState(bootCachedWorkspace);
   const [session, setSession] = useState<IdentitySession | null>(boot?.session ?? null);
-  const [agentCapabilities, setAgentCapabilities] = useState<AgentCapabilities | null>(null);
-  const sessionId = session?.id;
-  useEffect(() => {
-    if (!sessionId) return;
-    const controller = new AbortController();
-    // Capabilities only shape suggestions and panels; failures leave the defaults.
-    getModel(controller.signal).then(status => {
-      if (!controller.signal.aborted) setAgentCapabilities(status.agent ?? null);
-    }).catch(() => {
-      if (!controller.signal.aborted) setAgentCapabilities(null);
-    });
-    return () => controller.abort();
-  }, [sessionId]);
   const [libraries, setLibraries] = useState<Library[]>(boot ? [boot.library] : []);
   const [entries, setEntries] = useState<Entry[]>(boot?.items ?? []);
   const [folders, setFolders] = useState<VaultFolder[]>(boot?.folders ?? []);
@@ -2516,8 +2503,8 @@ export default function Workspace() {
     setActiveHeading(item.id);
     if (editorMode === 'preview' || !bodyRef.current) {
       const index = headings.findIndex(heading => heading.id === item.id);
-      // Reading mode turns to the page holding the heading.
-      const target = document.querySelectorAll('.markdown-preview :is(h1, h2, h3, h4, h5, h6)')[index];
+      // Reading mode scrolls to the heading.
+      const target = document.querySelectorAll('.note-reader :is(h1, h2, h3, h4, h5, h6)')[index];
       if (target) window.dispatchEvent(new CustomEvent('tjuclaw:reader-goto', { detail: target }));
       return;
     }
@@ -2578,10 +2565,9 @@ export default function Workspace() {
       const top = (scroller?.getBoundingClientRect().top ?? 0) + 96;
       let current = headings[0].id;
       if (editorMode === 'preview' || !bodyRef.current) {
-        // Pages: the last heading that starts on or before the page in view.
-        const edge = document.querySelector('.paged-reader-viewport')?.getBoundingClientRect().right ?? Infinity;
-        const nodes = document.querySelectorAll('.markdown-preview :is(h1, h2, h3, h4, h5, h6)');
-        nodes.forEach((node, index) => { if (headings[index] && node.getBoundingClientRect().left < edge - 4) current = headings[index].id; });
+        // The last heading at or above the top of the page in view.
+        const nodes = document.querySelectorAll('.note-reader :is(h1, h2, h3, h4, h5, h6)');
+        nodes.forEach((node, index) => { if (headings[index] && node.getBoundingClientRect().top <= top) current = headings[index].id; });
       } else {
         const editor = bodyRef.current;
         const line = editor.state.doc.lineAt(editor.lineBlockAtHeight(Math.max(0, top - editor.documentTop)).from).number - 1;
@@ -2592,8 +2578,7 @@ export default function Workspace() {
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     update();
     document.addEventListener('scroll', schedule, true);
-    window.addEventListener('tjuclaw:reader-page', schedule);
-    return () => { document.removeEventListener('scroll', schedule, true); window.removeEventListener('tjuclaw:reader-page', schedule); if (frame) cancelAnimationFrame(frame); };
+    return () => { document.removeEventListener('scroll', schedule, true); if (frame) cancelAnimationFrame(frame); };
   }, [notesPane, sidebarOpen, view, selected?.id, selected?.kind, headings, editorMode]);
 
   function sidebarRow(id: string, group: string, label: string, icon: ReactNode, onClick: () => void, active = false, extraClass = '') {
@@ -2742,18 +2727,18 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
       <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} stopping={chatSending && chatStopping} onStop={agentRuntime() === 'local' ? undefined : () => void stopTurn()} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} stopping={chatSending && chatStopping} onStop={agentRuntime() === 'local' ? undefined : () => void stopTurn()} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady
         ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={attachAnkiWorkspace} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
         : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><SquareStack size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
-        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} busy={Boolean(operations.create)} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => void renameFile(selected, name)} /> : <article className={`note-editor${editorMode === 'preview' && selected.kind === 'note' ? ' is-reading' : ''}`} onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} busy={Boolean(operations.create)} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => void renameFile(selected, name)} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
         {isMobile ? <div className="note-toolbar"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div></div> : null}
         <input ref={titleRef} className="note-title" aria-label="标题" value={title} onChange={event => { setTitle(event.target.value); queueSave(event.target.value, body); }} placeholder={selected.kind === 'rich_text' ? '未命名文档' : '未命名笔记'} />
         {selected.kind === 'rich_text'
           ? <Suspense fallback={<div className="rich-text-loading" role="status">正在打开文档…</div>}><RichTextEditor key={selected.id} value={body} readOnly={editorMode === 'preview'} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} /></Suspense>
-          : editorMode === 'preview' ? <PagedReader key={selected.id} className="note-reader" storageKey={`tjuclaw.reader.v1.${selected.id}`} chapters={[{ id: selected.id, title: title || '未命名笔记', html: renderMarkdown(body, true) }]} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
+          : editorMode === 'preview' ? <ScrollReader key={selected.id} className="note-reader" storageKey={`tjuclaw.reader.v1.${selected.id}`} html={renderMarkdown(body, true)} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
       </article>}
       </Suspense>
       </div>

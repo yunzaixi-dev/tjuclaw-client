@@ -145,8 +145,6 @@ button.agent-pill-part:disabled { cursor: progress; }
 .agent-empty .agent-composer { width: 100%; text-align: left; }
 .agent-empty .agent-composer textarea { min-height: 52px; }
 .agent-empty .agent-notice { width: 100%; }
-.agent-capabilities { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; }
-.agent-capabilities li { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 6px; background: var(--selected); color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
 @keyframes agent-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes agent-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
 @keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
@@ -207,17 +205,18 @@ button.agent-pill-part:disabled { cursor: progress; }
 }
 @media (max-width: 720px) { .life-background { opacity: .1; } }
 
-/* Empty conversation: the name as terminal ASCII art and a prompt line. */
-.agent-ascii { display: grid; justify-items: center; gap: 14px; margin: 0 0 22px; font-weight: 400; }
-.agent-ascii pre {
-  margin: 0; overflow: hidden; color: var(--foreground); font-family: var(--font-code), 'JetBrains Mono', 'Cascadia Mono', monospace;
-  font-size: clamp(5.5px, 1.05vw, 11px); line-height: 1.12; letter-spacing: 0; white-space: pre;
+/* Empty conversation: the mark and a greeting on one line, set in the page's
+   literary face, above the composer. */
+.agent-empty h2.agent-greeting {
+  display: flex; align-items: center; justify-content: center; gap: 14px; margin: 0 0 30px;
+  font-family: var(--font-cjk), "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+  font-size: clamp(24px, 3vw, 36px); font-weight: 400; line-height: 1.3; letter-spacing: 0; text-wrap: balance;
 }
-.agent-ascii-prompt { color: var(--muted-foreground); font-family: var(--font-code), monospace; font-size: 14px; }
-.agent-ascii-prompt b { color: var(--foreground); font-weight: 600; }
-.agent-ascii-prompt i { display: inline-block; width: .55em; height: 1.05em; margin-left: 4px; vertical-align: -.15em; background: var(--foreground); animation: agent-caret 1.1s steps(1) infinite; }
-@keyframes agent-caret { 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .agent-ascii-prompt i { animation: none; } }
+.agent-greeting .brand-icon { flex: none; }
+@media (max-width: 720px) {
+  .agent-empty h2.agent-greeting { gap: 10px; margin-bottom: 22px; }
+  .agent-greeting .brand-icon { width: 36px !important; height: 36px !important; }
+}
 /* Under the composer: replies are generated and are for reference only. */
 .agent-disclaimer { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; text-align: center; opacity: .8; }
 

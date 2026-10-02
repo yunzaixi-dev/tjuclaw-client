@@ -2877,11 +2877,12 @@ test('Agent without a sandbox has no suggestions and shows which tools a reply u
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /今天想让/ }).or(page.locator('.conversation-row').first())).toBeVisible();
+  await expect(page.locator('.agent-greeting').or(page.locator('.conversation-row').first())).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent Git 工作区' })).toHaveCount(0);
   const log = page.getByRole('log', { name: '会话记录' });
-  await expect(log.getByText('校园服务', { exact: true })).toBeVisible();
-  await expect(log.getByText('课程资料', { exact: true })).toBeVisible();
+  // What the Agent can reach is not advertised under the composer.
+  await expect(log.getByText('校园服务', { exact: true })).toHaveCount(0);
+  await expect(log.getByText('课程资料', { exact: true })).toHaveCount(0);
   await expect(log.locator('.agent-suggested, .agent-starters')).toHaveCount(0);
   await expect(log.getByRole('heading', { name: '建议', exact: true })).toHaveCount(0);
   await page.getByLabel('发送给 Agent 的消息').fill('看看我明天下午什么时候有空');
@@ -3510,26 +3511,94 @@ test('replies highlight code, offer a copy button and draw no external images', 
 });
 
 
-test('reading mode turns pages like a book and remembers the page', async ({ page }) => {
+test('reading mode scrolls as one page, keeps wide blocks whole and remembers the position', async ({ page }) => {
   const state = defaultState();
-  const body = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 段：春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。`).join('\n\n');
+  const wideRow = '| ' + Array.from({ length: 14 }, (_, index) => `第 ${index + 1} 列的一段比较长的内容`).join(' | ') + ' |';
+  const body = [
+    '# 开头',
+    ...Array.from({ length: 30 }, (_, index) => `第 ${index + 1} 段：春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。`),
+    '## 表格',
+    [wideRow, '| ' + Array.from({ length: 14 }, () => '---').join(' | ') + ' |', wideRow].join('\n'),
+    '```js\nconst veryLongLine = "' + 'x'.repeat(400) + '";\n```',
+    ...Array.from({ length: 30 }, (_, index) => `后 ${index + 1} 段：白日依山尽，黄河入海流。欲穷千里目，更上一层楼。`),
+    '## 结尾',
+    '收尾。',
+  ].join('\n\n');
   state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
   state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
   await mockWorkspace(page, state);
   await page.goto('/workspace');
   await page.getByRole('button', { name: '阅读模式' }).click();
   const reader = page.getByRole('region', { name: '阅读' });
-  const count = reader.locator('.paged-reader-count');
-  await expect(count).toHaveText(/^1 \/ [2-9]\d*$/);
-  await page.keyboard.press('ArrowRight');
-  await expect(count).toHaveText(/^2 \//);
-  await reader.getByRole('button', { name: '下一页' }).click();
-  await expect(count).toHaveText(/^3 \//);
-  await page.keyboard.press('ArrowLeft');
-  await expect(count).toHaveText(/^2 \//);
+  await expect(reader).toBeVisible();
+  // One continuous page: no page counter, no page-turn buttons.
+  await expect(page.locator('.paged-reader-count')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下一页' })).toHaveCount(0);
+  const scroller = page.locator('.note-editor');
+  const metrics = () => scroller.evaluate(node => ({ top: node.scrollTop, range: node.scrollHeight - node.clientHeight, overflowX: node.scrollWidth - node.clientWidth }));
+  const start = await metrics();
+  expect(start.range).toBeGreaterThan(600);
+  // The page itself never scrolls sideways.
+  expect(start.overflowX).toBeLessThanOrEqual(1);
+  // A wide table and a long code line stay whole and scroll inside their own box.
+  // Measured from the document each time: the preview may be redrawn once the note finishes loading.
+  for (const selector of ['table', 'pre']) {
+    await expect.poll(() => page.evaluate(selector => {
+      const node = document.querySelector(`.note-reader ${selector}`);
+      const editor = node?.closest('.note-editor');
+      if (!node || !editor) return null;
+      const rect = node.getBoundingClientRect();
+      const page = editor.getBoundingClientRect();
+      return {
+        inside: rect.left >= page.left - 1 && rect.right <= page.right + 1,
+        // The long code line cannot wrap, so its box scrolls; the table may wrap its cells to fit.
+        scrolls: selector === 'pre' ? node.scrollWidth > node.clientWidth : true,
+        columns: getComputedStyle(node.closest('.markdown-preview')).columnCount,
+      };
+    }, selector), selector).toEqual({ inside: true, scrolls: true, columns: 'auto' });
+  }
+  // Every cell of the wide row is there, none cut off at a page edge.
+  await expect(reader.locator('table tr').first().locator('th, td')).toHaveCount(14);
+  // Scrolling moves through the note, and the position survives a reload.
+  await reader.getByRole('heading', { name: '结尾' }).scrollIntoViewIfNeeded();
+  await expect(reader.getByRole('heading', { name: '结尾' })).toBeInViewport();
+  const moved = await metrics();
+  expect(moved.top).toBeGreaterThan(400);
+  await expect.poll(() => page.evaluate(id => JSON.parse(localStorage.getItem(`tjuclaw.reader.v1.${id}`) ?? '{}').fraction ?? 0, noteA.id)).toBeGreaterThan(0.5);
   await page.reload();
   await page.getByRole('button', { name: '阅读模式' }).click();
-  await expect(page.locator('.paged-reader-count')).toHaveText(/^2 \//);
+  await expect(page.getByRole('region', { name: '阅读' }).getByRole('heading', { name: '结尾' })).toBeInViewport();
+  // On a phone the same table is wider than the page: it scrolls in its own box and the page does not.
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (!(await page.locator('.note-reader').count())) await page.getByRole('button', { name: '阅读模式' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const node = document.querySelector('.note-reader table');
+    const editor = node?.closest('.note-editor');
+    if (!node || !editor) return null;
+    return { inside: node.getBoundingClientRect().right <= editor.getBoundingClientRect().right + 1, scrolls: node.scrollWidth > node.clientWidth, pageOverflow: editor.scrollWidth - editor.clientWidth };
+  })).toEqual({ inside: true, scrolls: true, pageOverflow: 0 });
+});
+
+test('in reading mode the outline follows the scroll and jumps to a heading', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = defaultState();
+  const body = '# 概览\n\n' + '引言段落。\n\n'.repeat(40) + '## 中段\n\n' + '正文。\n\n'.repeat(40) + '## 结论\n\n' + '收尾。\n\n'.repeat(40);
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  await page.getByRole('tab', { name: '大纲' }).click();
+  const outline = page.getByRole('navigation', { name: '笔记大纲' });
+  const reader = page.getByRole('region', { name: '阅读' });
+  await expect(outline.locator('.outline-row.is-active')).toHaveText('概览');
+  await outline.getByRole('button', { name: '结论', exact: true }).click();
+  await expect(reader.getByRole('heading', { name: '结论' })).toBeInViewport();
+  await expect(outline.locator('.outline-row.is-active')).toHaveText('结论');
+  // Scrolling back up moves the outline with it.
+  await reader.getByRole('heading', { name: '中段' }).evaluate(node => node.scrollIntoView({ block: 'start' }));
+  await expect(outline.locator('.outline-row.is-active')).toHaveText('中段');
+  await page.getByRole('tab', { name: '文件' }).click();
 });
 
 test('EPUB books open in the paged reader with their chapters', async ({ page }) => {
@@ -3870,4 +3939,92 @@ test('the phone bar offers search and a new note, with no ask-AI box, and leaves
   await expect(bar.getByRole('button', { name: '搜索和快速切换' })).toBeVisible();
   await expect(bar.getByRole('button', { name: '新建笔记' })).toBeVisible();
   await expect(page.getByText('问 AI', { exact: true })).toHaveCount(0);
+});
+
+test('the empty conversation greets with the mark and a line for the time of day, and nothing under the composer but its own row', async ({ page }) => {
+  const state = defaultState();
+  state.model = { ...state.model, agent: { sandbox: true, tools: ['campus_exams', 'search_course_materials', 'read_image'] } };
+  await mockWorkspace(page, state);
+  // Half past eight in the evening, wherever the test runs.
+  await page.clock.install({ time: new Date(2026, 9, 2, 20, 30) });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const hello = page.getByRole('heading', { name: '晚上好，今天过得怎么样？' });
+  await expect(hello).toBeVisible();
+  await expect(hello.locator('img.brand-icon')).toHaveCount(1);
+  // The mark sits left of the words on the same line, and the pair is centered over the composer.
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    if (width === 390) await page.getByRole('button', { name: '收起侧栏' }).first().click().catch(() => undefined);
+    const mark = await hello.locator('img.brand-icon').boundingBox();
+    const words = await hello.locator('span').boundingBox();
+    const form = await page.locator('form.agent-composer').boundingBox();
+    expect(mark.x + mark.width).toBeLessThanOrEqual(words.x);
+    expect(Math.abs((mark.y + mark.height / 2) - (words.y + words.height / 2))).toBeLessThan(6);
+    const center = (mark.x + words.x + words.width) / 2;
+    expect(Math.abs(center - (form.x + form.width / 2))).toBeLessThan(2);
+    expect(mark.x).toBeGreaterThanOrEqual(form.x - 1);
+    expect(words.x + words.width).toBeLessThanOrEqual(form.x + form.width + 1);
+  }
+  // No terminal art, no prompt line, no capability chips.
+  await expect(page.locator('.agent-empty pre')).toHaveCount(0);
+  await expect(page.getByText(/今天想让/)).toHaveCount(0);
+  await expect(page.getByRole('list', { name: '可以使用' })).toHaveCount(0);
+  await expect(page.getByText('校园服务', { exact: true })).toHaveCount(0);
+});
+
+test('the phone top bar keeps the tab pill clear of the edge above it', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  const gap = async () => {
+    const bar = await page.locator('.obsidian-topbar').boundingBox();
+    const pill = await page.locator('.mobile-tab-title').boundingBox();
+    return { above: pill.y - bar.y, below: bar.y + bar.height - (pill.y + pill.height) };
+  };
+  const note = await gap();
+  expect(note.above).toBeGreaterThanOrEqual(12);
+  expect(note.below).toBeGreaterThanOrEqual(4);
+  // The conversation page uses the same bar.
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByRole('button', { name: '收起侧栏' }).first().click();
+  await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
+  const session = await gap();
+  expect(session.above).toBeGreaterThanOrEqual(12);
+});
+
+test('a recent card with a two-line title keeps its date inside the card', async ({ page }) => {
+  const state = defaultState();
+  const long = { ...noteA, id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', title: '信号与系统期末复习提纲与历年真题整理', updated_at: '2026-10-02T08:00:00Z' };
+  state.entries = [...state.entries, long];
+  state.entryById[long.id] = long;
+  await mockWorkspace(page, state);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/workspace');
+    if (width === 390) {
+      await page.getByRole('button', { name: /打开的标签页/ }).click();
+      await page.getByRole('dialog', { name: '标签页' }).getByRole('button', { name: '新建标签页' }).click();
+    } else await page.getByRole('button', { name: '新建标签页' }).click();
+    const cards = page.locator('.notion-recent-card');
+    const card = cards.filter({ hasText: long.title });
+    await expect(card).toBeVisible();
+    const boxes = await card.evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      const title = node.querySelector('strong').getBoundingClientRect();
+      const date = node.querySelector('small').getBoundingClientRect();
+      return { lines: Math.round(title.height / parseFloat(getComputedStyle(node.querySelector('strong')).lineHeight)), dateBottom: date.bottom, bottom: rect.bottom, gap: date.top - title.bottom, clipped: node.scrollHeight - node.clientHeight };
+    });
+    expect(boxes.lines).toBe(2);
+    expect(boxes.dateBottom).toBeLessThanOrEqual(boxes.bottom - 8);
+    expect(boxes.gap).toBeGreaterThanOrEqual(4);
+    expect(boxes.clipped).toBeLessThanOrEqual(0);
+    // Every card in the row is the same height.
+    const heights = await cards.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().height)));
+    expect(new Set(heights).size).toBe(1);
+    if (process.env.SHOT) await page.locator('.notion-recents').screenshot({ path: `${process.env.SHOT}-${width}.png` });
+  }
 });

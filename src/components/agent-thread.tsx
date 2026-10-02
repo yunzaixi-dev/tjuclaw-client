@@ -3,27 +3,16 @@ import { ArrowUp, Check, Copy, FileText, Loader2, Square } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
 import { LifeBackground } from './life-background';
-import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatModelRate, formatQuotaReset, getModel, modelDisplayName, quotaShareLeft, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatModelRate, formatQuotaReset, getModel, modelDisplayName, quotaShareLeft, quotaWindowName, type ChatSession, type ModelStatus } from '../lib/library';
 import { matchingCommands, slashQuery, type PiCommand } from '../lib/pi-commands';
 import { agentRuntime } from '../lib/local-sandbox';
+import { greeting } from '../lib/greeting.ts';
+import { BrandIcon } from './brand-icon';
 import './agent-thread.css';
 
 
-/** What the Agent can reach on this server, grouped for display. */
-function capabilityLabels(tools: string[]) {
-  const labels: string[] = [];
-  if (tools.some(name => name.startsWith('campus_'))) labels.push('校园服务');
-  if (tools.includes('search_course_materials')) labels.push('课程资料');
-  if (tools.includes('read_image')) labels.push('看图');
-  if (tools.some(name => name.endsWith('_entry') || name === 'list_tree')) labels.push('你的笔记');
-  return labels;
-}
-
 /** Conversations whose sandbox this page already asked to warm. */
 const warmed = new Set<string>();
-
-/** TJUClaw in figlet's ANSI Shadow, for the empty conversation. */
-const TITLE_ART = "████████╗  ██╗██╗   ██╗ ██████╗██╗      █████╗ ██╗    ██╗\n╚══██╔══╝  ██║██║   ██║██╔════╝██║     ██╔══██╗██║    ██║\n   ██║     ██║██║   ██║██║     ██║     ███████║██║ █╗ ██║\n   ██║██   ██║██║   ██║██║     ██║     ██╔══██║██║███╗██║\n   ██║╚█████╔╝╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝\n   ╚═╝ ╚════╝  ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ \n                                                         ";
 
 /** Closes a chip menu on an outside press or Escape. */
 function useMenuDismiss(open: boolean, close: () => void, ref: { current: HTMLElement | null }) {
@@ -140,10 +129,9 @@ function allowanceText(status: ModelStatus | null): { text: string; warning: boo
   return tightest ? { text: `${quotaWindowName(tightest.id)}额度剩余 ${quotaShareLeft(tightest)}%`, warning: quotaShareLeft(tightest) <= 10 } : { text: '', warning: false };
 }
 
-export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
+export function AgentThread({ title, chat, loading, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
-  capabilities: AgentCapabilities | null;
   loading: boolean;
   error: string;
   draft: string;
@@ -169,11 +157,12 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   renderMarkdown: (markdown: string) => string;
 }) {
   const messages = (chat?.messages ?? []).filter(message => message.content);
-  const tools = capabilities?.tools ?? [];
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [commandNote, setCommandNote] = useState('');
+  // Chosen once per visit, so the words do not change while the page is open.
+  const [hello] = useState(() => greeting(new Date().getHours()));
   // Read again after each turn and after the settings close: the allowance moved.
   const [modelStatus, setModelStatus] = useModelStatus(`${modelVersion}:${messages.length}:${error ? 1 : 0}`);
   const allowance = allowanceText(modelStatus);
@@ -338,13 +327,9 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   else if (empty) {
     // The same condition places the composer here instead of the dock, so there is always exactly one.
     body = <div className="agent-empty">
-      <h2 className="agent-ascii" aria-label={`今天想让${title}做什么？`}>
-        <pre aria-hidden="true">{TITLE_ART}</pre>
-        <span className="agent-ascii-prompt" aria-hidden="true"><b>&gt;</b> 今天想让 {title} 做什么？<i /></span>
-      </h2>
+      <h2 className="agent-greeting"><BrandIcon size={44} /><span>{hello}</span></h2>
       {composer}
       {notice}
-      {capabilityLabels(tools).length ? <ul className="agent-capabilities" aria-label="可以使用">{capabilityLabels(tools).map(label => <li key={label}>{label}</li>)}</ul> : null}
 
     </div>;
   } else {
