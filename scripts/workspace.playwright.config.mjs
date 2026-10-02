@@ -4,9 +4,7 @@ export default defineConfig({
   testDir: '.',
   testMatch: 'workspace.spec.mjs',
   outputDir: '../test-results/workspace',
-  // Every test mocks its own page, so tests of one file can run side by side.
-  fullyParallel: true,
-  workers: 4,
+  workers: 1,
   timeout: 45000,
   expect: { timeout: 10000 },
   reporter: [['list'], ['json', { outputFile: '../test-results/workspace/report.json' }]],

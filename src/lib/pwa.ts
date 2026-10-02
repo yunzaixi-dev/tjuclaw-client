@@ -43,9 +43,38 @@ export async function checkForUpdate(): Promise<'ready' | 'current' | 'unavailab
 }
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const RECOVERED_KEY = 'tjuclaw.pwa.recovered';
+
+/**
+ * A lazily loaded file of this build is gone: a newer build replaced it on
+ * the server. The page cannot go on with the old code, so switch to the newer
+ * build and load again. Once per tab, so a file that is truly broken does not
+ * reload forever.
+ */
+function recoverFromMissingCode() {
+  window.addEventListener('vite:preloadError', event => {
+    try {
+      if (sessionStorage.getItem(RECOVERED_KEY)) return;
+      sessionStorage.setItem(RECOVERED_KEY, String(Date.now()));
+    } catch { return; }
+    event.preventDefault();
+    void (async () => {
+      const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => undefined) : undefined;
+      await registration?.update().catch(() => undefined);
+      const next = waiting ?? registration?.waiting ?? null;
+      if (next) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+        next.postMessage('activate');
+        // If the worker does not take over, load again anyway.
+        window.setTimeout(() => location.reload(), 4000);
+      } else location.reload();
+    })();
+  });
+}
 
 export function registerServiceWorker() {
   if (!import.meta.env.PROD || import.meta.env.MODE === 'audit' || isTauri() || !('serviceWorker' in navigator)) return;
+  recoverFromMissingCode();
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(registration => {
       // An update only matters to a page an older worker already controls.

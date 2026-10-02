@@ -79,3 +79,61 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
   }
   await expect(page.getByRole('status', { name: '应用更新' })).toHaveCount(0);
 });
+
+// A worker as shipped before the generation marker: it serves its cached
+// shell, waits to be asked before taking over, and leaves no marker.
+const legacyWorker = `
+const SHELL = 'tjuclaw-shell-0000000000000000';
+self.addEventListener('install', event => event.waitUntil(caches.open(SHELL).then(cache => cache.add('/index.html'))));
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+self.addEventListener('message', event => { if (event.data === 'activate') void self.skipWaiting(); });
+self.addEventListener('fetch', event => {
+  if (event.request.mode === 'navigate') event.respondWith(caches.match('/index.html', { cacheName: SHELL }).then(shell => shell ?? fetch(event.request)));
+});
+`;
+
+test('a build replaces an older-generation worker by itself and reloads its page', async ({ page }) => {
+  const file = new URL('../dist/sw.js', import.meta.url);
+  const current = readFileSync(file, 'utf8');
+  const version = current.match(/"version":"([0-9a-f]{16})"/)[1];
+  try {
+    writeFileSync(file, legacyWorker);
+    await page.goto('/auth/login');
+    expect(await controlled(page)).toBe(true);
+    expect(await page.evaluate(() => caches.keys())).toEqual(['tjuclaw-shell-0000000000000000']);
+
+    // A deployment: the server now has this build's worker. The page of the
+    // older worker may be blank, so nobody is there to press "refresh".
+    writeFileSync(file, current);
+    await Promise.all([
+      page.waitForEvent('load'),
+      page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); }),
+    ]);
+    await expect(page.getByLabel('邮箱地址', { exact: true })).toBeVisible();
+    // The older shell is gone, this build's shell is in place, and the device is marked as taken over.
+    await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter(name => name !== 'tjuclaw-assets').sort())).toEqual(['tjuclaw-shell-' + version, 'tjuclaw-worker-2'].sort());
+    expect(await page.evaluate(() => navigator.serviceWorker.getRegistration().then(registration => Boolean(registration.waiting)))).toBe(false);
+    await expect(page.getByRole('status', { name: '应用更新' })).toHaveCount(0);
+  } finally {
+    writeFileSync(file, current);
+  }
+});
+
+test('the server\'s HTML fallback is never served or kept as code', async ({ page }) => {
+  await page.goto('/auth/login');
+  expect(await controlled(page)).toBe(true);
+  // A file an older shell still asks for after a deployment removed it.
+  const gone = '/assets/removed-by-a-later-build-0123abcd.js';
+  const direct = await page.request.get(gone);
+  test.skip(!(direct.headers()['content-type'] ?? '').includes('text/html'), 'this server does not answer missing files with the app HTML');
+  const seen = await page.evaluate(async path => {
+    const response = await fetch(path);
+    return { status: response.status, type: response.headers.get('Content-Type') ?? '' };
+  }, gone);
+  expect(seen.status).toBe(404);
+  expect(seen.type).not.toContain('text/html');
+  expect(await page.evaluate(async path => {
+    for (const name of await caches.keys()) if (await (await caches.open(name)).match(path)) return true;
+    return false;
+  }, gone)).toBe(false);
+});
