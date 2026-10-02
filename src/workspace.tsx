@@ -1488,6 +1488,25 @@ export default function Workspace() {
     }
   }
 
+  // The phone's composer on the notes home: what is typed there is sent in a
+  // new conversation. The text travels as that conversation's draft and is
+  // sent once the conversation is on screen.
+  const [homeAsk, setHomeAsk] = useState('');
+  const [askingFromHome, setAskingFromHome] = useState(false);
+  const askAfterOpenRef = useRef<string | null>(null);
+  async function askFromHome(text: string) {
+    setAskingFromHome(true);
+    try {
+      const agent = await conversationAgent();
+      if (!agent) { setError('暂时无法开始新对话，请稍后再试。'); return; }
+      draftsRef.current[agent.id] = text;
+      askAfterOpenRef.current = text;
+      setHomeAsk('');
+      openConversation(agent.id, 'new', agent, undefined, true);
+    } finally {
+      setAskingFromHome(false);
+    }
+  }
   // The conversation whose name is being edited in the sidebar.
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
 
@@ -2349,6 +2368,16 @@ export default function Workspace() {
     }
   }
 
+  // What the phone's notes-home composer sent: once its conversation is on screen, send it.
+  useEffect(() => {
+    const text = askAfterOpenRef.current;
+    if (!text || view !== 'sessions' || !chat || chatLoading || sendingRef.current) return;
+    // Only into the conversation opened for it: empty, with this text as its draft.
+    if ((chat.messages?.length ?? 0) > 0 || draft.trim() !== text) { if (draft.trim() !== text && !chatLoading) askAfterOpenRef.current = null; return; }
+    askAfterOpenRef.current = null;
+    void handleChat({ preventDefault() { /* not a form event */ } } as FormEvent);
+  });
+
   function saveAnkiCards(cards: AnkiCard[]) {
     if (!ankiSyncHealthy.current || !ankiDeckId) return;
     const previous = ankiCardsRef.current;
@@ -2903,10 +2932,15 @@ export default function Workspace() {
       </Suspense>
       </div>
       {!isMobile && view !== 'sessions' && view !== 'notes' && view !== 'anki' ? <button type="button" className="notion-ai-fab" aria-label="问 AI" title="问 AI" onClick={() => switchView('sessions')}><BrandIcon size={24} /></button> : null}
-      <nav className="mobile-command-bar" aria-label="快捷操作">
-        <button type="button" className="mobile-bar-round" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={20} /></button>
-        <button type="button" className="mobile-bar-round" disabled={Boolean(operations.create)} onClick={() => void createNote()} aria-label="新建笔记"><SquarePen size={20} /></button>
-      </nav>
+      {/* Phone, on the notes home: a composer at the foot of the page. What is
+          typed here opens a new conversation and is sent there, where the
+          composer sits in the same place. */}
+      {isMobile && view === 'notes' && !selected ? <form className="mobile-ask" aria-label="问 TJUClaw" onSubmit={event => { event.preventDefault(); const text = homeAsk.trim(); if (!text || askingFromHome) return; void askFromHome(text); }}>
+        <textarea rows={1} value={homeAsk} aria-label="发送给 Agent 的消息" placeholder="提问、搜索或创建任何内容" disabled={askingFromHome}
+          onChange={event => setHomeAsk(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <div className="mobile-ask-bar"><button type="submit" className="mobile-ask-send" aria-label="发送" disabled={!homeAsk.trim() || askingFromHome}><ArrowUp size={16} /></button></div>
+      </form> : null}
       <footer className="workspace-statusbar"><span>{library?.name ?? '我的知识库'}</span><span className="statusbar-details">{<>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? ` · ${editedLabel(selected.updated_at)}` : ''}{gitStatusLabel(gitStatus) ? ` · ${gitStatusLabel(gitStatus)}` : ''}</>}</span></footer>
       {selected?.kind === 'note' && gitStatus?.enabled && historyOpen ? <Suspense fallback={<OperationProgress label="正在加载版本历史" />}><NoteHistory key={selected.id} entryId={selected.id} title={title} open={historyOpen} onOpenChange={setHistoryOpen} current={body} renderMarkdown={renderMarkdown}
         onRestore={content => { setBody(content); queueSave(title, content); setRestoreNonce(value => value + 1); }} /></Suspense> : null}

@@ -2813,3 +2813,35 @@
 @media (hover: none), (max-width: 720px) {
   .conversation-more { width: 40px; height: 40px; opacity: 1; }
 }
+
+/* Phone, notes home: the composer at the foot of the page. It is drawn like
+   the conversation's own composer and sits where that one does, so sending
+   from here reads as the same box carrying on in the conversation. */
+.mobile-ask { display: none; }
+@media (max-width: 720px) {
+  .obsidian-app .mobile-ask {
+    position: fixed; right: 0; bottom: var(--keyboard-height); left: 0; z-index: 25;
+    display: grid; gap: 8px; margin: 0 12px calc(10px + env(safe-area-inset-bottom)); padding: 16px 12px 12px 20px;
+    border: 1px solid var(--border); border-radius: 20px; background: var(--surface);
+    box-shadow: 0 1px 2px rgba(15, 15, 15, .04), 0 8px 24px -12px rgba(15, 15, 15, .14);
+    transition: border-color 160ms, box-shadow 200ms var(--ease-out);
+  }
+  .obsidian-app .mobile-ask:focus-within { border-color: color-mix(in oklch, var(--foreground) 22%, var(--border)); }
+  .obsidian-app .mobile-ask textarea {
+    box-shadow: none; border-radius: 0;
+    display: block; width: 100%; min-height: 26px; max-height: 132px; margin: 0; padding: 2px 8px 2px 0; resize: none; border: 0; outline: 0;
+    background: transparent; color: var(--foreground); font: inherit; font-size: 16px; line-height: 1.6; field-sizing: content;
+  }
+  .obsidian-app .mobile-ask textarea:focus-visible { outline: none; }
+  .mobile-ask textarea::placeholder { color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); }
+  .mobile-ask-bar { display: flex; align-items: center; justify-content: flex-end; min-height: 32px; }
+  .mobile-ask-send {
+    display: grid; flex: none; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 50%;
+    background: var(--foreground); color: var(--surface); transition: transform 160ms var(--ease-out), background-color 160ms;
+  }
+  .mobile-ask-send:active:not(:disabled) { transform: scale(.94); }
+  .mobile-ask-send:disabled { background: color-mix(in oklch, var(--foreground) 10%, transparent); color: var(--muted-foreground); }
+  .mobile-ask-send:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  /* The page scrolls clear of the composer. */
+  .obsidian-app .new-note-home { padding-bottom: 150px; }
+}

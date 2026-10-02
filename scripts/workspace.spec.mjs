@@ -2258,8 +2258,8 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
   await expect(sidebar).toHaveAttribute('inert', '');
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
   await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
-  // Home keeps the shortcut bar; a note or session hides it.
-  await expect(page.getByRole('navigation', { name: '快捷操作' })).toBeVisible();
+  // Home has the composer at its foot; a note or session does not.
+  await expect(page.getByRole('form', { name: '问 TJUClaw' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 });
 
@@ -4077,27 +4077,58 @@ test('re-entering an empty conversation while it reloads shows one composer, nev
   await expect(composers).toHaveCount(1);
 });
 
-test('the phone bar offers search and a new note, with no ask-AI box, and leaves note pages alone', async ({ page }) => {
+test('on a phone the notes home has a composer that sends in a new conversation, and note pages have none', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
+  let sent = null;
+  await page.route('**/api/sessions/*/messages', async route => {
+    sent = route.request().postDataJSON();
+    const session = state.sessionById[sessionA.id];
+    const next = { ...session, messages: [...session.messages,
+      { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '这是今天的课表。', created_at: '2026-01-01T00:00:12.000Z' }] };
+    state.sessionById[sessionA.id] = next;
+    return json(route, 200, next);
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/workspace');
   await expect(page.locator('.note-title')).toHaveValue(noteA.title);
-  const bar = page.getByRole('navigation', { name: '快捷操作' });
-  // A note page, edited or read, shows no bar at all.
-  await expect(bar).toBeHidden();
+  const ask = page.getByRole('form', { name: '问 TJUClaw' });
+  // A note page, edited or read, has nothing at its foot.
+  await expect(ask).toHaveCount(0);
   await page.getByRole('button', { name: '阅读模式' }).click();
   await expect(page.locator('.note-reader')).toBeVisible();
-  await expect(bar).toBeHidden();
-  // The notes home keeps the bar: two round buttons and nothing that looks like an input.
+  await expect(ask).toHaveCount(0);
+  // The notes home: no round buttons, one composer at the foot of the screen.
   await page.getByRole('button', { name: '打开侧栏' }).click();
   await page.locator('.obsidian-sidebar').getByRole('button', { name: '主页', exact: true }).click();
   await page.getByRole('button', { name: '收起侧栏' }).first().click();
-  await expect(bar).toBeVisible();
-  await expect(bar.getByRole('button')).toHaveCount(2);
-  await expect(bar.getByRole('button', { name: '搜索和快速切换' })).toBeVisible();
-  await expect(bar.getByRole('button', { name: '新建笔记' })).toBeVisible();
-  await expect(page.getByText('问 AI', { exact: true })).toHaveCount(0);
+  await expect(ask).toBeVisible();
+  await expect(page.getByRole('button', { name: '搜索和快速切换' })).toHaveCount(0);
+  await expect(page.locator('.mobile-command-bar')).toHaveCount(0);
+  const box = await ask.boundingBox();
+  expect(box.y + box.height).toBeGreaterThan(844 - 40);
+  expect(box.x).toBeGreaterThanOrEqual(8);
+  expect(box.x + box.width).toBeLessThanOrEqual(390 - 8);
+  // The last thing on the page can be scrolled clear of it.
+  const lastItem = page.locator('.new-note-home').locator('button').last();
+  await lastItem.scrollIntoViewIfNeeded();
+  expect((await lastItem.boundingBox()).y + (await lastItem.boundingBox()).height).toBeLessThanOrEqual(box.y);
+  const send = ask.getByRole('button', { name: '发送' });
+  await expect(send).toBeDisabled();
+  // What is typed here is sent in a new conversation, whose composer is in the same place.
+  await ask.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('今天有什么课');
+  await send.click();
+  await expect(page.locator('.chat-message.user')).toHaveText('今天有什么课');
+  await expect(page.locator('.chat-message.assistant')).toContainText('这是今天的课表。');
+  expect(sent.content).toBe('今天有什么课');
+  await expect(ask).toHaveCount(0);
+  const composer = page.locator('.agent-dock form.agent-composer');
+  await expect(composer).toHaveCount(1);
+  await expect(composer.getByRole('textbox')).toHaveValue('');
+  const docked = await composer.boundingBox();
+  expect(Math.abs(docked.x - box.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(docked.width - box.width)).toBeLessThanOrEqual(4);
 });
 
 test('the empty conversation greets with the mark and a line for the time of day, and nothing under the composer but its own row', async ({ page }) => {
