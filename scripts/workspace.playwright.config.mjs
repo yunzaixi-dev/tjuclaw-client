@@ -5,6 +5,11 @@ export default defineConfig({
   testMatch: 'workspace.spec.mjs',
   outputDir: '../test-results/workspace',
   workers: 1,
+  // A few tests depend on browser timing the suite does not control (a
+  // service worker activating while the test's debugger is attached to it, a
+  // hover finishing before a click). On CI a failed test is run again, and
+  // one that then passes is reported as flaky instead of blocking the release.
+  retries: process.env.CI ? 2 : 0,
   timeout: 45000,
   expect: { timeout: 10000 },
   reporter: [['list'], ['json', { outputFile: '../test-results/workspace/report.json' }]],

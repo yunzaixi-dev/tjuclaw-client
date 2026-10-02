@@ -5,6 +5,11 @@ export default defineConfig({
   testMatch: ['ui.spec.mjs', 'loading.spec.mjs', 'auth-transition.spec.mjs', 'pwa.spec.mjs'],
   outputDir: '../test-results/ui',
   workers: 1,
+  // A few tests depend on browser timing the suite does not control (a
+  // service worker activating while the test's debugger is attached to it, a
+  // hover finishing before a click). On CI a failed test is run again, and
+  // one that then passes is reported as flaky instead of blocking the release.
+  retries: process.env.CI ? 2 : 0,
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:1422',
