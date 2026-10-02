@@ -286,8 +286,11 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
     input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
   }, [draft]);
 
-  // Cached history shows at once; the server copy replaces it quietly.
-  const empty = Boolean(chat) && !messages.length && !sending && !pending && !(loading && !chat?.messages);
+  // A conversation with nothing in it greets the user with the composer in the
+  // middle. A conversation nobody wrote in comes back without a messages field,
+  // loaded or not, so the field cannot tell "still loading" from "empty": what
+  // is on screen now decides, and the server copy replaces it quietly.
+  const empty = Boolean(chat) && !messages.length && !sending && !pending;
   const composer = (
       <>
       <form className="agent-composer" onSubmit={submitComposer}>
@@ -332,7 +335,8 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   if (loading && !chat) {
     body = <div className="agent-skeleton" role="status" aria-label="正在加载会话"><span className="is-user" /><span className="is-line" /><span className="is-short" /></div>;
   } else if (!chat) body = <div className="agent-feedback"><p>{error || '暂时无法连接会话。'}</p><button type="button" onClick={onRetry}>重试</button></div>;
-  else if (!messages.length && !sending && !pending) {
+  else if (empty) {
+    // The same condition places the composer here instead of the dock, so there is always exactly one.
     body = <div className="agent-empty">
       <h2 className="agent-ascii" aria-label={`今天想让${title}做什么？`}>
         <pre aria-hidden="true">{TITLE_ART}</pre>

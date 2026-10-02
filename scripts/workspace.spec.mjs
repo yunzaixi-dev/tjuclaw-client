@@ -3820,3 +3820,34 @@ test('a stop the server cannot carry out leaves the turn running and says so', a
   await expect(reply).toContainText('完整的回答');
   await expect(reply.locator('.agent-reply-stopped')).toHaveCount(0);
 });
+
+test('re-entering an empty conversation while it reloads shows one composer, never two', async ({ page }) => {
+  const state = defaultState();
+  // A conversation nobody has written in comes back without a messages field.
+  const bare = { id: sessionA.id, entry_id: sessionA.entry_id, created_at: sessionA.created_at, updated_at: sessionA.updated_at };
+  state.sessionsByEntry = { [sessionA.entry_id]: [bare] };
+  state.sessionById = { [bare.id]: bare };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const composers = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+  await expect(page.locator('.agent-empty form.agent-composer')).toHaveCount(1);
+  await expect(composers).toHaveCount(1);
+  // Leave, then come back while the server copy of the conversation is slow.
+  await page.getByRole('button', { name: '主页', exact: true }).click();
+  await expect(composers).toHaveCount(0);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/entries/*/sessions', async route => { await held; return route.fallback(); });
+  await page.route(`**/api/sessions/${sessionA.id}`, async route => { await held; return route.fallback(); });
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(composers.first()).toBeVisible();
+  // The conversation kept on this device is on screen while it reloads: one composer throughout.
+  for (let i = 0; i < 5; i++) {
+    await expect(page.locator('form.agent-composer')).toHaveCount(1);
+    await page.waitForTimeout(120);
+  }
+  release();
+  await expect(page.locator('.agent-empty form.agent-composer')).toHaveCount(1);
+  await expect(composers).toHaveCount(1);
+});
