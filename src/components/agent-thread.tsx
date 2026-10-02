@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Brain, Check, ChevronDown, Copy, Loader2, Settings2, Sparkles } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronDown, Copy, FileText, Loader2, Settings2, Sparkles } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
 import { LifeBackground } from './life-background';
@@ -123,7 +123,7 @@ function ModelPill({ onManage }: { onManage: () => void }) {
   );
 }
 
-export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, onNewChat, onShowHistory, renderMarkdown }: {
+export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   capabilities: AgentCapabilities | null;
@@ -143,6 +143,8 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   onNewChat?: () => void;
   /** Opens the conversation list. `/resume` in the composer. */
   onShowHistory?: () => void;
+  /** Opens a note the Agent created or changed. */
+  onOpenNote?: (entryId: string) => void;
   renderMarkdown: (markdown: string) => string;
 }) {
   const messages = (chat?.messages ?? []).filter(message => message.content);
@@ -321,6 +323,13 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
             </header>
             <AgentSteps steps={message.steps} tools={message.tools} />
             <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+            {message.notes?.length && onOpenNote ? <ul className="agent-reply-notes" aria-label="本次写入的笔记">
+              {message.notes.map(note => <li key={note.entry_id}>
+                <button type="button" onClick={() => onOpenNote(note.entry_id)} title={`打开笔记「${note.title}」`}>
+                  <FileText size={14} aria-hidden="true" /><span className="agent-reply-note-title">{note.title}</span><span className="agent-reply-note-change">{note.change === 'created' ? '新建' : '已更新'}</span>
+                </button>
+              </li>)}
+            </ul> : null}
             <div className="agent-reply-actions">
               <button type="button" aria-label="复制回复" title="复制回复" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopiedIndex(index); window.setTimeout(() => setCopiedIndex(current => current === index ? null : current), 1200); }}>
                 {copiedIndex === index ? <Check size={13} /> : <Copy size={13} />}<span>{copiedIndex === index ? '已复制' : '复制'}</span>

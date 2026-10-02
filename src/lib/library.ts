@@ -52,7 +52,17 @@ export interface ChatMessage {
   tools?: string[];
   /** The reply's thinking and tool calls, in order. */
   steps?: TurnStep[];
+  /** Notes the reply's turn created or changed, to link to. */
+  notes?: NoteRef[];
   created_at: string;
+}
+
+/** A note an Agent turn created or changed. */
+export interface NoteRef {
+  entry_id: string;
+  library_id: string;
+  title: string;
+  change: 'created' | 'updated';
 }
 
 export interface TurnStep {
@@ -80,6 +90,10 @@ export interface LiveTurn {
   call: string;
   thinking: string; thinkingFrom: number; thinkingNext: number;
   text: string; textFrom: number; textNext: number;
+  /** What the turn is waiting for (see `stageText`); '' on a server that does not say. */
+  stage: string;
+  /** How long the turn has been in that stage, in milliseconds. */
+  stageMs: number;
 }
 export type LiveCursor = Pick<LiveTurn, 'call' | 'thinkingNext' | 'textNext'> & { version: number };
 
@@ -90,7 +104,7 @@ export type LiveCursor = Pick<LiveTurn, 'call' | 'thinkingNext' | 'textNext'> & 
 export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal): Promise<LiveTurn> {
   const query = cursor ? `?${new URLSearchParams({ version: String(cursor.version), call: cursor.call,
     thinking: String(cursor.thinkingNext), text: String(cursor.textNext) })}` : '';
-  const data = await authRequest<{ version?: unknown; steps?: unknown; stream?: Record<string, unknown> }>(
+  const data = await authRequest<{ version?: unknown; steps?: unknown; stream?: Record<string, unknown>; stage?: { id?: unknown; ms?: unknown } }>(
     `/api/sessions/${sessionId}/live${query}`, { signal }, 25000);
   const steps = Array.isArray(data.steps) ? data.steps.filter((step): step is LiveStep => Boolean(step) && typeof step === 'object'
     && typeof (step as LiveStep).name === 'string' && ['running', 'done', 'failed'].includes((step as LiveStep).status)) : [];
@@ -102,6 +116,8 @@ export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: A
     call: text('call'),
     thinking: text('thinking'), thinkingFrom: count('thinking_from'), thinkingNext: count('thinking_next'),
     text: text('text'), textFrom: count('text_from'), textNext: count('text_next'),
+    stage: typeof data.stage?.id === 'string' ? data.stage.id : '',
+    stageMs: typeof data.stage?.ms === 'number' && data.stage.ms >= 0 ? data.stage.ms : 0,
   };
 }
 
@@ -238,8 +254,16 @@ function isSession(value: unknown): value is ChatSession {
     return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && isTime(m.created_at)
       && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)))
       && (m.tools === undefined || isStringList(m.tools))
-      && (m.steps === undefined || (Array.isArray(m.steps) && m.steps.length <= 60 && m.steps.every(isStep)));
+      && (m.steps === undefined || (Array.isArray(m.steps) && m.steps.length <= 60 && m.steps.every(isStep)))
+      && (m.notes === undefined || (Array.isArray(m.notes) && m.notes.every(isNoteRef)));
   });
+}
+
+function isNoteRef(value: unknown): value is NoteRef {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Record<string, unknown>;
+  return typeof r.entry_id === 'string' && HEX_32.test(r.entry_id) && typeof r.library_id === 'string' && HEX_32.test(r.library_id)
+    && typeof r.title === 'string' && (r.change === 'created' || r.change === 'updated');
 }
 
 function isStringList(value: unknown): value is string[] {
@@ -358,6 +382,17 @@ export async function createSession(entryId: string, signal?: AbortSignal): Prom
 
 export async function getSession(id: string, signal?: AbortSignal): Promise<ChatSession> {
   const data = await authRequest<{ session: unknown }>(`/api/sessions/${id}`, { signal });
+  if (!isSession(data.session)) throw new AuthError(503);
+  return data.session;
+}
+
+/**
+ * Reads the session once its running turn has settled. A reply is returned
+ * before the notes the Agent wrote reach the library; this waits for that and
+ * returns the reply with those notes linked.
+ */
+export async function getSettledSession(id: string, signal?: AbortSignal): Promise<ChatSession> {
+  const data = await authRequest<{ session: unknown }>(`/api/sessions/${id}?settled=1`, { signal }, 90000);
   if (!isSession(data.session)) throw new AuthError(503);
   return data.session;
 }

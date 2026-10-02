@@ -25,7 +25,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -1396,6 +1396,49 @@ export default function Workspace() {
     return [row, ...known.filter(item => item.id !== chat.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
   }, [agentKey, conversations, chat]);
 
+  /**
+   * A reply arrives before the notes its turn wrote reach the library. Wait
+   * for the turn to settle, link those notes under the reply, and read the
+   * tree again so they appear in the sidebar.
+   */
+  async function settleTurn(sessionId: string, entryId: string | null | undefined, libraryId: string | undefined, generation: number) {
+    try {
+      const settled = await getSettledSession(sessionId);
+      if (generation !== identityGeneration.current) return;
+      const count = settled.messages?.length ?? 0;
+      // A newer turn may already be on screen; never replace it with less.
+      if (entryId && chatCacheRef.current[entryId]?.id === sessionId && (chatCacheRef.current[entryId]?.messages?.length ?? 0) <= count) chatCacheRef.current[entryId] = settled;
+      setChat(current => current?.id === sessionId && (current.messages?.length ?? 0) <= count ? settled : current);
+    } catch { /* The tree below is still worth reading again. */ }
+    if (!libraryId || generation !== identityGeneration.current) return;
+    try {
+      const items = (await listEntries(libraryId)).map(listedWithCache);
+      if (generation !== identityGeneration.current) return;
+      pruneEntryCache(items);
+      showTree(items);
+    } catch { /* The next load of the workspace reads the tree. */ }
+  }
+
+  /** Opens a note the Agent wrote. It may be newer than the tree on screen. */
+  async function openAgentNote(id: string) {
+    let item = entries.find(entry => entry.id === id);
+    const libraryId = libraries[0]?.id;
+    if (!item && libraryId) {
+      const generation = identityGeneration.current;
+      try {
+        const items = (await listEntries(libraryId)).map(listedWithCache);
+        if (generation !== identityGeneration.current) return;
+        pruneEntryCache(items);
+        showTree(items);
+        item = items.find(entry => entry.id === id);
+      } catch { return; }
+    }
+    // The note may have been deleted since the reply.
+    if (!item) return;
+    switchView('notes');
+    void openEntry(id, item);
+  }
+
   /** Shows a conversation and names its tab after the first question. */
   function showChat(next: ChatSession) {
     setChat(next);
@@ -2090,6 +2133,7 @@ export default function Workspace() {
         showChat(next);
         setDraft('');
       }
+      void settleTurn(currentId, entryId, libraries[0]?.id, generation);
     } catch (cause) {
       // These are refused before the turn is stored, so the outcome is known:
       // say why and let the user send again instead of asking to confirm.
@@ -2125,6 +2169,7 @@ export default function Workspace() {
             showChat(latest);
             setDraft('');
           }
+          void settleTurn(currentId, entryId, libraries[0]?.id, generation);
           return;
         }
         if (!pending && cause instanceof AuthError) {
@@ -2680,7 +2725,7 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
       <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

@@ -57,6 +57,32 @@ export function mergeLiveFrame(current: HeldStream = empty, live: LiveFrame): He
   };
 }
 
+/** Stages in which the turn is waiting on something outside the model's own output. */
+const WAITING: Record<string, string> = {
+  connecting: '正在连接云端',
+  lease: '等待工作区空闲',
+  sandbox: '等待沙箱就绪',
+  agent: '正在启动 Pi',
+  model: '等待模型回复',
+};
+
+/**
+ * What the turn is doing right now, as the server reports it: waiting for the
+ * sandbox, for Pi, or for the upstream model. Waits of two seconds or more
+ * say how long. Returns '' for a stage this client does not know, so the
+ * caller falls back to what it can see itself.
+ */
+export function stageText(stage: string, waitedMs: number, hasSteps: boolean, toolLabel = ''): string {
+  if (stage === 'tool') return toolLabel ? `正在${toolLabel}` : '正在调用工具';
+  if (stage === 'thinking') return '模型正在思考';
+  if (stage === 'writing') return '正在回答';
+  // After a tool call Pi is already running: it reads the result next.
+  const label = stage === 'agent' && hasSteps ? 'Pi 正在整理工具结果' : WAITING[stage];
+  if (!label) return '';
+  const seconds = Math.floor(Math.max(0, waitedMs) / 1000);
+  return seconds >= 2 ? `${label}（已等 ${seconds} 秒）` : label;
+}
+
 /** Rough token count: one CJK/non-ASCII character, otherwise about four bytes of text. */
 export function estimateTokens(value: string): number {
   let tokens = 0;

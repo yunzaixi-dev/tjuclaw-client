@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Brain } from 'lucide-react';
 import { StepStatus, toolView } from './agent-steps';
 import { getLive, type LiveCursor } from '../lib/library';
-import { estimateTokens, formatTokenRate, inputPreview, mergeLiveFrame, type HeldStream } from '../lib/live-stream';
+import { estimateTokens, formatTokenRate, inputPreview, mergeLiveFrame, stageText, type HeldStream } from '../lib/live-stream';
 import './agent-live.css';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -69,6 +69,8 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
   const [held, setHeld] = useState<HeldStream>({ call: '', thinking: '', text: '', steps: [] });
   // First visible thinking or reply. Recorded in the poll, not during render.
   const [streamStart, setStreamStart] = useState<number | null>(null);
+  // The server's stage and when it began on this device's clock.
+  const [stage, setStage] = useState<{ id: string; at: number }>({ id: '', at: since });
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
@@ -87,6 +89,11 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
           const live = await getLive(sessionId, cursor, controller.signal);
           if (controller.signal.aborted) return;
           setHeld(current => mergeLiveFrame(current, live));
+          // An idle snapshot at the end of the turn keeps the last stage shown.
+          if (live.stage) {
+            const began = Date.now() - live.stageMs;
+            setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
+          }
           if (live.thinking || live.text) {
             const stamp = Date.now();
             setStreamStart(current => current ?? stamp);
@@ -113,8 +120,10 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
   const activeView = active ? toolView({ kind: 'tool', name: active.name, input: active.input }) : null;
   // Honest wording: what the Agent is doing right now. The rate is separate so
   // the phase text stays an exact status.
-  const phase = activeView ? `正在${activeView.label}` : text ? '正在回答' : thinking ? '正在思考'
-    : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考';
+  // The server says what the turn waits for; an older server leaves it to what is visible here.
+  const reported = stageText(stage.id, now - stage.at, steps.length > 0, activeView?.label);
+  const phase = reported || (activeView ? `正在${activeView.label}` : text ? '正在回答' : thinking ? '正在思考'
+    : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考');
   const rate = formatTokenRate(estimateTokens(text || thinking), streamStart ? now - streamStart : 0);
   return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>
     <div><span className="agent-working-name">{name}</span><span className="agent-working-text">{phase}</span>{rate ? <span className="agent-working-rate">{rate}</span> : null}<span className="agent-working-time">{seconds} 秒</span></div>

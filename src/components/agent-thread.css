@@ -31,6 +31,15 @@
 .agent-reply-actions button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 12.5px; }
 .agent-reply-actions button:hover { background: var(--hover-wash); color: var(--foreground); }
 
+/* Notes the turn wrote, as links under the reply. */
+.agent-reply-notes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; padding: 0; list-style: none; }
+.agent-reply-notes button { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--foreground); font-size: 13px; }
+.agent-reply-notes button:hover { background: var(--hover-wash); }
+.agent-reply-notes button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.agent-reply-notes svg { flex: none; color: var(--muted-foreground); }
+.agent-reply-note-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-reply-note-change { flex: none; color: var(--muted-foreground); font-size: 12px; }
+
 /* Tool calls as finished steps. */
 .agent-steps { display: grid; gap: 4px; }
 .agent-view .chat-message-tools { display: inline-flex; justify-self: start; align-items: center; gap: 6px; height: 26px; margin: 0 0 0 -4px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 13px; }

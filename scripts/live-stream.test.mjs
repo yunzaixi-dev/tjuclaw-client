@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { estimateTokens, formatTokenRate, inputPreview, mergeLiveFrame } from '../src/lib/live-stream.ts';
+import { estimateTokens, formatTokenRate, inputPreview, mergeLiveFrame, stageText } from '../src/lib/live-stream.ts';
 import { matchingCommands, slashQuery } from '../src/lib/pi-commands.ts';
 
 const frame = (patch = {}) => ({
@@ -67,4 +67,23 @@ test('a slash token opens Pi commands and a sentence does not', () => {
   assert.deepEqual(matchingCommands('/co').map(command => command.name), ['/copy']);
   assert.deepEqual(matchingCommands('/compact'), []);
   assert.deepEqual(matchingCommands('/').map(command => command.name), ['/new', '/model', '/thinking', '/copy', '/session', '/resume']);
+});
+
+test('the stage says what the turn is waiting for, and for how long', () => {
+  assert.equal(stageText('connecting', 300, false), '正在连接云端');
+  assert.equal(stageText('lease', 2500, false), '等待工作区空闲（已等 2 秒）');
+  assert.equal(stageText('sandbox', 9400, false), '等待沙箱就绪（已等 9 秒）');
+  assert.equal(stageText('agent', 1200, false), '正在启动 Pi');
+  assert.equal(stageText('model', 4100, false), '等待模型回复（已等 4 秒）');
+  // After a tool call Pi is already running.
+  assert.equal(stageText('agent', 3000, true), 'Pi 正在整理工具结果（已等 3 秒）');
+  // The model's own output is not a wait: no counter.
+  assert.equal(stageText('thinking', 8000, false), '模型正在思考');
+  assert.equal(stageText('writing', 8000, true), '正在回答');
+  assert.equal(stageText('tool', 5000, true, '搜索笔记'), '正在搜索笔记');
+  assert.equal(stageText('tool', 5000, true), '正在调用工具');
+  // An older server, or a stage this client does not know: the caller decides.
+  assert.equal(stageText('', 5000, false), '');
+  assert.equal(stageText('unknown', 5000, false), '');
+  assert.equal(stageText('model', -50, false), '等待模型回复');
 });
