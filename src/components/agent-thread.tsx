@@ -206,10 +206,33 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
   const commands = slash ? matchingCommands(slash) : [];
   const commandOpen = Boolean(slash) && !sending;
 
+  // The thread rests at its foot. Opening a conversation goes there at once;
+  // a new message glides there. The foot then stays in view while what is
+  // above settles (code is highlighted, messages far above are measured for
+  // the first time), until the reader scrolls away from it.
+  const pinned = useRef({ on: true, glidingUntil: 0, chat: '' });
+  // The transcript element exists only once there are messages or a turn under way.
+  const hasMessages = messages.length > 0;
   useEffect(() => {
     const area = scrollRef.current;
-    if (area) area.scrollTo({ top: area.scrollHeight, behavior: messages.length ? 'smooth' : 'auto' });
+    if (!area) return;
+    const opened = pinned.current.chat !== (chat?.id ?? '');
+    const glide = !opened && messages.length > 0;
+    pinned.current = { on: true, glidingUntil: glide ? Date.now() + 1200 : 0, chat: chat?.id ?? '' };
+    area.scrollTo({ top: area.scrollHeight, behavior: glide ? 'smooth' : 'auto' });
   }, [chat?.id, messages.length, sending]);
+  useEffect(() => {
+    const area = scrollRef.current;
+    const content = area?.firstElementChild;
+    if (!area || !content) return;
+    const atFoot = () => area.scrollHeight - area.scrollTop - area.clientHeight < 120;
+    // While gliding the thread is on its way to the foot, not leaving it.
+    const onScroll = () => { if (Date.now() >= pinned.current.glidingUntil) pinned.current.on = atFoot(); };
+    const settle = new ResizeObserver(() => { if (pinned.current.on && !atFoot()) area.scrollTop = area.scrollHeight; });
+    area.addEventListener('scroll', onScroll, { passive: true });
+    settle.observe(content);
+    return () => { area.removeEventListener('scroll', onScroll); settle.disconnect(); };
+  }, [chat?.id, loading, hasMessages, sending]);
 
   // Keep the growing live output in view, unless the reader scrolled up.
   const followLive = useCallback(() => {

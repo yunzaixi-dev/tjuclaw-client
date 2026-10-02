@@ -42,7 +42,10 @@ export async function checkForUpdate(): Promise<'ready' | 'current' | 'unavailab
   return waiting || registration.waiting ? 'ready' : 'current';
 }
 
-const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+// How often an open page asks the server for a newer build, and the least
+// time between two asks however many things prompt one.
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const CHECK_SPACING_MS = 60 * 1000;
 const RECOVERED_KEY = 'tjuclaw.pwa.recovered';
 
 /**
@@ -91,9 +94,18 @@ export function registerServiceWorker() {
         const urls = performance.getEntriesByType('resource').map(entry => entry.name);
         ready.active?.postMessage({ type: 'keep', urls });
       });
-      // A long-lived tab asks again when it comes back into view, and every half hour while open.
-      const ask = () => { if (document.visibilityState === 'visible') void registration.update().catch(() => undefined); };
+      // The page finds a newer build by itself: when it comes back into view
+      // or focus, when the network returns, and every few minutes while open.
+      // An installed app is rarely reloaded, so it cannot rely on navigation.
+      let asked = Date.now();
+      const ask = () => {
+        if (document.visibilityState !== 'visible' || Date.now() - asked < CHECK_SPACING_MS) return;
+        asked = Date.now();
+        void registration.update().catch(() => undefined);
+      };
       document.addEventListener('visibilitychange', ask);
+      window.addEventListener('focus', ask);
+      window.addEventListener('online', ask);
       window.setInterval(ask, CHECK_INTERVAL_MS);
     }).catch(() => undefined);
   });

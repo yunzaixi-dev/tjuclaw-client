@@ -7,7 +7,10 @@ import './update-notice.css';
 
 const DISMISS_KEY = 'tjuclaw.update-dismissed';
 const FIRST_CHECK_DELAY_MS = 5_000;
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// Asked again every hour while the app is open, and when its window comes
+// back into focus, at most once in ten minutes.
+const CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const CHECK_SPACING_MS = 10 * 60 * 1000;
 
 type Phase =
   | { kind: 'idle' }
@@ -34,8 +37,10 @@ export function UpdateNotice() {
     if (!isTauri()) return;
     let cancelled = false;
 
+    let asked = 0;
     const run = async () => {
       if (busy.current) return;
+      asked = Date.now();
       try {
         const { check } = await import('@tauri-apps/plugin-updater');
         const update = await check();
@@ -49,10 +54,16 @@ export function UpdateNotice() {
 
     const first = window.setTimeout(run, FIRST_CHECK_DELAY_MS);
     const timer = window.setInterval(run, CHECK_INTERVAL_MS);
+    // Coming back to the app is when a person would want to hear of a new version.
+    const returned = () => { if (document.visibilityState === 'visible' && Date.now() - asked >= CHECK_SPACING_MS) void run(); };
+    window.addEventListener('focus', returned);
+    document.addEventListener('visibilitychange', returned);
     return () => {
       cancelled = true;
       window.clearTimeout(first);
       window.clearInterval(timer);
+      window.removeEventListener('focus', returned);
+      document.removeEventListener('visibilitychange', returned);
     };
   }, []);
 

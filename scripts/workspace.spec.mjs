@@ -4417,3 +4417,48 @@ test('on a phone an empty conversation starts with the composer at the bottom', 
   await expect(page.locator('.agent-empty form.agent-composer')).toHaveCount(1);
   await expect(page.locator('.agent-dock form.agent-composer')).toHaveCount(0);
 });
+
+test('a long conversation opens at its foot, and earlier replies are whole when scrolled to', async ({ page }) => {
+  const state = defaultState();
+  const reply = index => `## 第 ${index} 部分\n\n基尔霍夫电流定律指出，**流入节点的电流之和等于流出的电流之和**。\n\n- 第一点\n- 第二点\n- 第三点\n\n\`\`\`python\ndef kcl(currents):\n    return abs(sum(currents)) < 1e-9\n\`\`\`\n`;
+  const messages = [];
+  for (let index = 1; index <= 30; index++) {
+    messages.push({ role: 'user', content: `讲讲第 ${index} 部分`, created_at: '2026-01-01T00:00:10.000Z' });
+    messages.push({ role: 'assistant', content: reply(index), created_at: '2026-01-01T00:00:11.000Z',
+      steps: [{ kind: 'thinking', text: '先回忆定律' }, { kind: 'tool', name: 'read_entry', input: '{"id":"n1"}', output: '{"id":"n1","title":"电路"}' }] });
+  }
+  state.sessionById[sessionA.id] = { ...sessionA, messages };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const replies = page.locator('.chat-message.assistant');
+  await expect(replies).toHaveCount(30);
+  // The newest reply is on screen and the thread rests at its very end.
+  await expect(replies.last().getByRole('heading', { name: '第 30 部分' })).toBeInViewport();
+  const scroller = page.locator('.agent-scroll');
+  await expect.poll(() => scroller.evaluate(node => Math.round(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2);
+  // Replies far above are skipped by the browser until they come near; the last few never are.
+  const skipping = await page.locator('.session-transcript > .chat-message').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).contentVisibility));
+  expect(skipping.slice(0, -4).every(value => value === 'auto')).toBe(true);
+  expect(skipping.slice(-4).every(value => value === 'visible')).toBe(true);
+  // Scrolled to, an early reply is complete: its steps, text, code and the hanging edge of its step list.
+  const early = replies.nth(2);
+  await early.scrollIntoViewIfNeeded();
+  await expect(early.getByRole('heading', { name: '第 3 部分' })).toBeInViewport();
+  await expect(early.locator('pre')).toContainText('def kcl');
+  await early.getByRole('button', { name: /阅读《电路》/ }).click();
+  await expect(early.locator('.agent-step-body pre').first()).toBeVisible();
+  const edge = await early.evaluate(node => {
+    const list = node.querySelector('.agent-steps-list').getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    // How far the list hangs outside its reply, and how far outside the reply may still be painted.
+    return { hang: Math.round(box.left - list.left), margin: parseFloat(getComputedStyle(node).overflowClipMargin) || 0 };
+  });
+  expect(edge.margin).toBeGreaterThanOrEqual(edge.hang);
+  // Sending from the foot still lands at the foot.
+  await scroller.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('继续');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(page.locator('.chat-message.assistant')).toHaveCount(31);
+  await expect.poll(() => scroller.evaluate(node => Math.round(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2);
+});

@@ -14,6 +14,16 @@
   background: var(--selected); animation: agent-in 240ms var(--ease-out) both;
 }
 .agent-view .chat-message.user p { margin: 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Messages far from view are skipped: the browser neither restyles nor lays
+   out what is inside them until they come near the screen. A change that
+   restyles the whole page (a dialog opening sets inherited styles on the
+   body) then costs what is on screen, not the whole conversation. The last
+   few messages are always real, so the foot of the thread, where reading and
+   writing happen, never rests on an estimate. The clip margin keeps focus
+   rings and the step list's hanging edge from being cut off. */
+.agent-view .session-transcript > .chat-message:not(:nth-last-child(-n + 4)) {
+  content-visibility: auto; contain-intrinsic-size: auto 220px; overflow-clip-margin: 12px;
+}
 .agent-view .chat-message.assistant { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; animation: agent-in 300ms var(--ease-out) both; }
 .agent-reply-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
 .agent-view .agent-reply-head { display: flex; align-items: baseline; gap: 8px; min-height: 28px; padding-top: 3px; }
