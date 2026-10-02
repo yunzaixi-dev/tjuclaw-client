@@ -2648,7 +2648,6 @@ export default function Workspace() {
           <span className="sidebar-library-copy"><strong className="sidebar-library-name">{library?.name ?? '我的知识库'}</strong><small>{fileCount} 个文件 · {folders.length} 个文件夹</small></span>
           <ChevronDown className="sidebar-library-chevron" size={14} />
         </button>
-        {isMobile && view === 'sessions' ? <button type="button" className="notion-side-session-more" aria-label="会话操作" onClick={() => setContextMenu({ x: 0, y: 0, kind: 'session' })}><MoreHorizontal size={18} /></button> : null}
         <button type="button" className="notion-side-collapse" title="收起侧栏" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)}><PanelLeft size={16} /></button>
       </div>
       <div className="notion-nav" aria-label="工作区导航">
@@ -2761,7 +2760,6 @@ export default function Workspace() {
       {!isMobile && view !== 'sessions' && view !== 'notes' && view !== 'anki' ? <button type="button" className="notion-ai-fab" aria-label="问 AI" title="问 AI" onClick={() => switchView('sessions')}><BrandIcon size={24} /></button> : null}
       <nav className="mobile-command-bar" aria-label="快捷操作">
         <button type="button" className="mobile-bar-round" onClick={() => setCommandOpen(true)} aria-label="搜索和快速切换"><Search size={20} /></button>
-        <button type="button" className="mobile-bar-ask" onClick={() => { setSidebarOpen(false); switchView('sessions'); }} aria-label="打开 Agent"><span className="mobile-bar-ask-mark"><BrandIcon size={20} /></span><span>问 AI</span></button>
         <button type="button" className="mobile-bar-round" disabled={Boolean(operations.create)} onClick={() => void createNote()} aria-label="新建笔记"><SquarePen size={20} /></button>
       </nav>
       <footer className="workspace-statusbar"><span>{library?.name ?? '我的知识库'}</span><span className="statusbar-details">{<>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? ` · ${editedLabel(selected.updated_at)}` : ''}{gitStatusLabel(gitStatus) ? ` · ${gitStatusLabel(gitStatus)}` : ''}</>}</span></footer>

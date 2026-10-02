@@ -3310,12 +3310,9 @@ test('a cached workspace paints before the cloud answers, including on a phone s
   const opener = page.locator('.sidebar-opener');
   if ((await opener.getAttribute('aria-label')) === '打开侧栏') await opener.click();
   await page.locator('.obsidian-sidebar').getByRole('button', { name: 'Agent', exact: true }).click();
-  const drawerMore = page.locator('.notion-side-session-more');
-  await expect(drawerMore).toBeVisible();
-  const drawerBox = await drawerMore.boundingBox();
-  const sidebarBox = await page.locator('.obsidian-sidebar').boundingBox();
-  expect(drawerBox.x).toBeGreaterThanOrEqual(sidebarBox.x);
-  expect(drawerBox.x + drawerBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width + 1);
+  // The drawer's head holds the library and the collapse button only; conversation actions live in the top bar.
+  await expect(page.locator('.notion-side-head').getByRole('button')).toHaveCount(2);
+  await expect(page.locator('.obsidian-sidebar').getByRole('button', { name: '会话操作' })).toHaveCount(0);
   await page.getByRole('button', { name: '收起侧栏' }).first().click();
   await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
   const more = page.getByRole('button', { name: '会话操作', exact: true });
@@ -3850,4 +3847,27 @@ test('re-entering an empty conversation while it reloads shows one composer, nev
   release();
   await expect(page.locator('.agent-empty form.agent-composer')).toHaveCount(1);
   await expect(composers).toHaveCount(1);
+});
+
+test('the phone bar offers search and a new note, with no ask-AI box, and leaves note pages alone', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/workspace');
+  await expect(page.locator('.note-title')).toHaveValue(noteA.title);
+  const bar = page.getByRole('navigation', { name: '快捷操作' });
+  // A note page, edited or read, shows no bar at all.
+  await expect(bar).toBeHidden();
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  await expect(page.locator('.note-reader')).toBeVisible();
+  await expect(bar).toBeHidden();
+  // The notes home keeps the bar: two round buttons and nothing that looks like an input.
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '主页', exact: true }).click();
+  await page.getByRole('button', { name: '收起侧栏' }).first().click();
+  await expect(bar).toBeVisible();
+  await expect(bar.getByRole('button')).toHaveCount(2);
+  await expect(bar.getByRole('button', { name: '搜索和快速切换' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: '新建笔记' })).toBeVisible();
+  await expect(page.getByText('问 AI', { exact: true })).toHaveCount(0);
 });

@@ -2186,9 +2186,6 @@
     width: 44px !important;
     height: 44px !important;
   }
-  .notion-side-session-more {
-    display: none;
-  }
   .obsidian-app .workspace-context-menu {
     position: fixed !important;
     top: auto !important;
@@ -2206,7 +2203,7 @@
   }
 }
 
-/* Phone bottom bar, as in Notion: search, Ask AI and compose float over the page. */
+/* Phone bottom bar: search and compose float over the page. The Agent is reached from the sidebar. */
 @media (max-width: 720px) {
   .obsidian-app .mobile-command-bar {
     position: fixed; right: 0; bottom: 0; left: 0; z-index: 25;
@@ -2216,8 +2213,7 @@
     pointer-events: none;
   }
   .obsidian-app .mobile-command-bar > button { pointer-events: auto; }
-  .obsidian-app .mobile-command-bar .mobile-bar-round,
-  .obsidian-app .mobile-command-bar .mobile-bar-ask {
+  .obsidian-app .mobile-command-bar .mobile-bar-round {
     height: 48px; border: 0; color: var(--foreground);
     background: color-mix(in oklch, var(--surface-raised) 86%, transparent);
     -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
@@ -2225,15 +2221,10 @@
     -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--spring);
   }
   .obsidian-app .mobile-command-bar .mobile-bar-round { display: grid; flex: none; width: 48px; place-items: center; padding: 0; border-radius: 50%; }
-  .obsidian-app .mobile-command-bar .mobile-bar-ask {
-    display: flex; flex: 1; align-items: center; justify-content: flex-start; gap: 10px; width: auto;
-    padding: 0 16px 0 8px; border-radius: 999px; color: var(--muted-foreground); font-size: 16px;
-  }
   .obsidian-app .mobile-command-bar button:active { transform: scale(.95); }
-  .mobile-bar-ask-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--control-border); }
   /* The Agent has its own composer, and editing shows the format bar.
-     A note page has no room for the ask-AI bar; home and tools keep it. */
-  .obsidian-app:has(.agent-thread, .agent-picker, .note-editor) .mobile-command-bar { display: none; }
+     A note page, edited or read, keeps its whole height; home and tools keep the bar. */
+  .obsidian-app:has(.agent-thread, .agent-picker, .note-editor, .note-reader) .mobile-command-bar { display: none; }
   .obsidian-app .note-editor, .obsidian-app .new-note-home, .obsidian-app .campus-tool { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   .obsidian-app:has(.note-editor) .note-editor { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
   /* Page title as Notion's breadcrumb pill. */
@@ -2305,13 +2296,6 @@
 .obsidian-app .sidebar-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: transparent; border: 0; }
 .obsidian-app .obsidian-tree { flex: 1; min-height: 60px; overflow: auto; padding: 0 8px; }
 .notion-side-head { display: flex; align-items: center; gap: 4px; padding: 10px 8px 6px; }
-@media (max-width: 720px) {
-  .notion-side-session-more {
-    display: grid; flex: none; width: 44px; height: 44px; place-items: center;
-    border: 0; border-radius: 50%; background: var(--surface); color: var(--foreground);
-    box-shadow: 0 0 0 1px var(--control-border);
-  }
-}
 
 .obsidian-app .notion-side-head .sidebar-library-button {
   display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 8px;
