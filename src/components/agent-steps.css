@@ -89,12 +89,19 @@
   .agent-step-status.is-running .ring { stroke-dasharray: none; }
 }
 /* The running turn: one row per call, appearing as each call starts. */
-.agent-live-steps { margin: 10px 0 0; }
-.agent-step.is-live .agent-step-line { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 6px; color: var(--foreground); font-size: 13.5px; }
-.agent-step.is-live .agent-step-detail { flex: 1; min-width: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.agent-step.is-live .agent-step-line > svg:first-child { flex: none; color: var(--muted-foreground); }
+/* Rows of the running turn arrive one by one. */
 .agent-step.is-live { animation: agent-step-in 220ms var(--ease-out, ease-out) both; }
-.agent-step.is-live.is-running .agent-step-label { color: var(--foreground); }
-.agent-step.is-live.is-done .agent-step-label { color: var(--muted-foreground); }
-@keyframes agent-step-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.agent-step.is-thinking.is-live { padding: 2px 8px 4px 4px; }
+/* Lines a file change adds and removes; while a file is written, the lines so far. */
+.agent-step-changes { display: inline-flex; flex: none; gap: 6px; font: 12px/1.6 var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
+.agent-step-changes .is-added { color: oklch(52% .13 150); }
+.agent-step-changes .is-removed { color: oklch(55% .18 25); }
+:root[data-theme="dark"] .agent-step-changes .is-added { color: oklch(76% .14 150); }
+:root[data-theme="dark"] .agent-step-changes .is-removed { color: oklch(74% .15 25); }
+.agent-step-body pre.agent-step-diff { white-space: pre; overflow-wrap: normal; }
+.agent-step-diff-line { display: block; min-width: max-content; margin: 0 -10px; padding: 0 10px; }
+.agent-step-diff-line.is-added { background: color-mix(in oklch, oklch(60% .14 150) 16%, transparent); }
+.agent-step-diff-line.is-removed { background: color-mix(in oklch, oklch(60% .18 25) 14%, transparent); }
+/* What the model said between two runs of steps reads like the reply. */
+.agent-step-said { margin: 0; }
 .agent-step-chevron + .agent-step-status { margin-left: 6px; }

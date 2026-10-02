@@ -70,56 +70,90 @@ export interface NoteRef {
 export interface TurnStep {
   kind: 'thinking' | 'tool';
   text?: string;
+  /** A thinking step whose text the model said to the user before going on to call tools. */
+  said?: boolean;
   name?: string;
   input?: string;
   output?: string;
   failed?: boolean;
+  /** Lines a file write or edit added and removed. */
+  added?: number;
+  removed?: number;
 }
 
-/** A tool call of the turn that is still running. */
-export interface LiveStep { name: string; input?: string; status: 'running' | 'done' | 'failed' }
+/** Where a tool call of the running turn stands: its arguments are being written, it runs, or it ended. */
+export type LiveStatus = 'writing' | 'running' | 'done' | 'failed';
 
 /**
- * The running turn as the server sees it: its tool calls, and what the model
- * is thinking and writing in its current call. `thinking` and `text` are the
- * parts after the offsets sent with the request (`*From`); `*Next` are the
- * offsets to send next time.
+ * One entry of the running turn's timeline, as one poll reports it. `text` is
+ * the entry's text from byte `from` on, and `next` the offset to ask from next
+ * time.
+ */
+export interface LiveItem {
+  i: number;
+  kind: 'thinking' | 'text' | 'tool';
+  text: string; from: number; next: number;
+  name: string; input: string; status: LiveStatus;
+  /** Lines written so far, while a file is being written. */
+  lines: number;
+  added: number; removed: number;
+  output: string;
+}
+
+/**
+ * The running turn as the server sees it: a timeline of thinking, text and
+ * tool calls in the order they happened. A poll with a cursor carries only
+ * the entries that changed.
  */
 export interface LiveTurn {
   /** Changes whenever the turn changes; 0 while idle, null on a server without live output. */
   version: number | null;
-  steps: LiveStep[];
-  call: string;
-  thinking: string; thinkingFrom: number; thinkingNext: number;
-  text: string; textFrom: number; textNext: number;
+  items: LiveItem[];
+  /** How many entries the timeline has. */
+  count: number;
   /** What the turn is waiting for (see `stageText`); '' on a server that does not say. */
   stage: string;
   /** How long the turn has been in that stage, in milliseconds. */
   stageMs: number;
+  /** Estimated tokens the current model call has written, and over how long. */
+  rateTokens: number;
+  rateMs: number;
 }
-export type LiveCursor = Pick<LiveTurn, 'call' | 'thinkingNext' | 'textNext'> & { version: number };
+/** What the client has: the version, and the entry whose text may still grow with how much of it arrived. */
+export interface LiveCursor { version: number; tail: number; at: number }
+
+const liveKinds = ['thinking', 'text', 'tool'];
+const liveStatuses = ['writing', 'running', 'done', 'failed'];
 
 /**
  * Reads the running turn. With a cursor the server answers when the turn has
  * changed (or after about 15 seconds) and sends only what is new.
  */
 export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal): Promise<LiveTurn> {
-  const query = cursor ? `?${new URLSearchParams({ version: String(cursor.version), call: cursor.call,
-    thinking: String(cursor.thinkingNext), text: String(cursor.textNext) })}` : '';
-  const data = await authRequest<{ version?: unknown; steps?: unknown; stream?: Record<string, unknown>; stage?: { id?: unknown; ms?: unknown } }>(
+  const query = cursor ? `?${new URLSearchParams({ version: String(cursor.version), tail: String(cursor.tail), at: String(cursor.at) })}` : '';
+  const data = await authRequest<{ version?: unknown; items?: unknown; count?: unknown; stage?: { id?: unknown; ms?: unknown }; rate?: { tokens?: unknown; ms?: unknown } }>(
     `/api/sessions/${sessionId}/live${query}`, { signal }, 25000);
-  const steps = Array.isArray(data.steps) ? data.steps.filter((step): step is LiveStep => Boolean(step) && typeof step === 'object'
-    && typeof (step as LiveStep).name === 'string' && ['running', 'done', 'failed'].includes((step as LiveStep).status)) : [];
-  const stream = data.stream && typeof data.stream === 'object' ? data.stream : {};
-  const text = (key: string) => typeof stream[key] === 'string' ? stream[key] as string : '';
-  const count = (key: string) => Number.isSafeInteger(stream[key]) && (stream[key] as number) >= 0 ? stream[key] as number : 0;
+  const whole = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
+  const words = (value: unknown) => typeof value === 'string' ? value : '';
+  const items: LiveItem[] = [];
+  for (const raw of Array.isArray(data.items) ? data.items : []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    if (!Number.isSafeInteger(item.i) || (item.i as number) < 0 || !liveKinds.includes(item.kind as string)) continue;
+    items.push({
+      i: item.i as number, kind: item.kind as LiveItem['kind'],
+      text: words(item.text), from: whole(item.from), next: whole(item.next),
+      name: words(item.name), input: words(item.input),
+      status: liveStatuses.includes(item.status as string) ? item.status as LiveStatus : 'running',
+      lines: whole(item.lines), added: whole(item.added), removed: whole(item.removed), output: words(item.output),
+    });
+  }
   return {
-    version: Number.isSafeInteger(data.version) ? data.version as number : null, steps,
-    call: text('call'),
-    thinking: text('thinking'), thinkingFrom: count('thinking_from'), thinkingNext: count('thinking_next'),
-    text: text('text'), textFrom: count('text_from'), textNext: count('text_next'),
+    version: Number.isSafeInteger(data.version) ? data.version as number : null,
+    items, count: whole(data.count),
     stage: typeof data.stage?.id === 'string' ? data.stage.id : '',
     stageMs: typeof data.stage?.ms === 'number' && data.stage.ms >= 0 ? data.stage.ms : 0,
+    rateTokens: whole(data.rate?.tokens), rateMs: whole(data.rate?.ms),
   };
 }
 
@@ -141,8 +175,10 @@ function isStep(value: unknown): value is TurnStep {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
   const optional = (key: string) => r[key] === undefined || typeof r[key] === 'string';
+  const lines = (key: string) => r[key] === undefined || (Number.isSafeInteger(r[key]) && (r[key] as number) >= 0);
   return (r.kind === 'thinking' || r.kind === 'tool') && optional('text') && optional('name') && optional('input')
-    && optional('output') && (r.failed === undefined || typeof r.failed === 'boolean');
+    && optional('output') && (r.failed === undefined || typeof r.failed === 'boolean')
+    && (r.said === undefined || typeof r.said === 'boolean') && lines('added') && lines('removed');
 }
 
 export interface ChatSession {

@@ -6,6 +6,7 @@ import { LifeBackground } from './life-background';
 import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatModelRate, formatQuotaReset, getModel, modelDisplayName, quotaShareLeft, quotaWindowName, type ChatSession, type ModelStatus } from '../lib/library';
 import { matchingCommands, slashQuery, type PiCommand } from '../lib/pi-commands';
 import { agentRuntime } from '../lib/local-sandbox';
+import { useAppearance } from '../lib/appearance';
 import { greeting } from '../lib/greeting.ts';
 import { BrandIcon } from './brand-icon';
 import './agent-thread.css';
@@ -159,7 +160,15 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
   const messages = (chat?.messages ?? []).filter(message => message.content);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const appearance = useAppearance();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // The reply written while this thread was open: the reader saw each of its
+  // steps appear, so they stay unfolded instead of collapsing as it lands.
+  const [watched, setWatched] = useState<{ sending: boolean; chat?: string; reply: number | null }>({ sending, chat: chat?.id, reply: null });
+  if (watched.sending !== sending || watched.chat !== chat?.id) {
+    setWatched({ sending, chat: chat?.id, reply: watched.chat === chat?.id && watched.sending && !sending ? messages.length - 1 : watched.chat === chat?.id ? watched.reply : null });
+  }
+  const watchedReply = watched.reply;
   const [commandNote, setCommandNote] = useState('');
   // Chosen once per visit, so the words do not change while the page is open.
   const [hello] = useState(() => greeting(new Date().getHours()));
@@ -336,14 +345,14 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
     body = <div className="session-transcript">
       {messages.map((message, index) => message.role === 'user'
         ? <article key={`${message.created_at}-${index}`} className="chat-message user"><p>{message.content}</p></article>
-        : <article key={`${message.created_at}-${index}`} className="chat-message assistant">
+        : <article key={`${message.created_at}-${index}`} className={`chat-message assistant${index === watchedReply ? ' is-watched' : ''}`}>
           <div className="agent-reply-body">
             <header className="agent-reply-head">
               <span className="agent-reply-name">{title}</span>
               <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
               {message.interrupted ? <span className="agent-reply-stopped">已停止</span> : null}
             </header>
-            <AgentSteps steps={message.steps} tools={message.tools} />
+            <AgentSteps steps={message.steps} tools={message.tools} renderMarkdown={renderMarkdown} unfolded={index === watchedReply} />
             <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
             {message.notes?.length && onOpenNote ? <ul className="agent-reply-notes" aria-label="本次写入的笔记">
               {message.notes.map(note => <li key={note.entry_id}>
@@ -367,7 +376,7 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
   }
 
   return <section className={`agent-view agent-thread${empty ? ' is-empty' : ''}`} aria-label={`${title} 会话`}>
-    <LifeBackground />
+    {appearance.life ? <LifeBackground /> : null}
     <div className="agent-scroll" ref={scrollRef} role="log" aria-label="会话记录">
       {body}
     </div>

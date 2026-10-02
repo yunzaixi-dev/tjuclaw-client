@@ -3240,28 +3240,116 @@ test('search finds notes by title and full text, and runs quick actions', async 
   await expect(page.locator('.note-title')).toHaveValue('First note for user A');
 });
 
-test('a running turn lists each tool call as it happens, then settles', async ({ page }) => {
+test('a running turn shows thinking, words and every tool call in order, and the saved reply takes its place without a jump', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
-  let polls = 0;
-  await page.route('**/api/sessions/*/live', route => {
-    polls += 1;
-    return json(route, 200, { steps: [{ name: 'campus_timetable', status: 'done' }, { name: 'campus_exams', status: polls > 2 ? 'failed' : 'running' }] });
+  // The timeline as the server holds it at each moment of the turn.
+  const said = '我先把笔记写好，再改一处。';
+  const moments = [
+    { stage: 'preparing', items: [
+      { kind: 'thinking', text: '先想想怎么整理' },
+      { kind: 'text', text: said },
+      { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', status: 'writing', lines: 40 }] },
+    { stage: 'tool', items: [
+      { kind: 'thinking', text: '先想想怎么整理' },
+      { kind: 'text', text: said },
+      { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', status: 'running', added: 48 },
+      { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', status: 'running', added: 2, removed: 1 },
+      { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', status: 'running' },
+      { kind: 'tool', name: 'campus_exams', input: '{}', status: 'running' }] },
+    { stage: 'writing', items: [
+      { kind: 'thinking', text: '先想想怎么整理' },
+      { kind: 'text', text: said },
+      { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', status: 'done', added: 48, output: 'Successfully wrote' },
+      { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', status: 'done', added: 2, removed: 1 },
+      { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', status: 'done' },
+      { kind: 'tool', name: 'campus_exams', input: '{}', status: 'failed' },
+      { kind: 'thinking', text: '都处理完了' },
+      { kind: 'text', text: '笔记已经**整理好**。' }] },
+  ];
+  let moment = 0;
+  const seen = [];
+  await page.route('**/api/sessions/*/live*', async route => {
+    const query = new URL(route.request().url()).searchParams;
+    // A client that already has this moment waits, as the long poll does.
+    for (let waited = 0; Number(query.get('version')) === moment + 1 && waited < 100; waited++) await new Promise(resolve => setTimeout(resolve, 50));
+    seen.push(query.toString());
+    const now = moments[moment];
+    return json(route, 200, { version: moment + 1, count: now.items.length, stage: { id: now.stage, ms: 0 }, rate: { tokens: 120, ms: 2000 },
+      items: now.items.map((item, i) => ({ i, next: new TextEncoder().encode(item.text ?? '').length, ...item })) });
   });
+  const steps = [
+    { kind: 'thinking', text: '先想想怎么整理' },
+    // Saved as a thinking step marked as said, so clients released earlier still read the reply.
+    { kind: 'thinking', said: true, text: said },
+    { kind: 'tool', name: 'write', input: '{"path":"notes/电路.md"}', output: 'Successfully wrote to notes/电路.md', added: 48 },
+    { kind: 'tool', name: 'edit', input: '{"path":"notes/a.md"}', output: ' 1 line one\n-2 line two\n+2 line 2\n+3 line 2b\n 3 line three', added: 2, removed: 1 },
+    { kind: 'tool', name: 'read', input: '{"path":"figures/波形.png"}', output: 'Read image file [image/png]' },
+    { kind: 'tool', name: 'campus_exams', input: '{}', output: '{"ok":false}', failed: true },
+    { kind: 'thinking', text: '都处理完了' },
+  ];
   let release;
   const held = new Promise(resolve => { release = resolve; });
-  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  await page.route('**/api/sessions/*/messages', async route => {
+    const sent = JSON.parse(route.request().postData());
+    await held;
+    const session = state.sessionById[sessionA.id];
+    const next = { ...session, messages: [...session.messages,
+      { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '笔记已经**整理好**。', created_at: '2026-01-01T00:00:40.000Z', steps }] };
+    state.sessionById[sessionA.id] = next;
+    return json(route, 200, next);
+  });
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('查下考试');
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('整理电路笔记');
   await page.getByRole('button', { name: '发送', exact: true }).click();
-  const live = page.getByRole('list', { name: '正在进行的工具调用' });
-  await expect(live.getByRole('listitem')).toHaveCount(2);
-  await expect(live.getByRole('img', { name: '已完成' })).toHaveCount(1);
-  await expect(live.getByRole('img', { name: '进行中' })).toHaveCount(1);
-  await expect(live.getByRole('img', { name: '失败' })).toHaveCount(1);
+  const working = page.getByRole('status', { name: /正在处理/ });
+
+  // While the file is written: the thought folded, the words said, and the write counting its lines.
+  await expect(working.getByRole('button', { name: /思考过程/ })).toHaveCount(1);
+  await expect(working.locator('.agent-step-said')).toHaveText(said);
+  const write = working.getByRole('button', { name: /写入文件/ });
+  await expect(write).toContainText('电路.md');
+  await expect(write.getByRole('img', { name: '已写入 40 行' })).toBeVisible();
+  await expect(write.getByRole('img', { name: '进行中' })).toBeVisible();
+  await expect(working.locator('.agent-working-text')).toHaveText('正在准备写入文件');
+  await expect(working.locator('.agent-working-rate')).toHaveText('60 token/秒');
+
+  // The calls run: the write and the edit say what they change, the image read is named as one.
+  moment = 1;
+  await expect(write.getByRole('img', { name: '新增 48 行' })).toBeVisible();
+  await expect(working.getByRole('button', { name: /编辑文件/ }).getByRole('img', { name: '新增 2 行，删除 1 行' })).toBeVisible();
+  await expect(working.getByRole('button', { name: /查看图片/ })).toContainText('波形.png');
+  await expect(working.getByRole('img', { name: '进行中' })).toHaveCount(4);
+  // A tool run has no writing speed.
+  await expect(working.locator('.agent-working-rate')).toHaveCount(0);
+
+  // The results arrive with the next model call, then the reply is written.
+  moment = 2;
+  await expect(working.getByRole('img', { name: '已完成' })).toHaveCount(3);
+  await expect(working.getByRole('button', { name: /查询考试安排.*失败/ })).toBeVisible();
+  await expect(working.getByRole('button', { name: /思考过程/ })).toHaveCount(2);
+  await expect(working.locator('.agent-live-text strong')).toHaveText('整理好');
+  // Earlier rows were never taken back, and only changed rows were asked for again.
+  await expect(working.locator('.agent-step-said')).toHaveText(said);
+  expect(seen[0]).toBe('');
+  expect(seen.some(query => /^version=\d+&tail=\d+&at=\d+$/.test(query))).toBe(true);
+
+  const before = await working.locator('.agent-step, .agent-step-said, .agent-live-text').evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
   release();
-  await expect(live).toHaveCount(0);
+  await expect(working).toHaveCount(0);
+  // The saved reply: the same rows in the same places, unfolded although it has many tool calls.
+  const reply = page.locator('.chat-message.assistant').last();
+  await expect(reply).toHaveClass(/is-watched/);
+  await expect(reply.locator('.agent-step.is-more')).toHaveCount(0);
+  const after = await reply.locator('.agent-step, .agent-step-said, .agent-reply-body > .chat-message-content').evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
+  expect(after.length).toBe(before.length);
+  after.forEach((top, index) => expect(Math.abs(top - before[index]), `row ${index}`).toBeLessThanOrEqual(3));
+  // The edit opens to what it changed.
+  await reply.getByRole('button', { name: /编辑文件/ }).click();
+  await expect(reply.locator('.agent-step-diff-line.is-added')).toHaveCount(2);
+  await expect(reply.locator('.agent-step-diff-line.is-removed')).toHaveText('-2 line two');
 });
 
 test('settings show the running version and build, and explain updates where none can be checked', async ({ page }) => {
@@ -3414,20 +3502,21 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   let prepared = 0;
   await page.route('**/api/sessions/*/prepare', route => { prepared += 1; return route.fulfill({ status: 202 }); });
   // Each answer is what a client with that cursor has not seen yet; offsets are bytes.
-  const stream = (version, part) => ({ version, steps: [], stream: { call: '5', thinking: '', thinking_from: 0, thinking_next: 15, text: '', text_from: 0, text_next: 0, ...part } });
+  // Each answer is what a client with that cursor has not seen yet; offsets are bytes.
+  const frame = (version, count, stage, item) => ({ version, count, stage: { id: stage, ms: 0 }, rate: { tokens: 30, ms: 1000 }, items: [item] });
   const cursors = [];
   let finish;
   const finished = new Promise(resolve => { finish = resolve; });
   await page.route('**/api/sessions/*/live*', async route => {
     const query = new URL(route.request().url()).searchParams;
     cursors.push(query.toString());
-    if (!query.has('version')) return json(route, 200, stream(1, { thinking: '先分析', thinking_next: 9 }));
-    if (query.get('version') === '1') return json(route, 200, stream(2, { thinking: '题目', thinking_from: 9 }));
-    if (query.get('version') === '2') return json(route, 200, stream(3, { thinking_from: 15, text: '**基尔霍夫**', text_next: 16 }));
-    if (query.get('version') === '3') return json(route, 200, stream(4, { thinking_from: 15, text: '定律', text_from: 16, text_next: 22 }));
+    if (!query.has('version')) return json(route, 200, frame(1, 1, 'thinking', { i: 0, kind: 'thinking', text: '先分析', next: 9 }));
+    if (query.get('version') === '1') return json(route, 200, frame(2, 1, 'thinking', { i: 0, kind: 'thinking', text: '题目', from: 9, next: 15 }));
+    if (query.get('version') === '2') return json(route, 200, frame(3, 2, 'writing', { i: 1, kind: 'text', text: '**基尔霍夫**', next: 16 }));
+    if (query.get('version') === '3') return json(route, 200, frame(4, 2, 'writing', { i: 1, kind: 'text', text: '定律', from: 16, next: 22 }));
     // Nothing new: the server holds the request until the turn changes.
     await finished;
-    return json(route, 200, { version: 0, steps: [], stream: { call: '0', thinking: '', thinking_from: 0, thinking_next: 0, text: '', text_from: 0, text_next: 0 } });
+    return json(route, 200, { version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } });
   });
   let release;
   const held = new Promise(resolve => { release = resolve; });
@@ -3446,10 +3535,11 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   await expect(reply.locator('strong')).toHaveText('基尔霍夫');
   await expect(working.locator('.agent-working-text')).toHaveText('正在回答');
   await expect(working.locator('.agent-working-rate')).toContainText('token/秒');
-  // Once the reply starts, the thinking steps aside.
+  // Once the reply starts, the thinking folds into a row that still opens.
   await expect(working.getByLabel('思考过程')).toHaveCount(0);
-  expect(cursors.slice(0, 4)).toEqual(['',
-    'version=1&call=5&thinking=9&text=0', 'version=2&call=5&thinking=15&text=0', 'version=3&call=5&thinking=15&text=16']);
+  await working.getByRole('button', { name: /思考过程/ }).click();
+  await expect(working.locator('.agent-step-thought')).toHaveText('先分析题目');
+  expect(cursors.slice(0, 4)).toEqual(['', 'version=1&tail=0&at=9', 'version=2&tail=0&at=15', 'version=3&tail=1&at=16']);
 
   finish();
   // The turn ending clears the live snapshot. The reply already on screen stays
@@ -3470,8 +3560,10 @@ test('a running turn shows the thinking alone until the reply begins', async ({ 
   await page.route('**/api/sessions/*/live*', async route => {
     const versioned = new URL(route.request().url()).searchParams.has('version');
     if (versioned) await finished;
-    return json(route, 200, { version: versioned ? 0 : 1, steps: [{ name: 'campus_timetable', status: 'done' }],
-      stream: { call: '9', thinking: versioned ? '' : '先看看课表里今天有什么课', thinking_from: 0, thinking_next: versioned ? 0 : 36, text: '', text_from: 0, text_next: 0 } });
+    return json(route, 200, versioned ? { version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } }
+      : { version: 1, count: 2, stage: { id: 'thinking', ms: 0 }, rate: { tokens: 12, ms: 300 }, items: [
+        { i: 0, kind: 'tool', name: 'campus_timetable', status: 'done' },
+        { i: 1, kind: 'thinking', text: '先看看课表里今天有什么课', next: 36 }] });
   });
   let release;
   const held = new Promise(resolve => { release = resolve; });
@@ -3482,8 +3574,9 @@ test('a running turn shows the thinking alone until the reply begins', async ({ 
   await page.getByRole('button', { name: '发送', exact: true }).click();
   const working = page.getByRole('status', { name: /正在处理/ });
   await expect(working.getByLabel('思考过程')).toHaveText('先看看课表里今天有什么课');
-  await expect(working.locator('.agent-working-text')).toHaveText('正在思考');
-  await expect(working.getByRole('list', { name: '正在进行的工具调用' }).getByRole('listitem')).toHaveCount(1);
+  await expect(working.locator('.agent-working-text')).toHaveText('模型正在思考');
+  // The finished tool call and the thought being written are two rows of one list.
+  await expect(working.getByRole('list', { name: '正在进行的步骤' }).getByRole('listitem')).toHaveCount(2);
   await expect(working.locator('.agent-live-text')).toHaveCount(0);
   finish();
   release();
@@ -4027,4 +4120,24 @@ test('a recent card with a two-line title keeps its date inside the card', async
     expect(new Set(heights).size).toBe(1);
     if (process.env.SHOT) await page.locator('.notion-recents').screenshot({ path: `${process.env.SHOT}-${width}.png` });
   }
+});
+
+test('the conversation background is still by default, and the Game of Life is a setting', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(page.locator('.agent-greeting')).toBeVisible();
+  await expect(page.locator('canvas.life-background')).toHaveCount(0);
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '外观', exact: true }).click();
+  const choice = dialog.getByRole('group', { name: '会话背景动画' });
+  await expect(choice.getByRole('button', { name: '关闭' })).toHaveAttribute('aria-pressed', 'true');
+  await choice.getByRole('button', { name: '开启' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('canvas.life-background')).toHaveCount(1);
+  // The choice is remembered.
+  await page.reload();
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await expect(page.locator('canvas.life-background')).toHaveCount(1);
 });

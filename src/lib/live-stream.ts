@@ -1,60 +1,61 @@
-import type { LiveStep } from './library';
+import type { LiveCursor, LiveItem, LiveStatus, LiveTurn } from './library';
 
-/** What the live endpoint reported, reduced to the fields the view merges. */
-export interface LiveFrame {
-  version: number | null;
-  steps: LiveStep[];
-  call: string;
-  thinking: string;
-  thinkingFrom: number;
+/** One entry of the running turn as it is on screen. */
+export interface TimelineItem {
+  kind: 'thinking' | 'text' | 'tool';
   text: string;
-  textFrom: number;
+  /** Bytes of `text` the server has sent, the offset for the next poll. */
+  next: number;
+  name: string; input: string; status: LiveStatus;
+  lines: number; added: number; removed: number;
+  output: string;
 }
 
-/** The frame currently on screen. An idle snapshot must not blank it. */
-export interface HeldStream {
-  call: string;
-  thinking: string;
-  text: string;
-  steps: LiveStep[];
-}
-
-const empty: HeldStream = { call: '', thinking: '', text: '', steps: [] };
+const asTimelineItem = (item: LiveItem, text: string): TimelineItem => ({
+  kind: item.kind, text, next: item.next, name: item.name, input: item.input, status: item.status,
+  lines: item.lines, added: item.added, removed: item.removed, output: item.output,
+});
 
 /**
- * Fold one live poll into what is already showing.
+ * Fold one live poll into the timeline on screen.
  *
- * The server clears the turn when it ends (`version` 0) and also starts a new
- * model call with empty text. Either one used to replace the reply with nothing
- * for a moment. Keep the last thinking, reply and tool rows until a newer call
- * has actually written something, or until the working view unmounts.
- * A missing version still applies tool rows the server did send.
+ * The timeline only grows: entries are placed by their index, and an entry
+ * whose text arrived in part is continued. The server clears the turn when it
+ * ends (`version` 0), and a server without live output reports no version;
+ * neither may blank what is showing, so the timeline is kept as it is until
+ * the saved reply replaces the working view.
+ *
+ * `resync` is true when the poll cannot be joined to what is on screen: the
+ * server's timeline is shorter, an entry before the end is missing, or a
+ * continued text does not start where the shown one ends. The caller then
+ * reads the whole timeline again.
  */
-export function mergeLiveFrame(current: HeldStream = empty, live: LiveFrame): HeldStream {
-  // version 0 is the turn being cleared at the end. null is a server that
-  // still sends tool rows without a stream version; those rows must update.
-  if (live.version === 0) {
-    return {
-      call: current.call,
-      thinking: current.thinking || live.thinking,
-      text: current.text || live.text,
-      steps: current.steps.length ? current.steps : live.steps,
-    };
+export function mergeTimeline(current: TimelineItem[], live: Pick<LiveTurn, 'version' | 'items' | 'count'>): { items: TimelineItem[]; resync: boolean } {
+  if (!live.version) return { items: current, resync: false };
+  if (live.count < current.length) return { items: current, resync: true };
+  const items = current.slice();
+  for (const item of [...live.items].sort((a, b) => a.i - b.i)) {
+    if (item.i > items.length) return { items: current, resync: true };
+    const shown = items[item.i];
+    if (item.from > 0) {
+      if (!shown || shown.kind !== item.kind || shown.next !== item.from) return { items: current, resync: true };
+      items[item.i] = asTimelineItem(item, shown.text + item.text);
+    } else {
+      items[item.i] = asTimelineItem(item, item.text);
+    }
   }
-  const same = Boolean(current.call) && live.call === current.call;
-  const thinking = same && live.thinkingFrom > 0 ? current.thinking + live.thinking : live.thinking || (same || !live.call ? current.thinking : '');
-  const incomingText = same && live.textFrom > 0 ? current.text + live.text : live.text;
-  const steps = live.steps.length ? live.steps : current.steps;
-  // A new call that has not written yet must not blank the reply already shown.
-  if (!incomingText && current.text) {
-    return { call: current.call, thinking: thinking || current.thinking, text: current.text, steps };
-  }
-  return {
-    call: live.call || current.call,
-    thinking: thinking || current.thinking,
-    text: incomingText || current.text,
-    steps,
-  };
+  return { items, resync: items.length !== live.count };
+}
+
+/**
+ * The cursor for the next poll: the version just read, and the last entry
+ * when its text can still grow. A tool call at the end means no text is
+ * growing, which an index past the end says.
+ */
+export function timelineCursor(version: number, items: TimelineItem[]): LiveCursor {
+  const last = items.length - 1;
+  if (last >= 0 && items[last].kind !== 'tool') return { version, tail: last, at: items[last].next };
+  return { version, tail: items.length, at: 0 };
 }
 
 /** Stages in which the turn is waiting on something outside the model's own output. */
@@ -74,6 +75,8 @@ const WAITING: Record<string, string> = {
  */
 export function stageText(stage: string, waitedMs: number, hasSteps: boolean, toolLabel = ''): string {
   if (stage === 'tool') return toolLabel ? `正在${toolLabel}` : '正在调用工具';
+  // The model is still writing the call's arguments, for a file its whole content.
+  if (stage === 'preparing') return toolLabel ? `正在准备${toolLabel}` : '正在准备调用工具';
   if (stage === 'thinking') return '模型正在思考';
   if (stage === 'writing') return '正在回答';
   // After a tool call Pi is already running: it reads the result next.
@@ -83,18 +86,7 @@ export function stageText(stage: string, waitedMs: number, hasSteps: boolean, to
   return seconds >= 2 ? `${label}（已等 ${seconds} 秒）` : label;
 }
 
-/** Rough token count: one CJK/non-ASCII character, otherwise about four bytes of text. */
-export function estimateTokens(value: string): number {
-  let tokens = 0;
-  let ascii = 0;
-  for (const char of value) {
-    if ((char.codePointAt(0) ?? 0) > 0x7f) tokens += 1;
-    else ascii += 1;
-  }
-  return tokens + Math.ceil(ascii / 4);
-}
-
-/** Average speed since the first character, or '' before there is anything to time. */
+/** Average speed of the current model call, or '' before there is anything to time. */
 export function formatTokenRate(tokens: number, elapsedMs: number): string {
   if (tokens < 1 || elapsedMs < 400) return '';
   const perSecond = tokens / (elapsedMs / 1000);

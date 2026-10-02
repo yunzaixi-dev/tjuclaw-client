@@ -13,7 +13,7 @@ import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQ
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'account' | 'about';
 
 const sections = [
-  { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色' },
+  { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色 背景 动画 生命游戏' },
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
   { id: 'flashcards', label: '记忆闪卡', icon: SquareStack, keywords: 'Anki 导出 TSV' },
@@ -190,6 +190,7 @@ export function WorkspaceSettings({
               <SettingRow title="配色模式" description="跟随系统，或固定为浅色、深色。"><SettingChoices<Mode> label="配色模式" value={appearance.mode} onChange={mode => setAppearance({ mode })} options={[{ value: 'system', label: '系统', Icon: Monitor }, { value: 'light', label: '浅色', Icon: Sun }, { value: 'dark', label: '深色', Icon: Moon }]} /></SettingRow>
               <SettingRow title="强调色" description="仅用于当前选中项和操作焦点。"><SettingChoices<Accent> label="强调色" value={appearance.accent} onChange={accent => setAppearance({ accent })} options={[{ value: 'mono', label: '单色' }, { value: 'blue', label: '蓝色' }]} /></SettingRow>
               <SettingRow title="页面字体" description="笔记正文与标题使用的字体。"><SettingChoices<PageFont> label="页面字体" value={appearance.font} onChange={font => setAppearance({ font })} options={[{ value: 'sans', label: '默认' }, { value: 'serif', label: '文楷' }, { value: 'mono', label: '等宽' }]} /></SettingRow>
+              <SettingRow title="会话背景动画" description="在会话页的背景上播放康威生命游戏。默认关闭。"><SettingChoices<'off' | 'on'> label="会话背景动画" value={appearance.life ? 'on' : 'off'} onChange={value => setAppearance({ life: value === 'on' })} options={[{ value: 'off', label: '关闭' }, { value: 'on', label: '开启' }]} /></SettingRow>
               {!appearance.canPersist ? <p className="settings-notice" role="status">浏览器阻止保存外观偏好，本次会话内仍可调整。</p> : null}
             </> : null}
             {active === 'editor' ? <>

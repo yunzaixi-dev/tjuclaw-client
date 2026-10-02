@@ -4,9 +4,10 @@ export type Mode = 'system' | 'light' | 'dark';
 export type Accent = 'mono' | 'blue';
 /** Page text font, as in Notion's Default / Serif / Mono. */
 export type PageFont = 'sans' | 'serif' | 'mono';
-type Preferences = { mode: Mode; accent: Accent; font: PageFont };
+/** `life` turns on the animated Game of Life behind a conversation; it is off unless chosen. */
+type Preferences = { mode: Mode; accent: Accent; font: PageFont; life: boolean };
 const key = 'tjuclaw.appearance.v1';
-const defaults: Preferences = { mode: 'system', accent: 'mono', font: 'sans' };
+const defaults: Preferences = { mode: 'system', accent: 'mono', font: 'sans', life: false };
 let canPersist = true;
 
 export function parseAppearance(raw: string | null): Preferences {
@@ -16,6 +17,7 @@ export function parseAppearance(raw: string | null): Preferences {
       mode: ['system', 'light', 'dark'].includes(value?.mode) ? value.mode : defaults.mode,
       accent: ['mono', 'blue'].includes(value?.accent) ? value.accent : defaults.accent,
       font: ['sans', 'serif', 'mono'].includes(value?.font) ? value.font : defaults.font,
+      life: value?.life === true,
     };
   } catch { return { ...defaults }; }
 }

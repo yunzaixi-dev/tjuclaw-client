@@ -1,54 +1,58 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { estimateTokens, formatTokenRate, inputPreview, mergeLiveFrame, stageText } from '../src/lib/live-stream.ts';
+import { formatTokenRate, inputPreview, mergeTimeline, stageText, timelineCursor } from '../src/lib/live-stream.ts';
 import { matchingCommands, slashQuery } from '../src/lib/pi-commands.ts';
 
-const frame = (patch = {}) => ({
-  version: 1, steps: [], call: '5', thinking: '', thinkingFrom: 0, text: '', textFrom: 0, ...patch,
+const entry = (i, kind, patch = {}) => ({
+  i, kind, text: '', from: 0, next: 0, name: '', input: '', status: 'running', lines: 0, added: 0, removed: 0, output: '', ...patch,
+});
+const poll = (version, count, ...items) => ({ version, count, items });
+
+test('the timeline grows in order and a continued text is appended where it stopped', () => {
+  const first = mergeTimeline([], poll(1, 2, entry(0, 'thinking', { text: '先看', next: 6 }), entry(1, 'tool', { name: 'write', status: 'writing', lines: 12 })));
+  assert.equal(first.resync, false);
+  assert.deepEqual(first.items.map(item => item.kind), ['thinking', 'tool']);
+  // Only what changed arrives: the tool has run, and the model writes again.
+  const second = mergeTimeline(first.items, poll(2, 3, entry(1, 'tool', { name: 'write', status: 'done', added: 30 }), entry(2, 'text', { text: '写好', next: 6 })));
+  assert.equal(second.items[0].text, '先看');
+  assert.deepEqual([second.items[1].status, second.items[1].added, second.items[1].lines], ['done', 30, 0]);
+  const third = mergeTimeline(second.items, poll(3, 3, entry(2, 'text', { text: '了。', from: 6, next: 12 })));
+  assert.equal(third.items[2].text, '写好了。');
+  assert.equal(third.items[2].next, 12);
+  assert.equal(third.resync, false);
 });
 
-test('an idle snapshot keeps the reply and tool rows already on screen', () => {
-  const shown = mergeLiveFrame(
-    { call: '5', thinking: '先看', text: '基尔霍夫', steps: [{ name: 'campus_exams', status: 'running' }] },
-    frame({ version: 0, call: '0', steps: [] }),
-  );
-  assert.equal(shown.text, '基尔霍夫');
-  assert.equal(shown.thinking, '先看');
-  assert.equal(shown.steps.length, 1);
-  assert.equal(mergeLiveFrame(shown, frame({ version: null, text: '' })).text, '基尔霍夫');
-  const updated = mergeLiveFrame(shown, frame({ version: null, steps: [{ name: 'campus_exams', status: 'failed' }] }));
-  assert.equal(updated.steps[0].status, 'failed');
-  assert.equal(updated.text, '基尔霍夫');
+test('an idle or unversioned poll never blanks what is on screen', () => {
+  const shown = mergeTimeline([], poll(4, 2, entry(0, 'tool', { name: 'campus_exams' }), entry(1, 'text', { text: '基尔霍夫', next: 12 }))).items;
+  for (const version of [0, null]) {
+    const kept = mergeTimeline(shown, poll(version, 0));
+    assert.equal(kept.items, shown);
+    assert.equal(kept.resync, false);
+  }
 });
 
-test('a new model call does not blank the reply until it has written text', () => {
-  const shown = { call: '5', thinking: '想过', text: '上一轮', steps: [{ name: 'bash', input: 'ls', status: 'done' }] };
-  const held = mergeLiveFrame(shown, frame({ version: 4, call: '6', thinking: '', text: '' }));
-  assert.equal(held.text, '上一轮');
-  assert.equal(held.call, '5');
-  const next = mergeLiveFrame(held, frame({ version: 5, call: '6', text: '新的回答', thinking: '再想' }));
-  assert.equal(next.text, '新的回答');
-  assert.equal(next.call, '6');
-  assert.equal(next.thinking, '再想');
+test('a poll that cannot be joined to the screen asks for the whole timeline', () => {
+  const shown = mergeTimeline([], poll(1, 2, entry(0, 'thinking', { text: '先', next: 3 }), entry(1, 'text', { text: '答', next: 3 }))).items;
+  // A continuation that starts elsewhere, an entry past the end, and a shorter timeline.
+  assert.equal(mergeTimeline(shown, poll(2, 2, entry(1, 'text', { text: '案', from: 9, next: 12 }))).resync, true);
+  assert.equal(mergeTimeline(shown, poll(2, 4, entry(3, 'tool', { name: 'bash' }))).resync, true);
+  assert.equal(mergeTimeline(shown, poll(2, 1, entry(0, 'thinking', { text: '重来', next: 6 }))).resync, true);
+  // The count says an entry is missing even when every received one fits.
+  assert.equal(mergeTimeline(shown, poll(2, 3)).resync, true);
+  for (const result of [mergeTimeline(shown, poll(2, 1)), mergeTimeline(shown, poll(2, 4, entry(3, 'tool')))]) assert.equal(result.items, shown);
 });
 
-test('deltas append, and a non-empty tool list replaces the previous rows', () => {
-  const first = mergeLiveFrame(undefined, frame({ thinking: '先', text: '答', steps: [{ name: 'list_tree', status: 'running' }] }));
-  const more = mergeLiveFrame(first, frame({
-    version: 2, thinkingFrom: 3, thinking: '分析', textFrom: 3, text: '案',
-    steps: [{ name: 'list_tree', status: 'done' }, { name: 'read_entry', input: '{"title":"电路"}', status: 'running' }],
-  }));
-  assert.equal(more.thinking, '先分析');
-  assert.equal(more.text, '答案');
-  assert.equal(more.steps[1].name, 'read_entry');
-  assert.equal(mergeLiveFrame(more, frame({ version: 3, steps: [] })).steps.length, 2);
+test('the cursor follows the entry whose text can still grow', () => {
+  const items = mergeTimeline([], poll(1, 2, entry(0, 'tool', { name: 'read', status: 'done' }), entry(1, 'text', { text: '答', next: 3 }))).items;
+  assert.deepEqual(timelineCursor(7, items), { version: 7, tail: 1, at: 3 });
+  // After a tool call nothing is growing: the tail points past the end.
+  assert.deepEqual(timelineCursor(8, items.slice(0, 1)), { version: 8, tail: 1, at: 0 });
+  assert.deepEqual(timelineCursor(1, []), { version: 1, tail: 0, at: 0 });
 });
 
-test('token speed counts CJK as one token and waits until a rate is meaningful', () => {
-  assert.equal(estimateTokens('abcd'), 1);
-  assert.equal(estimateTokens('基尔霍夫'), 4);
-  assert.equal(estimateTokens('ab基'), 2);
+test('the speed waits until a rate is meaningful', () => {
   assert.equal(formatTokenRate(4, 200), '');
+  assert.equal(formatTokenRate(0, 5000), '');
   assert.equal(formatTokenRate(8, 1000), '8.0 token/秒');
   assert.equal(formatTokenRate(24, 1000), '24 token/秒');
 });
@@ -82,6 +86,8 @@ test('the stage says what the turn is waiting for, and for how long', () => {
   assert.equal(stageText('writing', 8000, true), '正在回答');
   assert.equal(stageText('tool', 5000, true, '搜索笔记'), '正在搜索笔记');
   assert.equal(stageText('tool', 5000, true), '正在调用工具');
+  assert.equal(stageText('preparing', 5000, true, '写入文件'), '正在准备写入文件');
+  assert.equal(stageText('preparing', 5000, false), '正在准备调用工具');
   // An older server, or a stage this client does not know: the caller decides.
   assert.equal(stageText('', 5000, false), '');
   assert.equal(stageText('unknown', 5000, false), '');
@@ -114,4 +120,15 @@ test('the greeting follows the hour', async () => {
   assert.deepEqual([4, 5, 8, 9, 11, 12, 13, 14, 17, 18, 22, 23, 0].map(starts),
     ['夜深了', '早上好', '早上好', '上午好', '上午好', '中午好', '中午好', '下午好', '下午好', '晚上好', '晚上好', '夜深了', '夜深了']);
   for (let hour = 0; hour < 24; hour++) assert.match(greeting(hour), /？$/);
+});
+
+test('the animated conversation background is off unless it was chosen', async () => {
+  globalThis.window = { matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }), addEventListener() {}, removeEventListener() {}, requestIdleCallback() {} };
+  globalThis.document = { documentElement: { dataset: {}, style: {} }, querySelector: () => null };
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  const { parseAppearance } = await import('../src/lib/appearance.ts');
+  assert.equal(parseAppearance(null).life, false);
+  assert.equal(parseAppearance('{"mode":"dark"}').life, false);
+  assert.equal(parseAppearance('{"life":"yes"}').life, false);
+  assert.equal(parseAppearance('{"life":true}').life, true);
 });

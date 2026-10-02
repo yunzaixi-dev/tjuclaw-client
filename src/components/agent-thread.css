@@ -179,8 +179,11 @@ button.agent-pill-part:disabled { cursor: progress; }
 .agent-picker-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); }
 
 /* While the Agent works: its name, what it is doing, and time. */
-.agent-working { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; animation: agent-in 240ms var(--ease-out) both; }
-.agent-working > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; font-size: 13px; }
+.agent-working { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; animation: agent-in 240ms var(--ease-out) both; }
+/* The reply that takes the working view's place was already on screen: it does not arrive again. */
+.agent-view .chat-message.assistant.is-watched, .is-watched .agent-steps-list,
+.is-watched .agent-step-status .mark, .is-watched .agent-step-status .ring { animation: none; }
+.agent-view .agent-working-head { flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 13px; }
 .agent-working-name { color: var(--foreground); font-size: 14px; font-weight: 600; }
 .agent-working-text {
   background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%, var(--muted-foreground) 70%);
@@ -237,4 +240,3 @@ button.agent-pill-part:disabled { cursor: progress; }
 .agent-command-option:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .agent-command-option:disabled { cursor: default; opacity: .55; }
 .agent-command-note { width: min(720px, 100%); margin: 6px auto 0; color: var(--muted-foreground); font-size: 12.5px; }
-.agent-step.is-live .agent-step-detail { flex: 1; min-width: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
