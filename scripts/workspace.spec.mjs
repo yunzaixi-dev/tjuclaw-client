@@ -2777,7 +2777,9 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await page.route('**/api/sessions/*/messages', route => json(route, 429, { error: { id: 'quota_5h_exceeded' } }));
   await page.goto('/workspace');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
-  const chip = page.getByRole('button', { name: /^模型：额度已用完 · .+ 恢复$/ });
+  // The line under the composer says which allowance ran out and when it returns.
+  await expect(page.getByRole('button', { name: /^5 小时额度已用完，.+ 恢复$/ })).toBeVisible();
+  const chip = page.getByRole('button', { name: '模型：蓝色大肥鱼' });
   await expect(chip).toBeVisible();
   // Quota lives in Settings, not in the model menu.
   await chip.click();
@@ -3714,3 +3716,107 @@ for (const action of ['create', 'study']) {
     else await expect(page.locator('.anki-review-card')).toContainText('等待加载的卡片');
   });
 }
+
+test('the composer holds only the text and one button; allowance, model and thinking sit under it as text', async ({ page }) => {
+  const state = defaultState();
+  state.model = {
+    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gpt-6-sol-lite'],
+    agent: { sandbox: true, tools: [] }, quota: { limit: 20_000_000, used: 3_400_000, remaining: 16_600_000 },
+    windows: [{ id: '7d', limit: 20_000_000, used: 3_400_000, remaining: 16_600_000, unit: 'tokens', resets_at: new Date(Date.now() + 3 * 86400000).toISOString() }],
+    rates: { 'deepseek-flash': 1, 'gpt-6-sol-lite': 2.5 },
+  };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  const composer = page.locator('form.agent-composer');
+  await expect(composer.getByRole('textbox', { name: '发送给 Agent 的消息' })).toBeVisible();
+  // One control in the box, and no decorative icons next to the words below it.
+  await expect(composer.getByRole('button')).toHaveCount(1);
+  await expect(composer.locator('svg')).toHaveCount(1);
+  const meta = page.locator('.agent-composer-meta');
+  await expect(meta.locator('svg')).toHaveCount(0);
+  await expect(meta.getByRole('button', { name: '7 天额度剩余 83%' })).toBeVisible();
+  const pair = meta.getByRole('group', { name: '模型与思考强度' });
+  await expect(pair.getByRole('button', { name: '模型：蓝色大肥鱼' })).toHaveText('蓝色大肥鱼');
+  await expect(pair.getByRole('button', { name: '思考强度：自动' })).toHaveText('自动');
+  // The menu says how much faster a dearer model spends the allowance.
+  await pair.getByRole('button', { name: '模型：蓝色大肥鱼' }).click();
+  const menu = page.getByRole('menu', { name: '选择模型' });
+  await expect(menu.getByRole('menuitemradio', { name: /太阳/ })).toContainText('2.5 倍额度');
+  await expect(menu.getByRole('menuitemradio', { name: /蓝色大肥鱼/ })).not.toContainText('倍额度');
+  // The menu opens inside the viewport although the pair sits at the right edge.
+  const box = await menu.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width);
+  await page.keyboard.press('Escape');
+  // Settings show the same allowance in tokens.
+  await meta.getByRole('button', { name: '7 天额度剩余 83%' }).click();
+  const dialog = page.getByRole('dialog');
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
+  await expect(dialog.getByRole('status')).toHaveText('340 万 / 2000 万 tokens');
+  await expect(dialog).toContainText('按模型实际消耗的 token 计');
+});
+
+test('a running turn can be stopped, and the reply it leaves says so', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let stops = 0;
+  await page.route('**/api/sessions/*/messages', async route => {
+    const body = route.request().postDataJSON();
+    await held;
+    return json(route, 200, { session: { ...sessionA, messages: [
+      { role: 'user', content: body.content, client_request_id: body.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '写到一半的回答', interrupted: true, created_at: '2026-01-01T00:00:11.000Z' },
+    ] } });
+  });
+  await page.route('**/api/sessions/*/interrupt', route => { stops++; release(); return json(route, 202, { interrupted: true }); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  // Nothing to stop while idle.
+  await expect(page.getByRole('button', { name: '停止', exact: true })).toHaveCount(0);
+  await page.getByLabel('发送给 Agent 的消息').fill('写一篇很长的文章');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const stop = page.getByRole('button', { name: '停止', exact: true });
+  await expect(stop).toBeVisible();
+  await expect(page.getByRole('button', { name: '发送', exact: true })).toHaveCount(0);
+  await stop.click();
+  const reply = page.locator('.chat-message.assistant');
+  await expect(reply).toContainText('写到一半的回答');
+  await expect(reply.locator('.agent-reply-stopped')).toHaveText('已停止');
+  expect(stops).toBe(1);
+  // The turn is over: the send button is back and usable.
+  await expect(page.getByRole('button', { name: '停止', exact: true })).toHaveCount(0);
+  await page.getByLabel('发送给 Agent 的消息').fill('继续');
+  await expect(page.getByRole('button', { name: '发送', exact: true })).toBeEnabled();
+});
+
+test('a stop the server cannot carry out leaves the turn running and says so', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => {
+    const body = route.request().postDataJSON();
+    await held;
+    return json(route, 200, { session: { ...sessionA, messages: [
+      { role: 'user', content: body.content, client_request_id: body.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
+      { role: 'assistant', content: '完整的回答', created_at: '2026-01-01T00:00:11.000Z' },
+    ] } });
+  });
+  await page.route('**/api/sessions/*/interrupt', route => json(route, 503, { error: { id: 'interrupt_unavailable' } }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: 'Agent', exact: true }).click();
+  await page.getByLabel('发送给 Agent 的消息').fill('写一篇很长的文章');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const stop = page.getByRole('button', { name: '停止', exact: true });
+  await stop.click();
+  await expect(page.getByRole('alert')).toContainText('暂时无法停止这一轮');
+  // Still running, and the button can be tried again.
+  await expect(stop).toBeEnabled();
+  release();
+  const reply = page.locator('.chat-message.assistant');
+  await expect(reply).toContainText('完整的回答');
+  await expect(reply.locator('.agent-reply-stopped')).toHaveCount(0);
+});

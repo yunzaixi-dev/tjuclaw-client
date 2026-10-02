@@ -8,7 +8,7 @@ import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
 import { versionLabel } from '../lib/version';
-import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
+import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, formatQuotaUse, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'account' | 'about';
 
@@ -262,8 +262,10 @@ export function WorkspaceSettings({
             {active === 'account' ? <>
               <h3>当前会话</h3>
               <SettingRow title="登录邮箱"><span className="settings-value settings-email">{email}</span></SettingRow>
-              {!modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。'}><span className="settings-value" role="status">{`${window.used} / ${window.limit}`}</span></SettingRow>)
-                : <SettingRow title="AI 额度" description="每轮对话计一次；使用自己的模型不占用额度。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>}
+              {!modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.unit === 'tokens'
+                ? (window.used && window.resets_at ? `滚动统计，按模型实际消耗的 token 计，不同模型倍率不同；最早的用量将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，按模型实际消耗的 token 计，不同模型倍率不同。使用自己的模型不占用额度。')
+                : (window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。')}><span className="settings-value" role="status">{formatQuotaUse(window)}</span></SettingRow>)
+                : <SettingRow title="AI 额度" description="使用自己的模型不占用额度。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>}
               {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
               <SettingRow title="退出登录" description="退出此设备上的当前会话。"><button type="button" className="settings-action-button is-danger" onClick={onLogout}><LogOut size={15} /> 退出登录</button></SettingRow>
             </> : null}

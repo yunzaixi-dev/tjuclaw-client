@@ -56,9 +56,11 @@ function LiveText({ text, renderMarkdown, onProgress }: { text: string; renderMa
  * tool call as it starts and settles, and the model's thinking and reply as
  * they are written.
  */
-export function Working({ name, sessionId, renderMarkdown, onProgress }: {
+export function Working({ name, sessionId, stopping, renderMarkdown, onProgress }: {
   name: string;
   sessionId?: string;
+  /** The user stopped the turn; it ends once the current step is done. */
+  stopping?: boolean;
   renderMarkdown: (markdown: string) => string;
   /** Called as the live output grows, to keep it in view. */
   onProgress?: () => void;
@@ -122,7 +124,8 @@ export function Working({ name, sessionId, renderMarkdown, onProgress }: {
   // the phase text stays an exact status.
   // The server says what the turn waits for; an older server leaves it to what is visible here.
   const reported = stageText(stage.id, now - stage.at, steps.length > 0, activeView?.label);
-  const phase = reported || (activeView ? `正在${activeView.label}` : text ? '正在回答' : thinking ? '正在思考'
+  // A stop takes effect when the running step ends: say so rather than a stage.
+  const phase = stopping ? (activeView ? `正在停止，等${activeView.label}结束` : '正在停止') : reported || (activeView ? `正在${activeView.label}` : text ? '正在回答' : thinking ? '正在思考'
     : steps.length ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考');
   const rate = formatTokenRate(estimateTokens(text || thinking), streamStart ? now - streamStart : 0);
   return <div className="agent-working" role="status" aria-label={`${name}正在处理，已用 ${seconds} 秒`}>

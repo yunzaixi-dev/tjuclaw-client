@@ -54,6 +54,8 @@ export interface ChatMessage {
   steps?: TurnStep[];
   /** Notes the reply's turn created or changed, to link to. */
   notes?: NoteRef[];
+  /** The user stopped the turn that wrote this reply. */
+  interrupted?: boolean;
   created_at: string;
 }
 
@@ -121,6 +123,15 @@ export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: A
   };
 }
 
+/**
+ * Stops the session's running turn. The pending send still returns the reply,
+ * with what the Agent had written so far. Rejects when no turn is running or
+ * the server cannot stop it.
+ */
+export async function interruptSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await authRequest(`/api/sessions/${sessionId}/interrupt`, { method: 'POST', signal }, 20000);
+}
+
 /** Warms the session's sandbox ahead of the first message. Best effort. */
 export async function prepareSession(sessionId: string): Promise<void> {
   await authRequest(`/api/sessions/${sessionId}/prepare`, { method: 'POST' }).catch(() => undefined);
@@ -152,6 +163,8 @@ export interface ModelStatus {
   quota: { limit: number; used: number; remaining: number };
   /** Rolling product-model limits; empty when unlimited or broker-managed. */
   windows?: QuotaWindow[];
+  /** How heavily each product model's tokens count against the windows. */
+  rates?: Record<string, number>;
 }
 
 export interface QuotaWindow {
@@ -159,9 +172,13 @@ export interface QuotaWindow {
   limit: number;
   used: number;
   remaining: number;
-  /** When the next counted turn leaves the window. */
+  /** What the numbers count: 'tokens' (weighted by the model's rate); absent on an older server that counted turns. */
+  unit?: string;
+  /** When the next counted use leaves the window. */
   resets_at?: string;
 }
+
+export { formatModelRate, formatQuotaUse, formatTokens, quotaShareLeft } from './quota-format.ts';
 
 const quotaWindowNames: Record<string, string> = { '5h': '5 小时', '7d': '7 天' };
 export const quotaWindowName = (id: string) => quotaWindowNames[id] ?? id;
@@ -186,6 +203,7 @@ function isQuotaWindow(value: unknown): value is QuotaWindow {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
   return typeof r.id === 'string' && typeof r.limit === 'number' && typeof r.used === 'number' && typeof r.remaining === 'number'
+    && (r.unit === undefined || typeof r.unit === 'string')
     && (r.resets_at === undefined || typeof r.resets_at === 'string');
 }
 
@@ -255,7 +273,8 @@ function isSession(value: unknown): value is ChatSession {
       && (m.client_request_id === undefined || (typeof m.client_request_id === 'string' && HEX_32.test(m.client_request_id)))
       && (m.tools === undefined || isStringList(m.tools))
       && (m.steps === undefined || (Array.isArray(m.steps) && m.steps.length <= 60 && m.steps.every(isStep)))
-      && (m.notes === undefined || (Array.isArray(m.notes) && m.notes.every(isNoteRef)));
+      && (m.notes === undefined || (Array.isArray(m.notes) && m.notes.every(isNoteRef)))
+      && (m.interrupted === undefined || typeof m.interrupted === 'boolean');
   });
 }
 
@@ -288,6 +307,7 @@ function isModel(value: unknown): value is ModelStatus {
     && (r.choices === undefined || isStringList(r.choices))
     && (r.agent === undefined || isAgentCapabilities(r.agent))
     && (r.windows === undefined || (Array.isArray(r.windows) && r.windows.every(isQuotaWindow)))
+    && (r.rates === undefined || (Boolean(r.rates) && typeof r.rates === 'object' && Object.values(r.rates as object).every(rate => typeof rate === 'number')))
     && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number';
 }
 

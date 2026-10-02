@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Brain, Check, ChevronDown, Copy, FileText, Loader2, Settings2, Sparkles } from 'lucide-react';
+import { ArrowUp, Check, Copy, FileText, Loader2, Square } from 'lucide-react';
 import { Working } from './agent-live';
 import { AgentSteps } from './agent-steps';
 import { LifeBackground } from './life-background';
-import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatQuotaReset, getModel, modelDisplayName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
+import { agentEffort, chooseProductModel, prepareSession, setAgentEffort, type AgentEffort, exhaustedQuotaWindow, formatModelRate, formatQuotaReset, getModel, modelDisplayName, quotaShareLeft, quotaWindowName, type AgentCapabilities, type ChatSession, type ModelStatus } from '../lib/library';
 import { matchingCommands, slashQuery, type PiCommand } from '../lib/pi-commands';
 import { agentRuntime } from '../lib/local-sandbox';
 import './agent-thread.css';
@@ -65,9 +65,7 @@ function EffortPicker() {
   }, []);
   const current = EFFORTS.find(item => item.value === effort) ?? EFFORTS[0];
   return <div className="agent-model" ref={ref}>
-    <button type="button" className="agent-chip is-button" aria-haspopup="menu" aria-expanded={open} aria-label={`思考强度：${current.label}`} onClick={() => setOpen(value => !value)}>
-      <Brain size={12} aria-hidden="true" /><span>{current.value ? `${current.label}思考` : '思考'}</span><ChevronDown size={12} aria-hidden="true" />
-    </button>
+    <button type="button" className="agent-pill-part is-quiet" aria-haspopup="menu" aria-expanded={open} aria-label={`思考强度：${current.label}`} onClick={() => setOpen(value => !value)}>{current.label}</button>
     {open ? <div className="agent-model-menu" role="menu" aria-label="思考强度">
       <p className="agent-menu-title">思考强度</p>
       {EFFORTS.map(item => <MenuOption key={item.value || 'auto'} selected={item.value === effort} label={item.label} hint={item.hint}
@@ -76,54 +74,73 @@ function EffortPicker() {
   </div>;
 }
 
-function ModelPill({ onManage }: { onManage: () => void }) {
-  const [status, setStatus] = useState<ModelStatus | null>(null);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
+/** Reads the model status again whenever `version` changes. null while loading. */
+function useModelStatus(version: string): [ModelStatus | null, (status: ModelStatus) => void] {
+  const [loaded, setLoaded] = useState<{ version: string; status: ModelStatus } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     // An unreadable status still offers the settings entry rather than hiding the picker.
-    getModel(controller.signal).then(setStatus).catch(() => { if (!controller.signal.aborted) setStatus({ configured: false, source: 'none', name: '', quota: { limit: 0, used: 0, remaining: 0 } }); });
+    getModel(controller.signal).then(status => setLoaded({ version, status }))
+      .catch(() => { if (!controller.signal.aborted) setLoaded({ version, status: { configured: false, source: 'none', name: '', quota: { limit: 0, used: 0, remaining: 0 } } }); });
     return () => controller.abort();
-  }, []);
+  }, [version]);
+  // Keep showing the last status while a newer one loads, so the row does not blink.
+  return [loaded?.status ?? null, status => setLoaded({ version, status })];
+}
+
+/** The model as plain text; its menu switches between the product models. */
+function ModelPicker({ status, onStatus, onManage }: { status: ModelStatus | null; onStatus: (status: ModelStatus) => void; onManage: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => setOpen(false), []);
   useMenuDismiss(open, close, ref);
-  // Hold the chip's place while the status loads, so the bar does not shift.
-  if (!status) return <span className="agent-chip is-loading" aria-hidden="true"><Sparkles size={12} /><span>模型</span></span>;
+  // Hold the text's place while the status loads, so the row does not shift.
+  if (!status) return <span className="agent-pill-part is-loading" aria-hidden="true">模型</span>;
   const missing = status.source === 'none';
   const choices = status.source === 'product' ? status.choices ?? [] : [];
-  // Rolling limits apply to product models only; a custom upstream is not counted.
-  const windows = status.source === 'product' ? status.windows ?? [] : [];
-  const exhausted = exhaustedQuotaWindow({ windows });
-  const reset = exhausted ? formatQuotaReset(exhausted.resets_at) : '';
-  const label = missing ? '未配置模型' : exhausted ? `额度已用完${reset ? ` · ${reset} 恢复` : ''}` : modelDisplayName(status);
+  const label = missing ? '未配置模型' : modelDisplayName(status);
   return (
     <div className="agent-model" ref={ref}>
-      <button type="button" className={`agent-chip is-button${missing || exhausted ? ' is-warning' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>
-        {busy ? <Loader2 className="animate-spin" size={12} aria-hidden="true" /> : <Sparkles size={12} aria-hidden="true" />}<span>{label}</span><ChevronDown size={12} aria-hidden="true" />
-      </button>
+      <button type="button" className="agent-pill-part" aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>{busy ? '切换中…' : label}</button>
       {open ? <div className="agent-model-menu" role="menu" aria-label="选择模型">
         <p className="agent-menu-title">模型</p>
         {missing ? <p>服务器还没有接入产品模型。你可以先填写自己的 OpenAI 兼容上游。</p> : null}
         {choices.map(name => {
           const selected = name === status.name;
-          return <MenuOption key={name} selected={selected} label={modelDisplayName({ source: 'product', name })} hint="TJUClaw 提供" onSelect={() => {
+          const rate = formatModelRate(status.rates?.[name]);
+          return <MenuOption key={name} selected={selected} label={modelDisplayName({ source: 'product', name })} hint={rate ? `TJUClaw 提供 · ${rate}` : 'TJUClaw 提供'} onSelect={() => {
             setOpen(false);
             if (selected) return;
             setBusy(true);
-            chooseProductModel(name).then(setStatus).catch(() => undefined).finally(() => setBusy(false));
+            chooseProductModel(name).then(onStatus).catch(() => undefined).finally(() => setBusy(false));
           }} />;
         })}
         {status.source === 'custom' ? <MenuOption selected label={label} hint="你自己的模型服务" onSelect={() => setOpen(false)} /> : null}
         {choices.length || status.source === 'custom' ? <hr /> : null}
-        <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><span className="agent-menu-check" aria-hidden="true"><Settings2 size={14} /></span><span>{missing ? '配置模型…' : '模型与额度设置…'}</span></button>
+        <button type="button" role="menuitem" className="agent-model-manage" onClick={() => { setOpen(false); onManage(); }}><span className="agent-menu-check" aria-hidden="true" /><span>{missing ? '配置模型…' : '模型与额度设置…'}</span></button>
       </div> : null}
     </div>
   );
 }
 
-export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, pending, modelVersion, onDraftChange, onSubmit, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
+/** One line under the composer saying how much of the allowance is left. */
+function allowanceText(status: ModelStatus | null): { text: string; warning: boolean } {
+  if (!status) return { text: '', warning: false };
+  if (status.source === 'custom') return { text: '使用自己的模型，不占用额度', warning: false };
+  if (status.source === 'none') return { text: '还没有可用的模型', warning: true };
+  const windows = status.windows ?? [];
+  const exhausted = exhaustedQuotaWindow({ windows });
+  if (exhausted) {
+    const reset = formatQuotaReset(exhausted.resets_at);
+    return { text: `${quotaWindowName(exhausted.id)}额度已用完${reset ? `，${reset} 恢复` : ''}`, warning: true };
+  }
+  // The tightest window is the one that will stop the next turn first.
+  const tightest = [...windows].sort((x, y) => quotaShareLeft(x) - quotaShareLeft(y))[0];
+  return tightest ? { text: `${quotaWindowName(tightest.id)}额度剩余 ${quotaShareLeft(tightest)}%`, warning: quotaShareLeft(tightest) <= 10 } : { text: '', warning: false };
+}
+
+export function AgentThread({ title, chat, capabilities, loading, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   capabilities: AgentCapabilities | null;
@@ -131,12 +148,16 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   error: string;
   draft: string;
   sending: boolean;
+  /** A stop was requested and the turn is winding down. */
+  stopping?: boolean;
   /** The message being sent, shown at once before the server confirms it. */
   pending?: string;
   /** Changes when model settings may have changed, to re-read the model. */
   modelVersion: number;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
+  /** Stops the running turn. Absent where a turn cannot be stopped. */
+  onStop?: () => void;
   onRetry: () => void;
   onManageModels: () => void;
   /** Starts another conversation. `/new` in the composer. */
@@ -153,6 +174,9 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [commandNote, setCommandNote] = useState('');
+  // Read again after each turn and after the settings close: the allowance moved.
+  const [modelStatus, setModelStatus] = useModelStatus(`${modelVersion}:${messages.length}:${error ? 1 : 0}`);
+  const allowance = allowanceText(modelStatus);
   const slash = slashQuery(draft);
   // Index belongs to one slash query. A new query shows the first match without an effect.
   const [commandCursor, setCommandCursor] = useState<{ slash: string | null; index: number }>({ slash: null, index: 0 });
@@ -282,15 +306,23 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
           aria-controls={commandOpen ? 'agent-command-menu' : undefined}
           onKeyDown={onComposerKeyDown} />
         <div className="agent-composer-bar">
-          <span className="agent-composer-tools">
-            <ModelPill key={`${modelVersion}:${messages.length}:${error ? 1 : 0}`} onManage={onManageModels} />
-            <EffortPicker />
-          </span>
-          <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
-            {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}
-          </button>
+          {sending && onStop
+            ? <button type="button" className="agent-send is-stop" aria-label={stopping ? '正在停止' : '停止'} title={stopping ? '正在停止' : '停止'} disabled={stopping} onClick={onStop}>
+              <Square size={12} fill="currentColor" strokeWidth={0} />
+            </button>
+            : <button type="submit" className="agent-send" aria-label="发送" title="发送" disabled={!chat || sending || !draft.trim()}>
+              {sending ? <Loader2 className="animate-spin" size={16} /> : <ArrowUp size={17} strokeWidth={2.4} />}
+            </button>}
         </div>
       </form>
+      {/* Like a letterhead under the box: what is left on the left, the model on the right. */}
+      <div className="agent-composer-meta">
+        {allowance.text ? <button type="button" className={`agent-meta-link${allowance.warning ? ' is-warning' : ''}`} onClick={onManageModels}>{allowance.text}</button> : <span />}
+        <div className="agent-pill" role="group" aria-label="模型与思考强度">
+          <ModelPicker status={modelStatus} onStatus={setModelStatus} onManage={onManageModels} />
+          <EffortPicker />
+        </div>
+      </div>
       <p className="agent-disclaimer">以上内容由智能体生成，仅供参考</p>
       {commandNote ? <p className="agent-command-note" role="status">{commandNote}</p> : null}
       </>
@@ -320,6 +352,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
             <header className="agent-reply-head">
               <span className="agent-reply-name">{title}</span>
               <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
+              {message.interrupted ? <span className="agent-reply-stopped">已停止</span> : null}
             </header>
             <AgentSteps steps={message.steps} tools={message.tools} />
             <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
@@ -340,7 +373,7 @@ export function AgentThread({ title, chat, capabilities, loading, error, draft, 
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working name={title} sessionId={chat?.id} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
+      {sending ? <Working name={title} sessionId={chat?.id} stopping={stopping} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

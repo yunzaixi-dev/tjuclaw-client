@@ -25,7 +25,7 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
-import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, getModel, type AgentCapabilities, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -448,6 +448,8 @@ export default function Workspace() {
   const [chat, setChat] = useState<ChatSession | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  // A stop was asked for; cleared when the turn's send finishes.
+  const [chatStopping, setChatStopping] = useState(false);
   // The message being sent, shown optimistically until the server confirms it.
   const [pendingText, setPendingText] = useState('');
   const [chatError, setChatError] = useState('');
@@ -1419,6 +1421,21 @@ export default function Workspace() {
     } catch { /* The next load of the workspace reads the tree. */ }
   }
 
+  /** Stops the running turn. The pending send then returns what the Agent had written. */
+  async function stopTurn() {
+    const sessionId = chat?.id;
+    if (!sessionId || !sendingRef.current || chatStopping) return;
+    setChatStopping(true);
+    try {
+      await interruptSession(sessionId);
+    } catch (cause) {
+      // Nothing was stopped: the turn goes on, and the button can be used again.
+      setChatStopping(false);
+      // The turn ending by itself at that moment is not worth a message.
+      if (!(cause instanceof AuthError && cause.status === 409)) setChatError('暂时无法停止这一轮，它会继续运行到结束。');
+    }
+  }
+
   /** Opens a note the Agent wrote. It may be newer than the tree on screen. */
   async function openAgentNote(id: string) {
     let item = entries.find(entry => entry.id === id);
@@ -2094,6 +2111,7 @@ export default function Workspace() {
       ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
     sendingRef.current = true;
     setChatSending(true);
+    setChatStopping(false);
     let digest: string;
     try {
       digest = await chatDigest(text);
@@ -2725,7 +2743,7 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
       <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} capabilities={agentCapabilities} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} stopping={chatSending && chatStopping} onStop={agentRuntime() === 'local' ? undefined : () => void stopTurn()} pending={pendingText} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

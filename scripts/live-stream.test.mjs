@@ -87,3 +87,23 @@ test('the stage says what the turn is waiting for, and for how long', () => {
   assert.equal(stageText('unknown', 5000, false), '');
   assert.equal(stageText('model', -50, false), '等待模型回复');
 });
+
+test('token allowances read in 万 and 亿, with the share left and a model\'s rate', async () => {
+  const { formatTokens, formatQuotaUse, quotaShareLeft, formatModelRate } = await import('../src/lib/quota-format.ts');
+  assert.equal(formatTokens(0), '0');
+  assert.equal(formatTokens(9999), '9999');
+  assert.equal(formatTokens(20_000_000), '2000 万');
+  assert.equal(formatTokens(1_234_567), '123 万');
+  assert.equal(formatTokens(56_000), '5.6 万');
+  assert.equal(formatTokens(250_000_000), '2.5 亿');
+  const week = { id: '7d', limit: 20_000_000, used: 3_400_000, remaining: 16_600_000, unit: 'tokens' };
+  assert.equal(formatQuotaUse(week), '340 万 / 2000 万 tokens');
+  assert.equal(quotaShareLeft(week), 83);
+  assert.equal(quotaShareLeft({ ...week, remaining: 0 }), 0);
+  // An older server counts turns and sends no unit.
+  assert.equal(formatQuotaUse({ id: '5h', limit: 30, used: 4, remaining: 26 }), '4 / 30');
+  assert.equal(formatModelRate(1), '');
+  assert.equal(formatModelRate(undefined), '');
+  assert.equal(formatModelRate(2.5), '2.5 倍额度');
+  assert.equal(formatModelRate(0.5), '0.5 倍额度');
+});
