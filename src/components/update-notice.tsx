@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { Update } from '@tauri-apps/plugin-updater';
 import { Download, X } from 'lucide-react';
+import { summaryFromNotes } from '../lib/release-notes';
 import './update-notice.css';
 
 const DISMISS_KEY = 'tjuclaw.update-dismissed';
@@ -96,6 +97,8 @@ export function UpdateNotice() {
     ? Math.min(100, Math.round((phase.received / phase.total) * 100))
     : null;
   const working = phase.kind === 'downloading' || phase.kind === 'installing';
+  // What this version changes, from the release's own notes.
+  const summary = phase.kind === 'available' ? summaryFromNotes(update.body) : [];
 
   return (
     <aside className="update-notice" role="status" aria-live="polite" aria-label="应用更新">
@@ -108,6 +111,7 @@ export function UpdateNotice() {
           </button>
         )}
       </div>
+      {summary.length ? <ul className="update-notice-summary" aria-label="更新内容">{summary.map(line => <li key={line}>{line}</li>)}</ul> : null}
       <p>
         {phase.kind === 'available' && `当前 v${update.currentVersion}，更新后将自动重启应用。`}
         {phase.kind === 'downloading' && (percent === null ? '正在下载更新…' : `正在下载更新… ${percent}%`)}

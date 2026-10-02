@@ -132,3 +132,13 @@ test('the animated conversation background is off unless it was chosen', async (
   assert.equal(parseAppearance('{"life":"yes"}').life, false);
   assert.equal(parseAppearance('{"life":true}').life, true);
 });
+
+test('an update summary is a few short single lines, and old manifests have none', async () => {
+  const { summaryFromNotes, summaryLines } = await import('../src/lib/release-notes.ts');
+  assert.deepEqual(summaryLines(['  会话可以\n重命名 ', '', 7, 'x'.repeat(200), '三', '四', '五']), ['会话可以 重命名', 'x'.repeat(79) + '…', '三', '四']);
+  assert.deepEqual(summaryLines('not a list'), []);
+  assert.deepEqual(summaryFromNotes('会话可以重命名\n界面更流畅'), ['会话可以重命名', '界面更流畅']);
+  // The notes of releases before summaries only name the version.
+  assert.deepEqual(summaryFromNotes('TJUClaw Client v0.0.47（源码提交 abcdef012345）'), []);
+  assert.deepEqual(summaryFromNotes(undefined), []);
+});

@@ -490,14 +490,30 @@ export async function signAndroidApk(apkPath, signing, exec = execFileSync) {
   }
 }
 
-export function buildUpdaterManifest(version, sourceSha, pubDate, urls, signatures) {
+/**
+ * The short lines that say what this version changes, from
+ * public/release-notes.json. The update notice shows them; without the file
+ * or with nothing usable in it there is no summary.
+ */
+export function readReleaseSummary(file = new URL('../public/release-notes.json', import.meta.url)) {
+  try {
+    const items = JSON.parse(readFileSync(file, 'utf8')).items;
+    return (Array.isArray(items) ? items : []).filter(item => typeof item === 'string')
+      .map(item => item.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 4);
+  } catch {
+    return [];
+  }
+}
+
+export function buildUpdaterManifest(version, sourceSha, pubDate, urls, signatures, summary = []) {
   const platforms = {};
   for (const [platform, kind] of Object.entries(UPDATER_PLATFORMS)) {
     platforms[platform] = { signature: signatures[kind], url: urls[kind] };
   }
   return {
     version,
-    notes: `TJUClaw Client v${version}（源码提交 ${sourceSha.slice(0, 12)}）`,
+    // The updater hands these notes to the app, which lists them one per line.
+    notes: summary.length ? summary.join('\n') : `TJUClaw Client v${version}（源码提交 ${sourceSha.slice(0, 12)}）`,
     pub_date: pubDate,
     platforms,
   };
@@ -906,7 +922,7 @@ export async function publishDownloads(options, injected = {}) {
     }
     const versionUrl = name => publicObjectUrl(r2, `${R2_PREFIX}/v${version}/${name}`);
     const updaterManifest = buildUpdaterManifest(version, sourceSha, new Date().toISOString(),
-      { exe: versionUrl(TARGET_ASSET_NAMES.exe), deb: versionUrl(TARGET_ASSET_NAMES.deb) }, signatures);
+      { exe: versionUrl(TARGET_ASSET_NAMES.exe), deb: versionUrl(TARGET_ASSET_NAMES.deb) }, signatures, readReleaseSummary());
     const r2Result = await publishToR2(r2, {
       version,
       updaterManifest,

@@ -492,6 +492,19 @@ test('buildUpdaterManifest maps NSIS and deb installers to Tauri updater targets
   assert.deepEqual(Object.keys(manifest.platforms).sort(), ['linux-x86_64-deb', 'windows-x86_64', 'windows-x86_64-nsis']);
   assert.equal(manifest.platforms['windows-x86_64'].signature, 'S1');
   assert.equal(manifest.platforms['linux-x86_64-deb'].url, 'https://dl/x.deb');
+  // Without a summary the notes only name the version; with one they are its lines.
+  assert.match(manifest.notes, /^TJUClaw Client v1\.2\.3/);
+  const summarized = buildUpdaterManifest('1.2.3', 'a'.repeat(40), '2026-09-28T00:00:00.000Z',
+    { exe: 'https://dl/x.exe', deb: 'https://dl/x.deb' }, { exe: 'S1', deb: 'S2' }, ['会话可以重命名', '界面更流畅']);
+  assert.equal(summarized.notes, '会话可以重命名\n界面更流畅');
+});
+
+test('the release summary shipped with the build is short and usable', async () => {
+  const { readReleaseSummary } = await import('./publish-downloads.mjs');
+  const summary = readReleaseSummary();
+  assert.ok(summary.length >= 1 && summary.length <= 4);
+  for (const line of summary) assert.ok(line.length > 0 && line.length <= 80 && !line.includes('\n'), line);
+  assert.deepEqual(readReleaseSummary(new URL('./no-such-file.json', import.meta.url)), []);
 });
 
 test('publish does not move latest backwards when an older version is published later', async () => {

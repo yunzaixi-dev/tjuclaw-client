@@ -84,3 +84,9 @@
 @media (prefers-reduced-motion: reduce) {
   .update-notice-bar span { transition: none; }
 }
+
+/* What the new version changes: a few short lines above the action. */
+.update-notice-summary { display: grid; gap: 3px; margin: 8px 0 2px; padding: 0 0 0 16px; color: var(--foreground); font-size: 13px; line-height: 1.5; }
+.update-notice-summary li::marker { color: var(--muted-foreground); }
+.update-notice p a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.update-notice p a:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 3px; }

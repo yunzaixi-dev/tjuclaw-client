@@ -2215,8 +2215,9 @@
   .obsidian-app .mobile-command-bar > button { pointer-events: auto; }
   .obsidian-app .mobile-command-bar .mobile-bar-round {
     height: 48px; border: 0; color: var(--foreground);
-    background: color-mix(in oklch, var(--surface-raised) 86%, transparent);
-    -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+    /* A solid fill, not frosted glass: blurring what scrolls underneath is
+       recomputed on every frame and is among the costliest paints on a phone. */
+    background: var(--surface-raised, var(--surface));
     box-shadow: 0 0 0 1px var(--control-border), 0 4px 14px rgba(15, 15, 15, .1);
     -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--spring);
   }

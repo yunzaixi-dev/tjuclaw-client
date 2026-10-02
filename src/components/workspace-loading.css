@@ -90,3 +90,9 @@
   .workspace-opening-card, .workspace-opening-bar span, .workspace-opening-bar span::after { animation: none; }
   .workspace-opening-card li.is-active i { animation: none; border-right-color: var(--auth-accent); }
 }
+
+/* Phones skip the frosted glass: the card is opaque instead, which looks
+   nearly the same over the backdrop and spares the blur on every frame. */
+@media (max-width: 720px), (hover: none) {
+  .workspace-opening-card { background: var(--surface); backdrop-filter: none; }
+}

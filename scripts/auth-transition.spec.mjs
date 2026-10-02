@@ -34,11 +34,45 @@ test('auth routes share the paper background across themes and viewports', async
     }
   }
 });
-test('welcome offers a visible password login', async ({ page }) => {
+test('the front page is the sign-in form itself, with password login one tap away', async ({ page }) => {
   await page.route('**/api/auth/flow', route => reply(route, fresh));
   await page.goto('/');
-  await expect(page.getByRole('link', { name: '使用密码登录' })).toBeVisible();
-  await page.getByRole('link', { name: '使用密码登录' }).click();
+  // No page before the form: the email field is there at once, and nothing leads "home".
+  await expect(page.getByRole('heading', { name: '登录 TJUClaw Cloud' })).toBeVisible();
+  await expect(page.getByLabel('邮箱地址')).toBeVisible();
+  await expect(page.getByRole('link', { name: '返回首页' })).toHaveCount(0);
+  await expect(page.getByText('你的校园生活，下一步。')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '登录帮助' })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/');
+  // No notice strip across the top of the page.
+  await expect(page.getByText('仍处于快速迭代期')).toHaveCount(0);
+  expect(Math.round((await page.locator('.auth-shell').boundingBox()).y)).toBe(0);
+  // The footer is two centred rows, each label whole, at a desk and on a phone.
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const footer = page.locator('.auth-footer');
+    const rows = await footer.evaluate(node => [...node.children].map(row => {
+      const box = row.getBoundingClientRect();
+      const items = [...row.children].map(item => item.getBoundingClientRect());
+      return { centre: Math.round(box.left + box.width / 2), top: Math.round(box.top), bottom: Math.round(box.bottom),
+        left: Math.min(...items.map(item => item.left)), right: Math.max(...items.map(item => item.right)),
+        // A label that broke across lines is taller than one line of its row.
+        broken: items.some(item => item.height > 26) };
+    }));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(Math.abs(row.centre - width / 2), `row centred at ${width}`).toBeLessThanOrEqual(1);
+      expect(row.left).toBeGreaterThanOrEqual(8);
+      expect(row.right).toBeLessThanOrEqual(width - 8);
+      expect(row.broken).toBe(false);
+    }
+    expect(rows[1].top).toBeGreaterThanOrEqual(rows[0].bottom);
+    await expect(footer.getByRole('link', { name: '更新日志' })).toHaveAttribute('href', 'https://changelog.tjuclaw.cloud/');
+    await expect(footer.getByRole('link', { name: /津ICP备/ })).toBeVisible();
+    await expect(footer.getByRole('link', { name: /津公网安备/ })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('tab', { name: '密码' }).or(page.getByRole('button', { name: '密码', exact: true })).click();
   await expect(page.getByLabel('密码', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '登录', exact: true })).toBeVisible();
 });

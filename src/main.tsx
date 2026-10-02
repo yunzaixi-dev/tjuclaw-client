@@ -1,7 +1,6 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LazyMotion } from 'motion/react';
-import { ContestBanner } from './contest-banner';
 import { LoadingFallback } from './components/loading-fallback';
 import { UpdateNotice } from './components/update-notice';
 import { WebUpdateNotice } from './components/web-update-notice';
@@ -26,7 +25,6 @@ const motionFeatures = () => import('./lib/motion-features').then(module => modu
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {import.meta.env.MODE === 'audit' ? null : <ContestBanner />}
     <LazyMotion features={motionFeatures} strict>
       <Suspense fallback={<LoadingFallback />}>
         <App />

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, HelpCircle, Home, Lock, LogOut, Mail, MailCheck, Moon, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Lock, LogOut, Mail, MailCheck, Moon, Sun } from 'lucide-react';
 import { BlueprintBackdrop } from './components/blueprint-backdrop';
 import { BrandIcon } from './components/brand-icon';
 import { Button } from './components/ui/button';
 import { CapChallenge } from './components/cap-challenge';
 import { setAppearance, useAppearance } from './lib/appearance';
-import { setContestBannerOpen, useContestBannerOpen } from './contest-banner';
 import { AuthError, describeError, loginWithPassword, logout, readFlow, readSession, registerWithPassword, resendEmailCode, resetFlow, sendEmailCode, verifyEmailCode, type FlowState, type IdentitySession } from './lib/auth';
 import { OtpInput } from './components/ui/otp-input';
 import './product.css';
@@ -13,7 +12,6 @@ import './auth.css';
 
 function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
-  const bannerOpen = useContestBannerOpen();
 
   return (
     <div className="auth-shell blueprint-surface">
@@ -21,46 +19,31 @@ function Shell({ children }: { children: ReactNode }) {
       <main className="auth-main">
         {children}
       </main>
+      {/* Two centred rows: where to go next, then the filings every page must carry. */}
       <footer className="auth-footer">
-        <div className="auth-footer-inner">
-          <div className="auth-footer-copy">
-            <span>© 2026 TJUClaw</span>
-            <div className="auth-footer-beian">
-              <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="auth-footer-link">津ICP备2026013377号</a>
-              <a href="https://beian.mps.gov.cn/#/query/webSearch?code=12011202001229" target="_blank" rel="noreferrer" className="auth-footer-police auth-footer-link">
-                <img src="/gongan.png" alt="" width={16} height={16} />
-                津公网安备12011202001229号
-              </a>
-            </div>
-          </div>
-          <div className="auth-footer-links">
-            <a href="https://tjuclaw.cloud/docs/about" target="_blank" rel="noreferrer" className="auth-footer-link">关于我们</a>
-            <span>·</span>
-            <a href="https://tjuclaw.cloud" target="_blank" rel="noreferrer" className="auth-footer-link">文档</a>
-            <span>·</span>
-            <button
-              type="button"
-              className="auth-footer-appearance-btn"
-              aria-label={appearance.resolved === 'dark' ? '切换浅色模式' : '切换深色模式'}
-              onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}
-            >
-              {appearance.resolved === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-              <span>{appearance.resolved === 'dark' ? '浅色' : '深色'}</span>
-            </button>
-            {bannerOpen ? null : (
-              <>
-                <span>·</span>
-                <button
-                  type="button"
-                  className="auth-footer-appearance-btn"
-                  onClick={() => setContestBannerOpen(true)}
-                >
-                  显示公告
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <nav className="auth-footer-links" aria-label="页脚链接">
+          <a href="https://tjuclaw.cloud/docs/about" target="_blank" rel="noreferrer" className="auth-footer-link">关于我们</a>
+          <a href="https://tjuclaw.cloud" target="_blank" rel="noreferrer" className="auth-footer-link">文档</a>
+          <a href="https://changelog.tjuclaw.cloud/" target="_blank" rel="noreferrer" className="auth-footer-link">更新日志</a>
+          <a href="https://status.tjuclaw.cloud/" target="_blank" rel="noreferrer" className="auth-footer-link">服务状态</a>
+          <button
+            type="button"
+            className="auth-footer-appearance-btn"
+            aria-label={appearance.resolved === 'dark' ? '切换浅色模式' : '切换深色模式'}
+            onClick={() => setAppearance({ mode: appearance.resolved === 'dark' ? 'light' : 'dark' })}
+          >
+            {appearance.resolved === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+            <span>{appearance.resolved === 'dark' ? '浅色' : '深色'}</span>
+          </button>
+        </nav>
+        <p className="auth-footer-legal">
+          <span>© 2026 TJUClaw</span>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="auth-footer-link">津ICP备2026013377号</a>
+          <a href="https://beian.mps.gov.cn/#/query/webSearch?code=12011202001229" target="_blank" rel="noreferrer" className="auth-footer-police auth-footer-link">
+            <img src="/gongan.png" alt="" width={14} height={14} />
+            津公网安备12011202001229号
+          </a>
+        </p>
       </footer>
     </div>
   );
@@ -107,24 +90,6 @@ function loginMethodFromUrl() {
   return new URLSearchParams(location.search).get('method') === 'password' ? 'password' : 'code';
 }
 
-
-function Welcome() {
-  const session = useExistingSession();
-  if (session) return <SignedIn session={session} />;
-  return <section className="auth-card auth-card-narrow auth-welcome">
-    <BrandIcon size={88} className="auth-welcome-logo" />
-    <Heading title="你的校园生活，下一步。"><p>从一个目标开始，<br />让 TJUClaw 帮你把事情往前推进。</p></Heading>
-    <a className="auth-primary-link" href="/auth/login"><Mail size={18} />使用验证码登录 / 注册<ArrowRight size={18} /></a>
-    <a className="auth-secondary-link" href="/auth/login?method=password"><Lock size={18} />使用密码登录<ArrowRight size={18} /></a>
-    <p className="auth-switch">新邮箱验证后会创建账号。忘记密码请用验证码。</p>
-    <p className="auth-legal-note">
-      登录即表示同意我们的
-      <a href="https://tjuclaw.cloud/docs/privacy" target="_blank" rel="noreferrer">隐私协议</a>
-      和
-      <a href="https://tjuclaw.cloud/docs/terms" target="_blank" rel="noreferrer">用户协议</a>
-    </p>
-  </section>;
-}
 
 function FlowScreen() {
   const [flow, setFlow] = useState<FlowState | null>(null);
@@ -238,10 +203,6 @@ function FlowScreen() {
   if (session) return <SignedIn session={session} />;
   return <section className={`auth-card auth-card-narrow auth-flow-card${stage === 'code' ? ' auth-flow-card-code' : ''}`}>
     <div className="auth-card-topbar">
-      <a href="/" className="auth-card-back-text" aria-label="返回首页" title="返回首页">
-        <Home size={13} />
-        <span>返回首页</span>
-      </a>
       <a href="/auth/help" className="auth-card-help-icon" aria-label="登录帮助" title="登录帮助">
         <HelpCircle size={16} />
       </a>
@@ -392,11 +353,12 @@ function Help() {
 export default function Auth() {
   const path = location.pathname;
   let content: ReactNode;
-  if (['/auth/login', '/auth/registration', '/auth/verification'].includes(path)) content = <FlowScreen />;
+  // The site's front page is the sign-in form itself: there is no page before it.
+  if (['/', '/auth/login', '/auth/registration', '/auth/verification'].includes(path)) content = <FlowScreen />;
   else if (path === '/auth/complete' || path === '/app') content = <SessionScreen />;
   else if (path === '/auth/help') content = <Help />;
   else if (path === '/auth/logged-out') content = <section className="auth-card auth-card-narrow"><Heading title="已安全退出。"><p>下次需要时，TJUClaw 仍在这里。</p></Heading><a className="auth-primary-link" href="/auth/login">重新登录<ArrowRight size={18} /></a></section>;
-  else if (path === '/') content = <Welcome />;
+
   else content = <section className="auth-card auth-card-narrow"><Heading title="这一步没能完成。"><p>验证可能已过期，请重新开始。</p></Heading><a className="auth-primary-link" href="/auth/login">重新登录<ArrowRight size={18} /></a></section>;
   return <Shell>{content}</Shell>;
 }

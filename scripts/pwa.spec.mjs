@@ -68,6 +68,11 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
     await expect(notice).toContainText('新版本已就绪');
     // The notice names the build the reader is on.
     await expect(notice).toContainText(/当前 v\d+\.\d+\.\d+/);
+    // It says what the new build changes, in the few lines shipped with it, and where the rest is.
+    const shipped = JSON.parse(readFileSync(new URL('../dist/release-notes.json', import.meta.url), 'utf8')).items;
+    const summary = notice.getByRole('list', { name: '更新内容' });
+    await expect(summary.getByRole('listitem')).toHaveText(shipped.slice(0, 4));
+    await expect(notice.getByRole('link', { name: '全部更新' })).toHaveAttribute('href', 'https://changelog.tjuclaw.cloud/');
     // Until the reader agrees, the page keeps the build it started with.
     expect(await page.evaluate(() => navigator.serviceWorker.getRegistration().then(registration => Boolean(registration.waiting)))).toBe(true);
 

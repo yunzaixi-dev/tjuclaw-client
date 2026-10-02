@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 import { auditServer } from './audit-server.ts';
@@ -79,7 +80,10 @@ function serviceWorker(): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
+  // React Compiler memoizes components and their values at build time, so a
+  // state change redraws only what read it. It runs through Babel, the
+  // compiler's supported path.
+  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
     ? [auditServer(fileURLToPath(new URL('../private/audit/', import.meta.url)))] : [])],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   define: { __APP_VERSION__: JSON.stringify(packageVersion), __APP_COMMIT__: JSON.stringify(buildCommit()) },

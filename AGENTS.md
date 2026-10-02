@@ -14,6 +14,11 @@ This repository is the standalone client frontend and native shell for TJUClaw.
 - Do not add backend Go dependencies or private audit fixtures to build inputs.
 - Use explicit-path staging and `EMOJI [vVERSION] type(scope): summary` commit subjects;
   VERSION comes from the staged package.json. Do not commit or push without task authorization.
+- A change users will notice also updates `public/release-notes.json`: up to four short
+  lines (80 characters each) saying what the newest version changes. The web update notice
+  reads it from the new deployment and the desktop release copies it into the updater
+  manifest, so both show it before the user updates. The full notes stay in the
+  integration repository's `changelog/`.
 - Client build jobs receive no private-component credentials. The explicit release-only
   package staging workflow may use a package-scoped GitLab deploy token.
 

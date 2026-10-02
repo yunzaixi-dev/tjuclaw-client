@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import { SaidText, ToolRow, groupSteps, toolView } from './agent-steps';
-import { getLive, type LiveCursor } from '../lib/library';
+import { getLive, type LiveCursor, type LiveTurn } from '../lib/library';
 import { formatTokenRate, mergeTimeline, stageText, timelineCursor, type TimelineItem } from '../lib/live-stream';
 import './agent-live.css';
 
@@ -170,6 +170,42 @@ function WorkingHead({ name, since, stage, stageAt, hasTools, toolLabel, tailKin
   </header>;
 }
 
+/**
+ * Follows a session's running turn: one long poll at a time, each answered
+ * when the turn changes. `onFrame` receives every poll, with the timeline to
+ * show when the poll carried one. Returns the function that stops following.
+ */
+function followTimeline(sessionId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void): () => void {
+  const controller = new AbortController();
+  let timer = 0;
+  let cursor: LiveCursor | undefined;
+  let shown: TimelineItem[] = [];
+  const pause = (ms: number) => new Promise<void>(resolve => { timer = window.setTimeout(resolve, ms); });
+  void (async () => {
+    await pause(300);
+    while (!controller.signal.aborted) {
+      try {
+        const live = await getLive(sessionId, cursor, controller.signal);
+        if (controller.signal.aborted) return;
+        // Without a cursor the answer is the whole timeline.
+        const merged = mergeTimeline(cursor ? shown : [], live);
+        if (merged.resync) { cursor = undefined; await pause(200); continue; }
+        if (live.version) shown = merged.items;
+        onFrame(live.version ? shown : null, live);
+        // Before the turn is registered, or on a server without live output, poll gently.
+        if (live.version === null) { cursor = undefined; await pause(1200); }
+        else if (live.version === 0) { cursor = undefined; await pause(500); }
+        else cursor = timelineCursor(live.version, shown);
+      } catch {
+        if (controller.signal.aborted) return;
+        cursor = undefined;
+        await pause(1500);
+      }
+    }
+  })();
+  return () => { controller.abort(); window.clearTimeout(timer); };
+}
+
 /** Stages in which the model itself is writing, so its speed means something. */
 const WRITING_STAGES = ['thinking', 'writing', 'preparing'];
 
@@ -197,42 +233,17 @@ export function Working({ name, sessionId, stopping, renderMarkdown, onProgress 
   // One long poll at a time: the server answers when the turn changes.
   useEffect(() => {
     if (!sessionId) return;
-    const controller = new AbortController();
-    let timer = 0;
-    let cursor: LiveCursor | undefined;
-    let shown: TimelineItem[] = [];
-    const pause = (ms: number) => new Promise<void>(resolve => { timer = window.setTimeout(resolve, ms); });
-    void (async () => {
-      await pause(300);
-      while (!controller.signal.aborted) {
-        try {
-          const live = await getLive(sessionId, cursor, controller.signal);
-          if (controller.signal.aborted) return;
-          // Without a cursor the answer is the whole timeline.
-          const merged = mergeTimeline(cursor ? shown : [], live);
-          if (merged.resync) { cursor = undefined; await pause(200); continue; }
-          if (live.version) {
-            shown = merged.items;
-            setItems(shown);
-            setRate({ tokens: live.rateTokens, ms: live.rateMs });
-          }
-          // An idle snapshot at the end of the turn keeps the last stage shown.
-          if (live.stage) {
-            const began = Date.now() - live.stageMs;
-            setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
-          }
-          // Before the turn is registered, or on a server without live output, poll gently.
-          if (live.version === null) { cursor = undefined; await pause(1200); }
-          else if (live.version === 0) { cursor = undefined; await pause(500); }
-          else cursor = timelineCursor(live.version, shown);
-        } catch {
-          if (controller.signal.aborted) return;
-          cursor = undefined;
-          await pause(1500);
-        }
+    return followTimeline(sessionId, (shown, live) => {
+      if (shown) {
+        setItems(shown);
+        setRate({ tokens: live.rateTokens, ms: live.rateMs });
       }
-    })();
-    return () => { controller.abort(); window.clearTimeout(timer); };
+      // An idle snapshot at the end of the turn keeps the last stage shown.
+      if (live.stage) {
+        const began = Date.now() - live.stageMs;
+        setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
+      }
+    });
   }, [sessionId]);
 
   const last = items.length - 1;
