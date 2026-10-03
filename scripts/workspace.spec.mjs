@@ -361,6 +361,23 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.codemirror-editor')).toContainText('Private note body');
   });
 
+  test('saves an edit to the note restored from this device after a reload', async ({ page }) => {
+    const state = defaultState();
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    const editor = page.locator('.codemirror-editor .cm-content');
+    await expect(editor).toContainText('Private note body');
+    await page.reload();
+    // The restored note paints from this device's copy; editing it at once must still save.
+    await expect(editor).toContainText('Private note body');
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Edited right after reload');
+    await expect.poll(() => state.entryById[noteA.id].body).toBe('Edited right after reload');
+    await expect(page.locator('.workspace-statusbar')).toContainText('已保存');
+    await expect(page.locator('.workspace-error')).toHaveCount(0);
+  });
+
   test('uploads an Office original without claiming an unsupported preview', async ({ page }) => {
     const state = defaultState();
     await mockWorkspace(page, state);

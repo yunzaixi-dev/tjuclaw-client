@@ -1667,6 +1667,9 @@ export default function Workspace() {
     if (first && typeof first.body === 'string') {
       const key = 'restored-note';
       paintedNoteRef.current = first.id;
+      // Saving needs the revision the shown body belongs to; without it an
+      // edit to the restored note failed before reaching the server.
+      entryRevisions.current[first.id] ??= first.updated_at;
       setView('notes');
       setTabs([{ key, kind: first.kind === 'rich_text' ? 'rich_text' : 'note', title: first.title, entryId: first.id, history: [first.id], historyIndex: 0 }]);
       chooseTab(key);
@@ -1724,6 +1727,8 @@ export default function Workspace() {
     const painted = paintedId && !restoredHome ? items.find(item => item.id === paintedId && (item.kind === 'note' || item.kind === 'rich_text')) ?? null : null;
     if (painted) {
       const stored = peekNote(painted);
+      // An older local body keeps its own revision, so saving it reports the conflict.
+      entryRevisions.current[painted.id] ??= stored && !stored.fresh ? stored.entry.updated_at : painted.updated_at;
       if (stored && !stored.fresh) void refreshFromServer(stored.entry, generation, noteRequestRef.current, saveVersions.current[painted.id] ?? 0);
       else {
         setSelected(current => current?.id === painted.id ? { ...current, title: painted.title, updated_at: painted.updated_at } : current);
