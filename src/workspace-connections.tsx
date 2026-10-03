@@ -12,6 +12,7 @@ import {
   type WorkspaceRegistration,
 } from './lib/workspace-connections';
 import './workspace-connections.css';
+import { attempt } from './lib/attempt';
 
 const capabilityLabels: Record<WorkspaceCapability, string> = {
   'pi.prompt': 'Pi 提示任务',
@@ -62,19 +63,19 @@ export default function WorkspaceConnections() {
     listController.current = controller;
     setLoading(true);
     setListError('');
-    try {
+    return await attempt(async () => {
       const rows = await listSystemWorkspaces(controller.signal);
       if (controller.signal.aborted) return;
       setWorkspaces(rows);
       setUpdatedAt(new Date().toISOString());
       setNeedsLogin(false);
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted) return;
       handleAuthFailure(error);
       setListError(workspaceConnectionError(error));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setLoading(false);
-    }
+    });
   }, [handleAuthFailure]);
 
   useEffect(() => {
@@ -137,7 +138,7 @@ export default function WorkspaceConnections() {
     if (registration || needsLogin) return;
     const controller = beginMutation('register');
     if (!controller) return;
-    try {
+    return await attempt(async () => {
       const result = await registerSystemWorkspace({ name, kind: 'local', capabilities }, controller.signal);
       if (controller.signal.aborted) return;
       setRegistration(result);
@@ -145,19 +146,19 @@ export default function WorkspaceConnections() {
       setName('');
       setCapabilities([]);
       setNotice('已登记连接。尚需在对应主机配置 CLI 并主动启动连接器；登记不会自动执行任务。');
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted) return;
       handleAuthFailure(error);
       setActionError(`${workspaceConnectionError(error)} 若注册请求已送达但响应丢失，连接可能已建立：先刷新核对，不要连续重复注册。无法找回令牌时，可撤销该连接后重新登记。`);
-    } finally {
+    }, async () => {
       finishMutation(controller);
-    }
+    });
   }
 
   async function revoke(workspace: SystemWorkspace) {
     const controller = beginMutation(workspace.id);
     if (!controller) return;
-    try {
+    return await attempt(async () => {
       await deleteSystemWorkspace(workspace.id, controller.signal);
       if (controller.signal.aborted) return;
       setWorkspaces(rows => rows?.filter(row => row.id !== workspace.id) ?? null);
@@ -165,30 +166,30 @@ export default function WorkspaceConnections() {
       setConfirmation(null);
       setNotice(`已撤销「${workspace.name}」的连接。`);
       requestAnimationFrame(() => listHeading.current?.focus());
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted) return;
       handleAuthFailure(error);
       setActionError(`${workspaceConnectionError(error)} 未确认撤销成功，请刷新核对连接状态。`);
-    } finally {
+    }, async () => {
       finishMutation(controller);
-    }
+    });
   }
 
   async function registerCloud(input: CloudWorkspaceInput): Promise<SystemWorkspace | null> {
     if (needsLogin || registration) return null;
     const controller = beginMutation('register-cloud');
     if (!controller) return null;
-    try {
+    return await attempt(async () => {
       const workspace = await registerCloudWorkspace(input, controller.signal);
       return controller.signal.aborted ? null : workspace;
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted) return null;
       handleAuthFailure(error);
       setActionError(`${workspaceConnectionError(error)} 云端登记未确认成功。Agent 可能已删除或所有权已变化，请重新读取并选择；请求结果不明时先刷新核对列表，不要连续重复登记。`);
       return null;
-    } finally {
+    }, async () => {
       finishMutation(controller);
-    }
+    });
   }
 
   return <div className="connections-page">

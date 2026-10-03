@@ -617,11 +617,18 @@ class LivePreviewPlugin {
 const livePreview = ViewPlugin.fromClass(LivePreviewPlugin, { decorations: value => value.preview.decorations });
 const previewAtomicRanges = EditorView.atomicRanges.of(view => view.plugin(livePreview)?.preview.hidden ?? Decoration.none);
 
+/** Runs with flag set, clearing it even when run throws. */
+function whileFlagged(flag: { current: boolean }, run: () => void) {
+  flag.current = true;
+  try { run(); } finally { flag.current = false; }
+}
+
 export function MarkdownEditor({ value, onChange, editorRef }: { value: string; onChange: (value: string) => void; editorRef?: MutableRefObject<EditorView | null> }) {
   const host = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; view: EditorView } | null>(null);
-  const [focused, setFocused] = useState(false);
+  // The editor while it has focus; the touch bar acts on it.
+  const [focusedView, setFocusedView] = useState<EditorView | null>(null);
   const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
   const consumedContextMenu = useRef(false);
   const onChangeRef = useRef(onChange);
@@ -665,7 +672,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
           EditorView.contentAttributes.of({ 'aria-label': '正文', role: 'textbox', spellcheck: 'false' }),
           EditorView.updateListener.of((update: ViewUpdate) => {
             if (update.docChanged && !applyingValueRef.current) onChangeRef.current(update.state.doc.toString());
-            if (update.focusChanged) setFocused(update.view.hasFocus);
+            if (update.focusChanged) setFocusedView(update.view.hasFocus ? update.view : null);
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--foreground)' },
@@ -692,12 +699,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   useEffect(() => {
     const view = viewRef.current;
     if (!view || value === view.state.doc.toString()) return;
-    applyingValueRef.current = true;
-    try {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
-    } finally {
-      applyingValueRef.current = false;
-    }
+    whileFlagged(applyingValueRef, () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } }));
   }, [value]);
 
   function cancelLongPress() {
@@ -707,6 +709,13 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
 
   function openMenu(x: number, y: number) {
     if (viewRef.current) setMenu({ x, y, view: viewRef.current });
+  }
+
+  function openMenuAtCursor() {
+    const view = viewRef.current;
+    const cursor = view?.coordsAtPos(view.state.selection.main.head);
+    const bounds = host.current?.getBoundingClientRect();
+    openMenu(cursor?.left ?? bounds?.left ?? 12, cursor?.bottom ?? bounds?.top ?? 12);
   }
 
   function onContextMenu(event: ReactMouseEvent) {
@@ -723,12 +732,6 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
     }
   }
 
-  function openMenuAtCursor() {
-    const view = viewRef.current;
-    const cursor = view?.coordsAtPos(view.state.selection.main.head);
-    const bounds = host.current?.getBoundingClientRect();
-    openMenu(cursor?.left ?? bounds?.left ?? 12, cursor?.bottom ?? bounds?.top ?? 12);
-  }
 
   function onKeyDown(event: ReactKeyboardEvent) {
     if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
@@ -762,7 +765,7 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   };
   return <><div ref={host} className={`codemirror-editor${coarsePointer ? ' is-touch' : ''}`} aria-label="Markdown 编辑器"
     {...pointerHandlers} onKeyDown={onKeyDown} />
-    {coarsePointer && focused && viewRef.current && !menu ? <TouchFormatBar view={viewRef.current} onMore={openMenuAtCursor} /> : null}
+    {coarsePointer && focusedView && !menu ? <TouchFormatBar view={focusedView} onMore={openMenuAtCursor} /> : null}
     {menu ? <MarkdownContextMenu view={menu.view} position={menu} onClose={() => setMenu(null)} /> : null}
   </>;
 }

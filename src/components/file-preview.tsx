@@ -7,6 +7,10 @@ import './file-preview.css';
 
 type PreviewKind = 'image' | 'audio' | 'video' | 'pdf' | 'epub' | null;
 
+// Loaded only when a book is opened. Outside the component: the React
+// compiler cannot compile a dynamic import.
+const loadEpub = () => import('../lib/epub');
+
 function previewKind(entry: Entry): PreviewKind {
   const type = entry.content_type?.split(';')[0]?.trim().toLowerCase();
   const name = entry.title.toLowerCase();
@@ -43,7 +47,7 @@ export function FilePreview({ entry, renameRequest, onRename }: { entry: Entry; 
           // A book opens in the paged reader; the zip is read here, nothing else is fetched.
           const bytes = await blob.arrayBuffer();
           if (new Uint8Array(bytes.slice(0, 2)).join() !== '80,75') throw new Error('invalid_epub');
-          const { parseEpub } = await import('../lib/epub');
+          const { parseEpub } = await loadEpub();
           const parsed = parseEpub(bytes);
           if (!controller.signal.aborted) setBook(parsed);
           return;

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { attempt } from '../lib/attempt';
 import {
   addCatalogMcp, addCustomMcp, checkMcp, describeMcpError, listMcp, removeMcp, updateMcp,
   type CustomMcpServer, type McpAuth, type McpCatalogEntry, type McpServer, type McpTool,
@@ -44,17 +45,17 @@ export function McpSettings() {
 
   async function run(key: string, task: () => Promise<void>) {
     setBusy(key); setError('');
-    try { await task(); } catch (cause) { setError(describeMcpError(cause)); } finally { setBusy(''); }
+    return await attempt(async () => { await task(); }, async (cause) => { setError(describeMcpError(cause)); }, async () => { setBusy(''); });
   }
 
   async function check(server: McpServer) {
     setChecks(current => ({ ...current, [server.id]: { state: 'checking' } }));
-    try {
+    return await attempt(async () => {
       const tools = await checkMcp(server.id);
       setChecks(current => ({ ...current, [server.id]: { state: 'ok', tools } }));
-    } catch (cause) {
+    }, async (cause) => {
       setChecks(current => ({ ...current, [server.id]: { state: 'error', message: describeMcpError(cause) } }));
-    }
+    });
   }
 
   function added(server: McpServer) {

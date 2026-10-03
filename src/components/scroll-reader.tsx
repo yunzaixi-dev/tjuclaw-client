@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import './scroll-reader.css';
+import { storeItem } from '../lib/safe-storage';
 
 // Reading a note: one continuous page that scrolls with the rest of the note
 // page. Unlike the book reader's columns, nothing is cut at a page edge, so
@@ -48,7 +49,7 @@ export function ScrollReader({ html, storageKey, className = '' }: { html: strin
     const save = () => {
       frame = 0;
       const range = scroller.scrollHeight - scroller.clientHeight;
-      try { localStorage.setItem(storageKey, JSON.stringify({ chapter: 0, fraction: range > 0 ? scroller.scrollTop / range : 0 })); } catch { /* the position lasts for this page */ }
+      storeItem(localStorage, storageKey, JSON.stringify({ chapter: 0, fraction: range > 0 ? scroller.scrollTop / range : 0 }));
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(save); };
     scroller.addEventListener('scroll', onScroll, { passive: true });

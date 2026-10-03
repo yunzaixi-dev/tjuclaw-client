@@ -11,6 +11,7 @@ import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } f
 import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
 import { versionLabel } from '../lib/version';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, formatQuotaUse, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
+import { attempt } from '../lib/attempt';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'mcp' | 'account' | 'about';
 
@@ -134,44 +135,44 @@ export function WorkspaceSettings({
     event.preventDefault();
     if (modelBusy) return;
     setModelBusy(true); setModelNotice(''); setModelFormError('');
-    try {
+    return await attempt(async () => {
       const name = modelForm.name.trim();
       const status = await putModel({ base_url: modelForm.baseUrl.trim(), api_key: modelForm.apiKey.trim(), ...(name ? { model: name } : {}) });
       setModelStatus(status);
       setModelForm(form => ({ ...form, apiKey: '' }));
       setModelNotice('已保存，后续对话将使用你的模型。');
-    } catch (error) {
+    }, async (error) => {
       setModelFormError(describeLibraryError(error));
-    } finally {
+    }, async () => {
       setModelBusy(false);
-    }
+    });
   }
 
   async function pickProductModel(name: string) {
     if (modelBusy || (modelStatus?.source === 'product' && modelStatus.name === name)) return;
     setModelBusy(true); setModelNotice(''); setModelFormError('');
-    try {
+    return await attempt(async () => {
       // The title and pressed state update in place; no separate notice.
       setModelStatus(await chooseProductModel(name));
-    } catch (error) {
+    }, async (error) => {
       setModelFormError(describeLibraryError(error));
-    } finally {
+    }, async () => {
       setModelBusy(false);
-    }
+    });
   }
 
   async function switchToProductModel() {
     if (modelBusy) return;
     setModelBusy(true); setModelNotice(''); setModelFormError('');
-    try {
+    return await attempt(async () => {
       await clearModel();
       setModelStatus(await getModel());
       setModelNotice('已改回 TJUClaw 提供的模型。');
-    } catch (error) {
+    }, async (error) => {
       setModelFormError(describeLibraryError(error));
-    } finally {
+    }, async () => {
       setModelBusy(false);
-    }
+    });
   }
 
   return <Dialog open={open} onOpenChange={nextOpen => {

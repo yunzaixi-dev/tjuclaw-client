@@ -9,6 +9,7 @@ import { AuthError, describeError, loginWithPassword, logout, readFlow, readSess
 import { OtpInput } from './components/ui/otp-input';
 import './product.css';
 import './auth.css';
+import { attempt } from './lib/attempt';
 
 function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
@@ -144,16 +145,15 @@ function FlowScreen() {
     const controller = new AbortController();
     mutation.current = controller;
     setBusy(true); setError(''); setNotice('');
-    try { await action(controller.signal); }
-    catch (cause) {
+    return await attempt(async () => { await action(controller.signal); }, async (cause) => {
       if (!controller.signal.aborted) {
         setError(describeError(cause));
         if (cause instanceof AuthError && cause.status === 410) setForcedExpiry(true);
       }
-    } finally {
+    }, async () => {
       lock.current = false;
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   function acceptFlow(result: FlowState) {
     setFlow(result); setCode(''); setForcedExpiry(false); setResending(false); setNow(Date.now());
@@ -167,8 +167,7 @@ function FlowScreen() {
       if (!capToken) { setError('请先完成安全验证。'); return; }
       if (method === 'password') {
         void perform(async signal => {
-          try { await loginWithPassword(email, password, capToken, signal); location.replace('/workspace'); }
-          finally { resetCaptcha(); }
+          return await attempt(async () => { await loginWithPassword(email, password, capToken, signal); location.replace('/workspace'); }, undefined, async () => { resetCaptcha(); });
         });
         return;
       }
@@ -176,14 +175,12 @@ function FlowScreen() {
         if (!/^[^@]+@tju\.edu\.cn$/i.test(email.trim())) { setError('新账号仅支持使用 @tju.edu.cn 邮箱注册。'); return; }
         if (password !== confirmPassword) { setError('两次输入的密码不一致。'); return; }
         void perform(async signal => {
-          try { acceptFlow(await registerWithPassword(email, password, capToken, signal)); setPassword(''); setConfirmPassword(''); }
-          finally { resetCaptcha(); }
+          return await attempt(async () => { acceptFlow(await registerWithPassword(email, password, capToken, signal)); setPassword(''); setConfirmPassword(''); }, undefined, async () => { resetCaptcha(); });
         });
         return;
       }
       void perform(async signal => {
-        try { acceptFlow(await sendEmailCode(email, capToken, signal)); }
-        finally { resetCaptcha(); }
+        return await attempt(async () => { acceptFlow(await sendEmailCode(email, capToken, signal)); }, undefined, async () => { resetCaptcha(); });
       });
     } else if (/^\d{6}$/.test(code)) {
       void perform(async signal => { await verifyEmailCode(code, signal); location.replace('/workspace'); });
@@ -195,8 +192,7 @@ function FlowScreen() {
   function resend() {
     if (busy || cooldown > 0 || !capToken) return;
     void perform(async signal => {
-      try { acceptFlow(await resendEmailCode(capToken, signal)); setNotice('新验证码已发送，请使用最新的一封邮件。'); }
-      finally { resetCaptcha(); }
+      return await attempt(async () => { acceptFlow(await resendEmailCode(capToken, signal)); setNotice('新验证码已发送，请使用最新的一封邮件。'); }, undefined, async () => { resetCaptcha(); });
     });
   }
 

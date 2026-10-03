@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, List } from 'lucide-react';
 import './paged-reader.css';
+import { storeItem } from '../lib/safe-storage';
 
 // Reading like a book: the text is laid out in columns one page wide and
 // turned page by page (arrows, Space, PageUp/PageDown, the page edges, or a
@@ -67,7 +68,8 @@ export function PagedReader({ chapters, storageKey, className = '', heading, onC
   }, [measure, pages]);
 
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify({ chapter, fraction: pages > 1 ? page / (pages - 1) : 0 })); } catch { /* position lasts for this page */ }
+    // Without storage the position lasts for this page.
+    storeItem(localStorage, storageKey, JSON.stringify({ chapter, fraction: pages > 1 ? page / (pages - 1) : 0 }));
   }, [storageKey, chapter, page, pages]);
 
   const goChapter = useCallback((index: number, atEnd = false) => {

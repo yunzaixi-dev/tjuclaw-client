@@ -82,8 +82,11 @@ function serviceWorker(): Plugin {
 export default defineConfig(({ mode }) => ({
   // React Compiler memoizes components and their values at build time, so a
   // state change redraws only what read it. It runs through Babel, the
-  // compiler's supported path.
-  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
+  // compiler's supported path. Its check for refs read during render is left
+  // to ESLint's react-hooks/refs: the compiler's version rejects every render
+  // helper that merely closes over an event handler using a ref, which kept
+  // the workspace itself from being compiled.
+  plugins: [react(), babel({ presets: [reactCompilerPreset({ environment: { validateRefAccessDuringRender: false } })] }), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
     ? [auditServer(fileURLToPath(new URL('../private/audit/', import.meta.url)))] : [])],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   define: { __APP_VERSION__: JSON.stringify(packageVersion), __APP_COMMIT__: JSON.stringify(buildCommit()), __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()) },

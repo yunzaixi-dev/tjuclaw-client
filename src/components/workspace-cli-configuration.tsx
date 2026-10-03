@@ -15,6 +15,12 @@ function hasControl(value: string) {
 }
 
 /** Only declarative metadata goes to native. No keys, executable/argv/env or root. */
+/** The parsed draft, or why it cannot be saved. */
+function parseDraft(...args: Parameters<typeof parseWorkspaceConfigurationDraft>): WorkspaceConfigurationDraft | string {
+  try { return parseWorkspaceConfigurationDraft(...args); }
+  catch (failure) { return failure instanceof Error ? failure.message : '请检查端点与插件引用。'; }
+}
+
 export function parseWorkspaceConfigurationDraft(endpoints: WorkspaceEndpointDraft[], pluginText?: string): WorkspaceConfigurationDraft {
   if (endpoints.length > 16) throw new Error('最多配置 16 个模型端点。');
   const names = new Set<string>();
@@ -80,9 +86,9 @@ export function WorkspaceCliConfiguration({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (controlsDisabled || !hasDraft || (hasPluginDraft && !pluginConsent)) return;
-    let draft: WorkspaceConfigurationDraft;
-    try { draft = parseWorkspaceConfigurationDraft(drafts, hasPluginDraft ? pluginText : undefined); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : '请检查端点与插件引用。'); return; }
+    const parsed = parseDraft(drafts, hasPluginDraft ? pluginText : undefined);
+    if (typeof parsed === 'string') { setError(parsed); return; }
+    const draft = parsed;
     setError('');
     await onSave(draft);
   }

@@ -6,6 +6,8 @@ import { hasOfficeAccount, hasWpyAccount, subscribeCampusCredentials, unlockedCa
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { campusToolList, type CampusToolId } from './campus-tool-list';
 import './campus-tools.css';
+import { attempt } from '../lib/attempt';
+import { storeItem } from '../lib/safe-storage';
 
 export { campusToolList, type CampusToolId } from './campus-tool-list';
 
@@ -192,11 +194,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     : activeId === 'schedule' || activeId === 'gpa' ? 'office' : null;
   const accountMissing = needsAccount === 'wpy' ? !hasWpyAccount(accounts) : needsAccount === 'office' ? !hasOfficeAccount(accounts) : false;
   const unlockRef = useRef<(next: CampusCredentials | null) => void>(() => undefined);
-  useEffect(() => {
-    const initial = unlockedCampusCredentials(identity);
-    if (initial) unlockRef.current(initial);
-    return subscribeCampusCredentials(identity, next => unlockRef.current(next));
-  }, [identity]);
   // The 办公网 captcha is asked for once a tool that needs it is open.
   // Held back while Settings (where accounts are unlocked) is still open.
   const officeDialogShown = !suspended && (officeDialogOpen || (officePending && needsAccount === 'office'));
@@ -225,7 +222,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setOfficeError('');
     setOfficeCode('');
     setOfficeCaptcha(null);
-    try {
+    return await attempt(async () => {
       const captcha = await fetchOfficeCaptcha();
       if (request !== officeRequest.current) return;
       const contentType = (captcha.content_type ?? '').split(';')[0].trim();
@@ -233,9 +230,39 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
         throw new Error('invalid captcha image');
       }
       setOfficeCaptcha({ ...captcha, content_type: contentType });
-    } catch (error) {
+    }, async (error) => {
       if (request === officeRequest.current) setOfficeError(error instanceof Error && error.message === 'invalid captcha image' ? '办公网验证码图片无效，请刷新重试。' : campusErrorMessage(error));
-    } finally { if (request === officeRequest.current) setOfficeBusy(false); }
+    }, async () => { if (request === officeRequest.current) setOfficeBusy(false); });
+  }
+
+  async function loadAcademicData() {
+    const request = ++academicRequest.current;
+    setAcademicLoading(true);
+    setLiveError('');
+    return await attempt(async () => {
+      const classes = await fetchAcademicClasses();
+      if (request !== academicRequest.current) return;
+      setLiveClasses(classes);
+      setLiveGPA(null);
+      setLiveExams(asArray(classes.exams));
+      // The classes response already includes exams and GPA; these refine them.
+      const exams = await attempt(() => fetchAcademicExams(), () => null);
+      if (exams && request === academicRequest.current && Array.isArray(exams.exams)) setLiveExams(asArray(exams.exams));
+      const gpa = await attempt(() => fetchAcademicGPA(), () => null);
+      if (gpa && request === academicRequest.current && gpa.gpa && typeof gpa.gpa === 'object' && !Array.isArray(gpa.gpa)) setLiveGPA(gpa.gpa);
+    }, async (error) => {
+      if (request !== academicRequest.current) return;
+      setLiveClasses(null);
+      setLiveGPA(null);
+      setLiveExams([]);
+      setLiveError(campusErrorMessage(error));
+      const id = (error as { body?: { error?: { id?: string } } })?.body?.error?.id;
+      if (id === 'campus_office_session_required' || id === 'campus_office_session_expired') {
+        setOfficeConnected(false);
+        setOfficeDialogOpen(true);
+        void loadOfficeCaptcha();
+      }
+    }, async () => { if (request === academicRequest.current) setAcademicLoading(false); });
   }
 
   async function unlockLiveCampus(next: CampusCredentials) {
@@ -272,89 +299,51 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       }
     }
     if (!hasOfficeAccount(next)) return;
-    try {
-      try {
-        const office = await readOfficeSession();
-        if (semesterGeneration !== semesterRequest.current) return;
-        if (office.username === next.officeUsername.trim() && Date.parse(office.expires_at) > Date.now()) {
-          setOfficeConnected(true);
-          void loadAcademicData();
-          return;
-        }
-      } catch { /* A missing or expired session needs a fresh captcha. */ }
+    return await attempt(async () => {
+      // A missing or expired session needs a fresh captcha.
+      const office = await attempt(() => readOfficeSession(), () => null);
+      if (office && semesterGeneration !== semesterRequest.current) return;
+      if (office && office.username === next.officeUsername.trim() && Date.parse(office.expires_at) > Date.now()) {
+        setOfficeConnected(true);
+        void loadAcademicData();
+        return;
+      }
       if (semesterGeneration !== semesterRequest.current) return;
       // The captcha is asked for when a tool that needs 办公网 is open.
       setOfficePending(true);
       await loadOfficeCaptcha();
-    } catch (error) {
+    }, async (error) => {
       if (semesterGeneration !== semesterRequest.current) return;
       credentialsRef.current = null;
       setLiveError(campusErrorMessage(error));
-    }
+    });
   }
 
-  unlockRef.current = next => {
-    setAccounts(next);
-    if (next) void unlockLiveCampus(next);
-    else lockLiveCampus();
-  };
 
-  async function loadAcademicData() {
-    const request = ++academicRequest.current;
-    setAcademicLoading(true);
-    setLiveError('');
-    try {
-      const classes = await fetchAcademicClasses();
-      if (request !== academicRequest.current) return;
-      setLiveClasses(classes);
-      setLiveGPA(null);
-      setLiveExams(asArray(classes.exams));
-      try {
-        const result = await fetchAcademicExams();
-        if (request === academicRequest.current && Array.isArray(result.exams)) setLiveExams(asArray(result.exams));
-      } catch { /* The classes response already includes exams. */ }
-      try {
-        const result = await fetchAcademicGPA();
-        if (request === academicRequest.current && result.gpa && typeof result.gpa === 'object' && !Array.isArray(result.gpa)) setLiveGPA(result.gpa);
-      } catch { /* The classes response already includes GPA. */ }
-    } catch (error) {
-      if (request !== academicRequest.current) return;
-      setLiveClasses(null);
-      setLiveGPA(null);
-      setLiveExams([]);
-      setLiveError(campusErrorMessage(error));
-      const id = (error as { body?: { error?: { id?: string } } })?.body?.error?.id;
-      if (id === 'campus_office_session_required' || id === 'campus_office_session_expired') {
-        setOfficeConnected(false);
-        setOfficeDialogOpen(true);
-        void loadOfficeCaptcha();
-      }
-    }
-    finally { if (request === academicRequest.current) setAcademicLoading(false); }
-  }
 
   async function submitOfficeCode(event: FormEvent) {
     event.preventDefault();
-    if (!officeCaptcha || !credentialsRef.current || !officeCode.trim() || officeBusy) return;
+    const credentials = credentialsRef.current;
+    if (!officeCaptcha || !credentials || !officeCode.trim() || officeBusy) return;
     const generation = semesterRequest.current;
     const request = ++officeRequest.current;
     setOfficeBusy(true);
     setOfficeError('');
-    try {
-      await connectOffice(credentialsRef.current, officeCaptcha.captcha_id, officeCode.trim());
+    return await attempt(async () => {
+      await connectOffice(credentials, officeCaptcha.captcha_id, officeCode.trim());
       if (generation !== semesterRequest.current || request !== officeRequest.current) return;
       setOfficeConnected(true);
       setOfficeDialogOpen(false); setOfficePending(false);
       setOfficeCaptcha(null);
       setOfficeCode('');
       void loadAcademicData();
-    } catch (error) {
+    }, async (error) => {
       if (generation === semesterRequest.current && request === officeRequest.current) {
         setOfficeError(campusErrorMessage(error));
         setOfficeCaptcha(null);
         setOfficeCode('');
       }
-    } finally { if (generation === semesterRequest.current && request === officeRequest.current) setOfficeBusy(false); }
+    }, async () => { if (generation === semesterRequest.current && request === officeRequest.current) setOfficeBusy(false); });
   }
 
   function lockLiveCampus() {
@@ -391,9 +380,24 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     void disconnectOffice().catch(() => undefined);
   }
 
+  // Points at this render's handlers; declared before the
+  // subscription below, so it runs first and the subscription never calls a stale one.
+  useEffect(() => {
+    unlockRef.current = next => {
+      setAccounts(next);
+      if (next) void unlockLiveCampus(next);
+      else lockLiveCampus();
+    };
+  });
+  useEffect(() => {
+    const initial = unlockedCampusCredentials(identity);
+    if (initial) unlockRef.current(initial);
+    return subscribeCampusCredentials(identity, next => unlockRef.current(next));
+  }, [identity]);
+
   async function refreshEntryCode() {
     setLiveError('');
-    try { setEntryCode(await fetchEntryCode()); } catch (error) { setLiveError(campusErrorMessage(error)); }
+    return await attempt(async () => { setEntryCode(await fetchEntryCode()); }, async (error) => { setLiveError(campusErrorMessage(error)); });
   }
 
   async function loadCampuses() {
@@ -407,10 +411,10 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setScheduleState('idle');
     setRoomLoading(false);
     setRooms({ campuses: [], buildings: [], rooms: [] });
-    try {
+    return await attempt(async () => {
       const result = await fetchCampuses();
       if (request === roomsRequest.current) setRooms(current => ({ ...current, campuses: asArray(result.data) }));
-    } catch (error) { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); }
+    }, async (error) => { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); });
   }
 
   async function loadBuildings(campusId: number) {
@@ -423,10 +427,10 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setRoomSchedule([]);
     setScheduleState('idle');
     setRooms(current => ({ ...current, buildings: [], rooms: [] }));
-    try {
+    return await attempt(async () => {
       const result = await fetchBuildings(campusId);
       if (request === roomsRequest.current) setRooms(current => ({ ...current, buildings: asArray(result.data) }));
-    } catch (error) { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); }
+    }, async (error) => { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); });
   }
 
   async function loadRooms(buildingId: number, date = roomDate, session = roomSession) {
@@ -443,11 +447,10 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       setRoomLoading(false);
       return;
     }
-    try {
+    return await attempt(async () => {
       const result = await fetchRooms(buildingId, session, date);
       if (request === roomsRequest.current) setRooms(current => ({ ...current, rooms: asArray(result.data) }));
-    } catch (error) { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); }
-    finally { if (request === roomsRequest.current) setRoomLoading(false); }
+    }, async (error) => { if (request === roomsRequest.current) setLiveError(campusErrorMessage(error)); }, async () => { if (request === roomsRequest.current) setRoomLoading(false); });
   }
 
   async function loadRoomSchedule(roomId: number) {
@@ -456,35 +459,36 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setSelectedRoom(roomId);
     setRoomSchedule([]);
     setScheduleState('loading');
-    try {
+    return await attempt(async () => {
       const result = await fetchRoomSchedule(roomId);
       if (request === scheduleRequest.current) {
         setRoomSchedule(asArray(result.data));
         setScheduleState('ready');
       }
-    } catch (error) {
+    }, async (error) => {
       if (request === scheduleRequest.current) {
         setLiveError(campusErrorMessage(error));
         setScheduleState('error');
       }
-    }
+    });
   }
 
   async function loadForum(page = 1) {
     const request = ++forumRequest.current;
     setForumLoading(true);
     setLiveError('');
-    try {
+    return await attempt(async () => {
       const result = await fetchForumPosts(page);
       const posts = parseForumPosts(result.data);
       if (request === forumRequest.current) setForum({ page, posts });
-    } catch (error) {
+    }, async (error) => {
       if (request === forumRequest.current) setLiveError(error instanceof Error && error.message === 'invalid forum posts' ? '论坛数据格式异常，请稍后重试。' : campusErrorMessage(error));
-    } finally { if (request === forumRequest.current) setForumLoading(false); }
+    }, async () => { if (request === forumRequest.current) setForumLoading(false); });
   }
 
-  useEffect(() => { try { localStorage.setItem(dataKey, JSON.stringify(data)); } catch { /* Device-local tools stay usable without persistence. */ } }, [dataKey, data]);
-  useEffect(() => { try { localStorage.setItem(focusKey, JSON.stringify(focus)); } catch { /* Device-local tools stay usable without persistence. */ } }, [focusKey, focus]);
+  // Device-local tools stay usable without persistence.
+  useEffect(() => { storeItem(localStorage, dataKey, JSON.stringify(data)); }, [dataKey, data]);
+  useEffect(() => { storeItem(localStorage, focusKey, JSON.stringify(focus)); }, [focusKey, focus]);
   useEffect(() => {
     if (!focus.endsAt) return;
     const tick = () => {

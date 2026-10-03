@@ -27,6 +27,7 @@ import {
   unlockRemoteWorkspace,
 } from '../lib/workspace-vault';
 import { VaultError } from '../lib/sealed-vault';
+import { attempt } from '../lib/attempt';
 
 type WorkspacePassphraseGateProps = {
   identity: string;
@@ -132,7 +133,7 @@ export function WorkspacePassphraseGate({
     }
     setBusy(true);
     setError('');
-    try {
+    return await attempt(async () => {
       let target = targetWorkspace;
       if (isSetup && firstWorkspace && !target) {
         const name = workspaceNameInput.trim();
@@ -173,11 +174,11 @@ export function WorkspacePassphraseGate({
         if (remember) rememberWorkspace(identity, target.id, verification);
         await onUnlocked();
       }
-    } catch (cause) {
+    }, async (cause) => {
       setError(describeError(cause));
-    } finally {
+    }, async () => {
       setBusy(false);
-    }
+    });
   }
 
   function handleDownload() {
@@ -191,12 +192,12 @@ export function WorkspacePassphraseGate({
     if (busy) return;
     setBusy(true);
     setError('');
-    try {
+    return await attempt(async () => {
       await onUnlocked(createdWorkspace ?? undefined);
-    } catch (cause) {
+    }, async (cause) => {
       setError(describeError(cause));
       setBusy(false);
-    }
+    });
   }
 
   function signOut() {

@@ -118,11 +118,12 @@ test('a build replaces an older-generation worker by itself and reloads its page
 
     // A deployment: the server now has this build's worker. The page of the
     // older worker may be blank, so nobody is there to press "refresh".
+    // The page checks for updates by itself too, so the reload may come
+    // before the explicit check: wait for it from before the deployment.
+    const reloaded = page.waitForEvent('load');
     writeFileSync(file, current);
-    await Promise.all([
-      page.waitForEvent('load'),
-      page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); }),
-    ]);
+    await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration())?.update(); }).catch(() => undefined);
+    await reloaded;
     await expect(page.getByLabel('邮箱地址', { exact: true })).toBeVisible();
     // The older shell is gone, this build's shell is in place, and the device is marked as taken over.
     await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter(name => name !== 'tjuclaw-assets').sort())).toEqual(['tjuclaw-shell-' + version, 'tjuclaw-worker-2'].sort());

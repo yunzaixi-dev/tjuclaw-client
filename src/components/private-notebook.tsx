@@ -6,6 +6,7 @@ import { VaultError } from '../lib/sealed-vault';
 import { createPrivateNote, deletePrivateNote, listPrivateNotes, readPrivateNote, renamePrivateNote, retryPrivateNoteCleanup, updatePrivateNote, type PrivateNotebook } from '../lib/private-notes';
 import { unlockRemoteWorkspace, workspaceVerification } from '../lib/workspace-vault';
 import './sandbox-notes.css';
+import { attempt } from '../lib/attempt';
 
 type Draft = { id: string; body: string; revision: string; draft: string };
 const drafts = new Map<string, Draft>();
@@ -78,7 +79,7 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
     event.preventDefault();
     if (!input || busy) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       await unlockRemoteWorkspace(ownerId, workspaceId, input);
       const result = await retryPrivateNoteCleanup(workspaceId, input,
         await listPrivateNotes(workspaceId, input, controller.signal), controller.signal);
@@ -90,16 +91,16 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
           setError('远端目录已移除这篇笔记。本地草稿仅保留在此标签页，请先复制备份，不要关闭页面。');
         }
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function refresh() {
     if (!passphrase || dirty) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const result = await retryPrivateNoteCleanup(workspaceId, passphrase,
         await listPrivateNotes(workspaceId, passphrase, controller.signal), controller.signal);
       if (!controller.signal.aborted) {
@@ -110,16 +111,16 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setEditing(false);
         setRenaming(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function open(id: string) {
     if (!passphrase || busy || dirty && !window.confirm('放弃当前未保存的私密笔记草稿？')) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const result = await readPrivateNote(workspaceId, id, passphrase, controller.signal);
       if (!controller.signal.aborted) {
         remember(key, null);
@@ -130,17 +131,17 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setEditing(false);
         setRenaming(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!passphrase || !notebook || busy || !title.trim() || dirty && !window.confirm('放弃当前未保存的私密笔记草稿？')) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const result = await createPrivateNote(workspaceId, passphrase, title, '', notebook, controller.signal);
       if (!controller.signal.aborted) {
         remember(key, null);
@@ -153,17 +154,17 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setTitle('');
         setRenaming(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function loadLegacy() {
     if (!notebook || busy || dirty) return;
     const controller = start();
     setImportStatus('');
-    try {
+    return await attempt(async () => {
       const entries = await listEntries(workspaceId, controller.signal);
       if (!controller.signal.aborted) {
         const available = entries.filter(entry => entry.kind === 'note' && entry.title.trim() &&
@@ -171,11 +172,11 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setLegacyNotes(available);
         setLegacyId(available[0]?.id ?? '');
       }
-    } catch {
+    }, async () => {
       if (!controller.signal.aborted) setError('旧笔记列表读取失败，未复制任何内容。');
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function importLegacy(event: FormEvent) {
     event.preventDefault();
@@ -183,7 +184,7 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
       !window.confirm('仅复制这篇旧 Markdown 到私密笔记；原件仍以明文留在旧资料库，确定继续？')) return;
     const controller = start();
     setImportStatus('');
-    try {
+    return await attempt(async () => {
       const result = await copyLegacyMarkdownNote(workspaceId, legacyId, passphrase, notebook, controller.signal);
       if (!controller.signal.aborted) {
         setNotebook(result.notebook);
@@ -196,17 +197,17 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setEditing(false);
         setImportStatus('密文已回读核对。旧笔记仍在原资料库，未删除或加密原件。');
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(cause instanceof VaultError ? message(cause) :
         '复制未确认成功。旧笔记未删除，请刷新私密目录核对后再试。');
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function save() {
     if (!passphrase || !selectedId || !revision || !dirty || orphaned || busy) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const next = await updatePrivateNote(workspaceId, selectedId, passphrase, draft, revision, controller.signal);
       if (!controller.signal.aborted) {
         remember(key, null);
@@ -214,33 +215,33 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setRevision(next);
         setEditing(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function rename(event: FormEvent) {
     event.preventDefault();
     if (!passphrase || !notebook || !selectedId || !newTitle.trim() || dirty || orphaned || busy) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const updated = await renamePrivateNote(workspaceId, selectedId, passphrase, newTitle, notebook, controller.signal);
       if (!controller.signal.aborted) {
         setNotebook(updated);
         setRenaming(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   async function remove() {
     if (!passphrase || !notebook || !selectedId || !revision || dirty || orphaned || busy ||
       !window.confirm('从笔记列表移除并删除当前密文对象？Git 历史中的旧密文仍可能保留。')) return;
     const controller = start();
-    try {
+    return await attempt(async () => {
       const updated = await deletePrivateNote(workspaceId, selectedId, passphrase, notebook, revision, controller.signal);
       if (!controller.signal.aborted) {
         remember(key, null);
@@ -252,11 +253,11 @@ export function PrivateNotebook({ ownerId, workspaceId }: { ownerId: string; wor
         setRenaming(false);
         setEditing(false);
       }
-    } catch (cause) {
+    }, async (cause) => {
       if (!controller.signal.aborted) setError(message(cause));
-    } finally {
+    }, async () => {
       if (!controller.signal.aborted) setBusy(false);
-    }
+    });
   }
   return <section className="private-notebook" aria-label="私密笔记">
     <h2><LockKeyhole size={18} /> 私密笔记</h2>

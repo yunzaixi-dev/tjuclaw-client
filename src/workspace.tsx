@@ -25,12 +25,14 @@ import { createCard as createAnkiCard, createDeck, deckStudySummary, deleteCard 
 import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './components/anki-workspace';
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
+import { attempt } from './lib/attempt';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
+import { storedItemExists, storedJSON, storeItem } from './lib/safe-storage';
 
 type VaultFolder = { id: string; name: string; parentId: string | null };
 type VaultPlacement = Record<string, string | null>;
@@ -423,6 +425,23 @@ function bootCachedWorkspace(): CachedBoot | null {
   };
 }
 
+/** Saves the old browser-only cards as a file; false when storage cannot be read. */
+function downloadLegacyAnkiBackup() {
+  try {
+    const raw = localStorage.getItem('tjuclaw.anki.cards.v1');
+    if (raw === null) return true;
+    const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tjuclaw-legacy-browser-cards.json';
+    link.click();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function Workspace() {
   const [boot] = useState(bootCachedWorkspace);
   const [session, setSession] = useState<IdentitySession | null>(boot?.session ?? null);
@@ -642,7 +661,7 @@ export default function Workspace() {
     pendingSave.current = null;
     saveChain.current = saveChain.current.catch(() => {}).then(async () => {
       if (pending.generation !== identityGeneration.current || conflictedEntries.current.has(pending.id)) return;
-      try {
+      return await attempt(async () => {
         const expected = entryRevisions.current[pending.id];
         if (!expected) throw new Error('entry revision unavailable');
         const entry = await patchEntry(pending.id, { title: pending.title, body: pending.body, expected_updated_at: expected });
@@ -658,12 +677,13 @@ export default function Workspace() {
           setSelected(current => current?.id === entry.id ? entry : current);
           setSaving(false);
         }
-      } catch (cause) {
+      }, async (cause) => {
         if (pending.generation === identityGeneration.current) {
           if (saveVersions.current[pending.id] !== pending.version) return;
           if (cause instanceof AuthError && cause.status === 409 && cause.body?.error?.id === 'entry_conflict') {
-            try {
-              const latest = await getEntry(pending.id);
+            // Unreadable, the server result is unknown; the local draft is kept.
+            const latest = await attempt(() => getEntry(pending.id), () => null);
+            if (latest) {
               if (pending.generation !== identityGeneration.current || saveVersions.current[pending.id] !== pending.version) return;
               if (latest.title === pending.title && latest.body === pending.body) {
                 entryRevisions.current[latest.id] = latest.updated_at;
@@ -677,7 +697,7 @@ export default function Workspace() {
                 setError('');
                 return;
               }
-            } catch { /* The server result is unknown; retain the local draft. */ }
+            }
             if (pending.generation !== identityGeneration.current || saveVersions.current[pending.id] !== pending.version) return;
             setSaving(false);
             conflictDraft.current = { id: pending.id, title: pending.title, body: pending.body };
@@ -691,7 +711,7 @@ export default function Workspace() {
             setError('保存失败，请稍后再试。');
           }
         }
-      }
+      });
     });
   }
 
@@ -719,20 +739,20 @@ export default function Workspace() {
   }
 
   async function copyConflictDraft() {
-    try {
+    return await attempt(async () => {
       const draft = conflictDraft.current;
       if (!draft || draft.id !== saveConflictId) return;
       await navigator.clipboard.writeText(`${draft.title}\n\n${draft.body}`);
       setError('当前版本已复制；加载服务器版本前请先保存副本。');
-    } catch {
+    }, async () => {
       setError('复制失败；请手动复制当前编辑内容后再加载服务器版本。');
-    }
+    });
   }
 
   async function discardConflictDraft() {
     if (!saveConflictId || !window.confirm('确定丢弃当前未保存的编辑，并加载服务器上的版本吗？')) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await getEntry(saveConflictId);
       if (generation !== identityGeneration.current) return;
       entryRevisions.current[entry.id] = entry.updated_at;
@@ -746,9 +766,9 @@ export default function Workspace() {
         setBody(entry.body ?? '');
       }
       setError('');
-    } catch {
+    }, async () => {
       setError('读取服务器版本失败，当前草稿仍在编辑器中。');
-    }
+    });
   }
 
   function newBlankTab(forView: SidebarView = view) {
@@ -818,7 +838,7 @@ export default function Workspace() {
 
   function localData<T>(key: string, fallback: T): T {
     if (!identityRef.current) return fallback;
-    try { return JSON.parse(localStorage.getItem(`${key}.${identityRef.current}`) ?? '') as T; } catch { return fallback; }
+    return storedJSON(`${key}.${identityRef.current}`, fallback);
   }
 
   function startResize(side: 'sidebar' | 'rail', event: React.PointerEvent<HTMLDivElement>) {
@@ -1040,15 +1060,14 @@ export default function Workspace() {
     const finish = beginOperation('create-folder', '正在创建文件夹');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await createFolderRemote(library.id, '未命名', parentId ?? undefined);
       if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
       persistFolders([...folders, { id: entry.id, name: entry.title, parentId: entry.parent_id || null }]);
       setOpenFolders(value => ({ ...value, ...(parentId ? { [parentId]: true } : {}), [entry.id]: true }));
       setEditingFolderId(entry.id);
-    } catch { if (generation === identityGeneration.current) setError('创建文件夹失败，请稍后再试。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('创建文件夹失败，请稍后再试。'); }, async () => { finish(); });
   }
 
   function renameFolder(folder: VaultFolder) {
@@ -1059,13 +1078,12 @@ export default function Workspace() {
     const finish = beginOperation(`folder:${id}`, '正在重命名文件夹');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await patchFolder(id, { title: name });
       if (generation !== identityGeneration.current) return;
       setEntries(items => items.map(item => item.id === id ? entry : item));
       setFolders(current => current.map(item => item.id === id ? { ...item, name: entry.title } : item));
-    } catch { if (generation === identityGeneration.current) setError('重命名文件夹失败，请稍后再试。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('重命名文件夹失败，请稍后再试。'); }, async () => { finish(); });
   }
 
   async function removeFolder(folder: VaultFolder) {
@@ -1086,7 +1104,7 @@ export default function Workspace() {
     const finish = beginOperation(`folder:${folder.id}`, '正在删除文件夹及其内容');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       flushPendingSave();
       await saveChain.current;
       if (generation !== identityGeneration.current || [...ids].some(id => conflictedEntries.current.has(id) || failedSave.current?.id === id)) return;
@@ -1114,8 +1132,7 @@ export default function Workspace() {
         ++chatRequestRef.current;
         setSelected(null); setSelectedId(null); setTitle(''); setBody(''); setChat(null); setRailOpen(false);
       }
-    } catch { if (generation === identityGeneration.current) setError('删除文件夹失败，请稍后再试。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('删除文件夹失败，请稍后再试。'); }, async () => { finish(); });
   }
 
   async function moveEntry(id: string, folderId?: string | null) {
@@ -1135,7 +1152,7 @@ export default function Workspace() {
         setError('文档版本不可用，请重新打开后再移动。');
         return;
       }
-      try {
+      return await attempt(async () => {
         const entry = await moveEntryRemote(id, folderId ?? '', expected);
         if (generation !== identityGeneration.current) return;
         entryRevisions.current[id] = entry.updated_at;
@@ -1143,15 +1160,15 @@ export default function Workspace() {
         setSelected(current => current?.id === id ? { ...current, parent_id: entry.parent_id, updated_at: entry.updated_at } : current);
         setPlacements(current => ({ ...current, [id]: folderId }));
         setMoveEntryId(null);
-      } catch (error) {
+      }, async (error) => {
         if (generation !== identityGeneration.current) return;
         setError(error instanceof AuthError && error.status === 409
           ? '文档已在其他设备更新，移动未执行；请先重新打开文档核对内容。'
           : '移动文档失败，请稍后再试。');
-      }
+      });
     });
     saveChain.current = move;
-    try { await move; } finally { finish(); }
+    return await attempt(async () => { await move; }, undefined, async () => { finish(); });
   }
 
   async function moveFolder(id: string, parentId: string | null) {
@@ -1171,13 +1188,12 @@ export default function Workspace() {
     const finish = beginOperation(`folder:${id}`, '正在移动文件夹');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await patchFolder(id, { parent_id: parentId ?? '' });
       if (generation !== identityGeneration.current) return;
       setEntries(items => items.map(item => item.id === id ? entry : item));
       setFolders(current => current.map(folder => folder.id === id ? { ...folder, parentId } : folder));
-    } catch { if (generation === identityGeneration.current) setError('移动文件夹失败，请稍后再试。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('移动文件夹失败，请稍后再试。'); }, async () => { finish(); });
   }
 
   function renderFolder(folder: VaultFolder): ReactNode {
@@ -1208,9 +1224,8 @@ export default function Workspace() {
   // meanwhile, show it. An edited note keeps its text; saving it then reports
   // the conflict as before.
   async function refreshFromServer(shown: Entry, generation: number, request: number, version: number) {
-    let fresh: Entry;
-    try { fresh = await loadEntry(shown.id); } catch { return; }
-    if (generation !== identityGeneration.current) return;
+    const fresh = await attempt(() => loadEntry(shown.id), () => null);
+    if (!fresh || generation !== identityGeneration.current) return;
     if (fresh.updated_at === shown.updated_at || request !== noteRequestRef.current ||
       (saveVersions.current[shown.id] ?? 0) !== version || conflictedEntries.current.has(shown.id)) return;
     entryRevisions.current[shown.id] = fresh.updated_at;
@@ -1258,14 +1273,12 @@ export default function Workspace() {
     if ((item.kind === 'note' || item.kind === 'rich_text') && item.body === undefined) {
       // A later selection wins even if this request is slower.
       const finish = beginOperation(`open:${request}`, `正在打开「${item.title || '未命名笔记'}」`);
-      try {
-        item = await loadEntry(item.id);
-      } catch {
+      const loaded = await attempt(() => loadEntry(item.id), () => null, () => finish?.());
+      if (!loaded) {
         if (generation === identityGeneration.current && request === noteRequestRef.current) setError('打开笔记失败，请稍后重试。');
         return;
-      } finally {
-        finish?.();
       }
+      item = loaded;
       if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
       if (!canLeaveDraft(id)) return;
     }
@@ -1306,7 +1319,7 @@ export default function Workspace() {
     if (item.kind === 'agent') {
       const request = ++chatRequestRef.current;
       setChat(chatCacheRef.current[id] ?? null); setChatLoading(true); setChatError(''); setDraft(draftsRef.current[id] ?? '');
-      try {
+      await attempt(async () => {
         const choice = sessionChoiceRef.current[item.id];
         let next: ChatSession;
         if (choice && choice !== 'new') next = await getSession(choice);
@@ -1346,13 +1359,12 @@ export default function Workspace() {
           chatCacheRef.current[id] = next;
           showChat(next);
         }
-      } catch (error) {
+      }, error => {
         if (generation === identityGeneration.current && request === chatRequestRef.current) {
           setChatError(error instanceof AuthError && error.body.error?.id === 'library_limit_reached'
             ? '这个 Agent 的会话已达 50 个上限，请在历史会话中继续已有的对话。' : '会话暂时不可用，请稍后再试。');
         }
-      }
-      finally { if (generation === identityGeneration.current && request === chatRequestRef.current) setChatLoading(false); }
+      }, () => { if (generation === identityGeneration.current && request === chatRequestRef.current) setChatLoading(false); });
     } else { ++chatRequestRef.current; setChat(null); setChatLoading(false); }
   }
 
@@ -1412,21 +1424,22 @@ export default function Workspace() {
    * tree again so they appear in the sidebar.
    */
   async function settleTurn(sessionId: string, entryId: string | null | undefined, libraryId: string | undefined, generation: number) {
-    try {
+    // A failure here still leaves the tree below worth reading again.
+    await attempt(async () => {
       const settled = await getSettledSession(sessionId);
       if (generation !== identityGeneration.current) return;
       const count = settled.messages?.length ?? 0;
       // A newer turn may already be on screen; never replace it with less.
       if (entryId && chatCacheRef.current[entryId]?.id === sessionId && (chatCacheRef.current[entryId]?.messages?.length ?? 0) <= count) chatCacheRef.current[entryId] = settled;
       setChat(current => current?.id === sessionId && (current.messages?.length ?? 0) <= count ? settled : current);
-    } catch { /* The tree below is still worth reading again. */ }
+    }, () => undefined);
     if (!libraryId || generation !== identityGeneration.current) return;
-    try {
+    return await attempt(async () => {
       const items = (await listEntries(libraryId)).map(listedWithCache);
       if (generation !== identityGeneration.current) return;
       pruneEntryCache(items);
       showTree(items);
-    } catch { /* The next load of the workspace reads the tree. */ }
+    }, async () => { /* The next load of the workspace reads the tree. */ });
   }
 
   /** Stops the running turn. The pending send then returns what the Agent had written. */
@@ -1434,14 +1447,14 @@ export default function Workspace() {
     const sessionId = chat?.id;
     if (!sessionId || !sendingRef.current || chatStopping) return;
     setChatStopping(true);
-    try {
+    return await attempt(async () => {
       await interruptSession(sessionId);
-    } catch (cause) {
+    }, async (cause) => {
       // Nothing was stopped: the turn goes on, and the button can be used again.
       setChatStopping(false);
       // The turn ending by itself at that moment is not worth a message.
       if (!(cause instanceof AuthError && cause.status === 409)) setChatError('暂时无法停止这一轮，它会继续运行到结束。');
-    }
+    });
   }
 
   /** Opens a note the Agent wrote. It may be newer than the tree on screen. */
@@ -1450,13 +1463,11 @@ export default function Workspace() {
     const libraryId = libraries[0]?.id;
     if (!item && libraryId) {
       const generation = identityGeneration.current;
-      try {
-        const items = (await listEntries(libraryId)).map(listedWithCache);
-        if (generation !== identityGeneration.current) return;
-        pruneEntryCache(items);
-        showTree(items);
-        item = items.find(entry => entry.id === id);
-      } catch { return; }
+      const items = await attempt(async () => (await listEntries(libraryId)).map(listedWithCache), () => null);
+      if (!items || generation !== identityGeneration.current) return;
+      pruneEntryCache(items);
+      showTree(items);
+      item = items.find(entry => entry.id === id);
     }
     // The note may have been deleted since the reply.
     if (!item) return;
@@ -1479,13 +1490,13 @@ export default function Workspace() {
     const general = entries.find(entry => entry.kind === 'agent' && entry.preset !== 'guide');
     if (general) return general;
     if (!library) return entries.find(entry => entry.kind === 'agent') ?? null;
-    try {
+    return await attempt(async () => {
       const created = await createEntry(library.id, { kind: 'agent', title: 'TJUClaw' });
       setEntries(items => items.some(item => item.id === created.id) ? items : [...items, created]);
       return created;
-    } catch {
+    }, async () => {
       return entries.find(entry => entry.kind === 'agent') ?? null;
-    }
+    });
   }
 
   // The phone's composer on the notes home: what is typed there is sent in a
@@ -1496,16 +1507,16 @@ export default function Workspace() {
   const askAfterOpenRef = useRef<string | null>(null);
   async function askFromHome(text: string) {
     setAskingFromHome(true);
-    try {
+    return await attempt(async () => {
       const agent = await conversationAgent();
       if (!agent) { setError('暂时无法开始新对话，请稍后再试。'); return; }
       draftsRef.current[agent.id] = text;
       askAfterOpenRef.current = text;
       setHomeAsk('');
       openConversation(agent.id, 'new', agent, undefined, true);
-    } finally {
+    }, undefined, async () => {
       setAskingFromHome(false);
-    }
+    });
   }
   // The conversation whose name is being edited in the sidebar.
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
@@ -1517,7 +1528,7 @@ export default function Workspace() {
     const title = value.trim().replace(/\s+/g, ' ').slice(0, 60);
     if (!row || title === (row.title ?? '')) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const name = await renameSession(id, title);
       if (generation !== identityGeneration.current) return;
       // The open conversation and its cached copy carry the name too.
@@ -1529,9 +1540,9 @@ export default function Workspace() {
       if (generation !== identityGeneration.current) return;
       setConversations(current => current.map(item => item.id === id ? { ...item, title: shown, named: Boolean(name) } : item));
       if (chat?.id === id) setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' ? { ...tab, title: shown } : tab));
-    } catch (cause) {
+    }, async (cause) => {
       if (generation === identityGeneration.current) setError(describeLibraryError(cause));
-    }
+    });
   }
 
   /** Deletes a conversation after asking; the open one gives way to a new conversation. */
@@ -1539,16 +1550,13 @@ export default function Workspace() {
     const row = conversations.find(item => item.id === id);
     if (!row || !window.confirm(`删除会话「${row.title ?? '新对话'}」？其中的消息会一并删除，无法恢复。`)) return;
     const generation = identityGeneration.current;
-    try {
-      await deleteSession(id);
-    } catch (cause) {
+    const deleted = await attempt(async () => { await deleteSession(id); return true; }, cause => {
       // Already gone on the server counts as deleted here too.
-      if (!(cause instanceof AuthError && cause.status === 404)) {
-        if (generation === identityGeneration.current) setError(describeLibraryError(cause));
-        return;
-      }
-    }
-    if (generation !== identityGeneration.current) return;
+      if (cause instanceof AuthError && cause.status === 404) return true;
+      if (generation === identityGeneration.current) setError(describeLibraryError(cause));
+      return false;
+    });
+    if (!deleted || generation !== identityGeneration.current) return;
     setConversations(current => current.filter(item => item.id !== id));
     if (sessionChoiceRef.current[row.entryId] === id) delete sessionChoiceRef.current[row.entryId];
     if (chatCacheRef.current[row.entryId]?.id === id) delete chatCacheRef.current[row.entryId];
@@ -1573,7 +1581,7 @@ export default function Workspace() {
 
   async function loadAnkiData(generation: number) {
     setAnkiLoadFailed(false);
-    try {
+    return await attempt(async () => {
       let decks = await listDecks();
       if (generation !== identityGeneration.current) return;
       const deck = decks[0] ?? await createDeck('默认牌组');
@@ -1586,13 +1594,10 @@ export default function Workspace() {
           const key = ankiReviewKey(identityRef.current, card.id);
           const pending = readPendingAnkiReview(key);
           if (!pending) continue;
-          try {
-            const committed = await getReviewRequest(pending.requestId);
-            if (generation !== identityGeneration.current) return;
-            if (committed?.cardId === card.id && committed.rating === pending.rating) sessionStorage.removeItem(key);
-          } catch {
-            // A failed read cannot prove whether the request committed; retain its ID for a safe retry.
-          }
+          // A failed read cannot prove whether the request committed; its ID is kept for a safe retry.
+          const committed = await attempt(() => getReviewRequest(pending.requestId), () => undefined);
+          if (generation !== identityGeneration.current) return;
+          if (committed?.cardId === card.id && committed.rating === pending.rating) sessionStorage.removeItem(key);
         }
       }
       setAnkiDecks(decks);
@@ -1604,7 +1609,7 @@ export default function Workspace() {
       setAnkiLoadFailed(false);
       adoptAnkiCards(cards);
       setError(current => current.startsWith('闪卡') ? '' : current);
-    } catch {
+    }, async () => {
       if (generation !== identityGeneration.current) return;
       ankiSyncHealthy.current = false;
       setAnkiRemoteReady(false);
@@ -1618,7 +1623,7 @@ export default function Workspace() {
         setAnkiSchedules({});
       }
       setError('闪卡服务暂时不可用，已暂停编辑；旧版浏览器卡片不会自动显示或归入当前账号。');
-    }
+    });
   }
 
   // The device's note store is opened once the workspace is on screen, so its
@@ -1669,7 +1674,7 @@ export default function Workspace() {
       paintedNoteRef.current = first.id;
       // Saving needs the revision the shown body belongs to; without it an
       // edit to the restored note failed before reaching the server.
-      entryRevisions.current[first.id] ??= first.updated_at;
+      if (entryRevisions.current[first.id] === undefined) entryRevisions.current[first.id] = first.updated_at;
       setView('notes');
       setTabs([{ key, kind: first.kind === 'rich_text' ? 'rich_text' : 'note', title: first.title, entryId: first.id, history: [first.id], historyIndex: 0 }]);
       chooseTab(key);
@@ -1728,7 +1733,7 @@ export default function Workspace() {
     if (painted) {
       const stored = peekNote(painted);
       // An older local body keeps its own revision, so saving it reports the conflict.
-      entryRevisions.current[painted.id] ??= stored && !stored.fresh ? stored.entry.updated_at : painted.updated_at;
+      if (entryRevisions.current[painted.id] === undefined) entryRevisions.current[painted.id] = stored && !stored.fresh ? stored.entry.updated_at : painted.updated_at;
       if (stored && !stored.fresh) void refreshFromServer(stored.entry, generation, noteRequestRef.current, saveVersions.current[painted.id] ?? 0);
       else {
         setSelected(current => current?.id === painted.id ? { ...current, title: painted.title, updated_at: painted.updated_at } : current);
@@ -1769,15 +1774,15 @@ export default function Workspace() {
     const cachedTree = identityRef.current ? readWorkspaceTree(identityRef.current) : null;
     if (cachedTree && cachedTree.library.id === target.id) paintCachedTree(cachedTree);
     else setLoading(true);
-    try {
+    return await attempt(async () => {
       await loadWorkspaceData(target, generation);
-    } catch (err) {
+    }, async (err) => {
       if (generation !== identityGeneration.current) return;
       if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
       else setError('工作区暂时无法连接，请稍后重试。');
-    } finally {
+    }, async () => {
       if (generation === identityGeneration.current) setLoading(false);
-    }
+    });
   }
 
   async function load(generation: number, early?: { libraries: Promise<Library[]>; verification: ReturnType<typeof workspaceVerification> }) {
@@ -1788,7 +1793,7 @@ export default function Workspace() {
     // A return visit already painted this tree. Painting again would undo a
     // home or note the user opened while the session check was in flight.
     if (identity && cached && !paintedNoteRef.current && isWorkspaceUnlocked(identity, cached.library.id, cached.verification)) paintCachedTree(cached);
-    try {
+    return await attempt(async () => {
       setLoadStep('library');
       // Neither answer depends on the other, and the first page load already
       // asked for both while the session was being confirmed.
@@ -1816,13 +1821,13 @@ export default function Workspace() {
       }
       setWorkspaceGate(null);
       await loadWorkspaceData(activeLibrary, generation);
-    } catch (err) {
+    }, async (err) => {
       if (generation !== identityGeneration.current) return;
       if ((err instanceof AuthError || err instanceof VaultError) && err.status === 401) location.replace('/auth/login');
       else setError('工作区暂时无法连接，请稍后重试。');
-    } finally {
+    }, async () => {
       if (generation === identityGeneration.current) setLoading(false);
-    }
+    });
   }
 
   useEffect(() => {
@@ -1872,8 +1877,7 @@ export default function Workspace() {
         setAnkiLastStudyAt(null);
         setAnkiRemoteReady(false);
         setAnkiLoadFailed(false);
-        try { setLegacyAnkiBackupAvailable(localStorage.getItem('tjuclaw.anki.cards.v1') !== null); }
-        catch { setLegacyAnkiBackupAvailable(false); }
+        setLegacyAnkiBackupAvailable(storedItemExists('tjuclaw.anki.cards.v1'));
         ankiSyncHealthy.current = false;
         ankiRemoteIds.current = new Set();
         ankiPendingIds.current = new Map();
@@ -2151,7 +2155,7 @@ export default function Workspace() {
     const finish = beginOperation('create', '正在创建笔记');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await createEntry(library.id, { kind: 'note', title: noteTitle, body: initialBody, ...(folderId ? { parent_id: folderId } : {}) });
       if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
@@ -2159,8 +2163,7 @@ export default function Workspace() {
       setEditorMode('edit');
       await openEntry(entry.id, { ...entry, body: entry.body ?? initialBody });
       window.setTimeout(() => titleRef.current?.focus(), 0);
-    } catch { if (generation === identityGeneration.current) setError('暂时无法创建笔记。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('暂时无法创建笔记。'); }, async () => { finish(); });
   }
 
   async function createRichText(folderId?: string) {
@@ -2169,7 +2172,7 @@ export default function Workspace() {
     const finish = beginOperation('create', '正在创建富文本文档');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await createEntry(library.id, { kind: 'rich_text', title: '未命名文档', body: EMPTY_RICH_TEXT, ...(folderId ? { parent_id: folderId } : {}) });
       if (generation !== identityGeneration.current) return;
       setEntries(items => [...items, entry]);
@@ -2177,8 +2180,7 @@ export default function Workspace() {
       setEditorMode('edit');
       await openEntry(entry.id, { ...entry, body: entry.body ?? EMPTY_RICH_TEXT });
       window.setTimeout(() => titleRef.current?.focus(), 0);
-    } catch { if (generation === identityGeneration.current) setError('暂时无法创建富文本文档。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('暂时无法创建富文本文档。'); }, async () => { finish(); });
   }
 
   function uploadPicker(folderId?: string) {
@@ -2193,35 +2195,37 @@ export default function Workspace() {
     if (!finish) return;
     const generation = identityGeneration.current;
     const folderId = uploadParent.current;
-    try { for (const [index, file] of Array.from(files).entries()) {
+    return await attempt(async () => { for (const [index, file] of Array.from(files).entries()) {
       setOperations(current => ({ ...current, upload: `正在上传 ${index + 1}/${files.length}：「${file.name}」` }));
       if (!file.size || file.size > 8 * 1024 * 1024) {
         setError(`“${file.name}”超过当前 8 MB 的单文件上限，或是空文件。`);
         continue;
       }
-      try {
+      const stopped = await attempt(async () => {
         const entry = await uploadFile(library.id, file, folderId);
-        if (generation !== identityGeneration.current) return;
+        if (generation !== identityGeneration.current) return true;
         setEntries(items => [...items, entry]);
         if (folderId) setPlacements(current => ({ ...current, [entry.id]: folderId }));
         await openEntry(entry.id, entry);
-      } catch { if (generation === identityGeneration.current) setError(`“${file.name}”上传失败。`); }
-    } } finally { finish(); }
+        return false;
+      }, () => { if (generation === identityGeneration.current) setError(`“${file.name}”上传失败。`); return false; });
+      if (stopped) return;
+    } }, undefined, async () => { finish(); });
   }
 
   async function renameFile(item: Entry, name: string) {
     const finish = beginOperation(`rename:${item.id}`, '正在重命名文件');
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       const entry = await patchEntry(item.id, { title: name, expected_updated_at: item.updated_at });
       if (generation !== identityGeneration.current) return;
       setEntries(items => items.map(item => item.id === entry.id ? entry : item));
       setSelected(current => current?.id === entry.id ? entry : current);
       setTabs(current => current.map(tab => tab.entryId === entry.id ? { ...tab, title: entry.title } : tab));
-    } catch {
+    }, async () => {
       if (generation === identityGeneration.current) setError('重命名失败，请重新打开文件后重试。');
-    } finally { finish(); }
+    }, async () => { finish(); });
   }
 
   async function deleteNote(id: string) {
@@ -2231,7 +2235,7 @@ export default function Workspace() {
     const finish = beginOperation(`delete:${id}`, `正在删除「${item.title || '未命名笔记'}」`);
     if (!finish) return;
     const generation = identityGeneration.current;
-    try {
+    return await attempt(async () => {
       flushPendingSave();
       await saveChain.current;
       if (generation !== identityGeneration.current) return;
@@ -2257,8 +2261,7 @@ export default function Workspace() {
         if (current?.entryId) void openEntry(current.entryId, undefined, current.key, current.historyIndex);
         else { setSelected(null); setSelectedId(null); setTitle(''); setBody(''); setRailOpen(false); setView('notes'); }
       }
-    } catch { if (generation === identityGeneration.current) setError('删除文档失败，请稍后再试。'); }
-    finally { finish(); }
+    }, async () => { if (generation === identityGeneration.current) setError('删除文档失败，请稍后再试。'); }, async () => { finish(); });
   }
 
   async function handleChat(event: FormEvent) {
@@ -2276,10 +2279,8 @@ export default function Workspace() {
     sendingRef.current = true;
     setChatSending(true);
     setChatStopping(false);
-    let digest: string;
-    try {
-      digest = await chatDigest(text);
-    } catch {
+    const digest = await attempt(() => chatDigest(text), () => null);
+    if (digest === null) {
       sendingRef.current = false;
       setChatSending(false);
       setChatError('无法校验消息重试，请检查浏览器安全环境后再试。');
@@ -2295,16 +2296,15 @@ export default function Workspace() {
     const same = pending?.sessionId === currentId && (pending.digest ? pending.digest === digest : pending.content === text);
     const requestId = same ? pending!.id : crypto.randomUUID().replaceAll('-', '');
     pendingChatRequestRef.current = { sessionId: currentId, content: text, id: requestId, digest };
-    try {
-      sessionStorage.setItem(pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
-    } catch { /* In-memory retries still work when browser storage is disabled. */ }
+    // In-memory retries still work when browser storage is disabled.
+    storeItem(sessionStorage, pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
     setChatError('');
     // Optimistic: the message leaves the composer at once and returns to it
     // only if the send fails.
     let delivered = false;
     setPendingText(text);
     setDraft('');
-    try {
+    return await attempt(async () => {
       // The desktop app may run the turn in the user's own Docker sandbox.
       const next = agentRuntime() === 'local' ? await sendLocalTurn(currentId, text, requestId) : await sendMessage(currentId, text, requestId);
       delivered = true;
@@ -2316,7 +2316,7 @@ export default function Workspace() {
         setDraft('');
       }
       void settleTurn(currentId, entryId, libraries[0]?.id, generation);
-    } catch (cause) {
+    }, async (cause) => {
       // These are refused before the turn is stored, so the outcome is known:
       // say why and let the user send again instead of asking to confirm.
       const refused = cause instanceof AuthError ? cause.body?.error?.id ?? '' : '';
@@ -2326,7 +2326,8 @@ export default function Workspace() {
         if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
         return;
       }
-      try {
+      // Whether the outcome was read back; when it cannot be, the request id is kept.
+      const settled = await attempt(async () => {
         // A CDN may time out a long turn (504) while the server finishes and
         // saves it; wait for the reply under this request id before giving up.
         const status = cause instanceof AuthError ? cause.status : 0;
@@ -2352,25 +2353,27 @@ export default function Workspace() {
             setDraft('');
           }
           void settleTurn(currentId, entryId, libraries[0]?.id, generation);
-          return;
+          return true;
         }
         if (!pending && cause instanceof AuthError) {
           // An error response (not a timeout) and nothing stored: the turn failed.
           clearPendingChat(identity, currentId, requestId);
           if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
           if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
-          return;
+          return true;
         }
-      } catch { /* Retain the request id when the outcome cannot be read back. */ }
+        return false;
+      }, () => false);
+      if (settled) return;
       if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
-    } finally {
+    }, async () => {
       sendingRef.current = false;
       if (generation === identityGeneration.current) {
         setChatSending(false);
         setPendingText('');
         if (!delivered && request === chatRequestRef.current) setDraft(text);
       }
-    }
+    });
   }
 
   // What the phone's notes-home composer sent: once its conversation is on screen, send it.
@@ -2429,7 +2432,7 @@ export default function Workspace() {
 
   async function addAnkiCard(): Promise<AnkiCard | null> {
     if (!ankiDeckId || !ankiSyncHealthy.current) return null;
-    try {
+    return await attempt(async () => {
       const generation = identityGeneration.current;
       await ankiWriteQueue.current;
       if (generation !== identityGeneration.current) return null;
@@ -2441,10 +2444,10 @@ export default function Workspace() {
       setAnkiCards(ankiCardsRef.current);
       setAnkiSchedules(current => ({ ...current, [card.id]: card }));
       return display;
-    } catch {
+    }, async () => {
       setError('新建闪卡失败，请稍后重试。');
       return null;
-    }
+    });
   }
 
   async function reviewAnki(id: string, rating: 1 | 2 | 3 | 4) {
@@ -2460,7 +2463,7 @@ export default function Workspace() {
     if (!pending) sessionStorage.setItem(key, JSON.stringify({
       requestId, rating, repsBefore: ankiSchedules[id]?.reps ?? 0,
     } satisfies PendingAnkiReview));
-    try {
+    return await attempt(async () => {
       await ankiWriteQueue.current;
       if (identity !== identityRef.current || !ankiSyncHealthy.current) throw new Error('review_unavailable');
       const resolved = ankiPendingIds.current.get(id) ?? id;
@@ -2472,10 +2475,10 @@ export default function Workspace() {
         setAnkiSchedules(current => ({ ...current, [id]: card }));
         setAnkiLastStudyAt(current => Math.max(current ?? 0, reviewedAt));
       }
-    } catch {
+    }, async () => {
       if (identity === identityRef.current) setError('复习结果未确认；请用相同评分重试，系统不会重复计入。');
       throw new Error('review_not_saved');
-    }
+    });
   }
 
   async function selectAnkiDeck(deck: RemoteAnkiDeck) {
@@ -2487,7 +2490,7 @@ export default function Workspace() {
     }
     const generation = identityGeneration.current;
     const request = ++ankiDeckRequest.current;
-    try {
+    return await attempt(async () => {
       await ankiWriteQueue.current;
       if (generation !== identityGeneration.current || request !== ankiDeckRequest.current) return;
       const cards = await listAnkiCards(deck.id);
@@ -2499,9 +2502,9 @@ export default function Workspace() {
       setAnkiLastStudyAt(lastStudyAt);
       pendingStudyDeckRef.current = deck.id;
       adoptAnkiCards(cards);
-    } catch {
+    }, async () => {
       if (generation === identityGeneration.current && request === ankiDeckRequest.current) setError('暂时无法打开这个牌组，请稍后重试。');
-    }
+    });
   }
 
   async function createAnkiDeck() {
@@ -2513,7 +2516,7 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     ankiDeckMutation.current = true;
     setAnkiDeckBusy(true);
-    try {
+    return await attempt(async () => {
       await ankiWriteQueue.current;
       if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
       const deck = await createDeck(trimmed);
@@ -2525,19 +2528,19 @@ export default function Workspace() {
       setAnkiLastStudyAt(null);
       pendingStudyDeckRef.current = null;
       adoptAnkiCards([]);
-    } catch {
+    }, async () => {
       if (generation === identityGeneration.current) {
         ankiSyncHealthy.current = false;
         setAnkiRemoteReady(false);
         setAnkiLoadFailed(true);
         setError('创建牌组的结果未确认，请重新连接后核对牌组列表，勿立即重复创建。');
       }
-    } finally {
+    }, async () => {
       if (generation === identityGeneration.current) {
         ankiDeckMutation.current = false;
         setAnkiDeckBusy(false);
       }
-    }
+    });
   }
 
   async function renameAnkiDeckAction(deck: RemoteAnkiDeck) {
@@ -2549,20 +2552,20 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     ankiDeckMutation.current = true;
     setAnkiDeckBusy(true);
-    try {
+    return await attempt(async () => {
       await ankiWriteQueue.current;
       if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
       const updated = await renameAnkiDeck(deck.id, trimmed);
       if (generation !== identityGeneration.current) return;
       setAnkiDecks(current => current.map(item => item.id === updated.id ? updated : item));
-    } catch {
+    }, async () => {
       if (generation === identityGeneration.current) setError('牌组改名结果未确认，请重新打开工作区核对。');
-    } finally {
+    }, async () => {
       if (generation === identityGeneration.current) {
         ankiDeckMutation.current = false;
         setAnkiDeckBusy(false);
       }
-    }
+    });
   }
 
   async function removeAnkiDeck(deck: RemoteAnkiDeck) {
@@ -2572,7 +2575,7 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     ankiDeckMutation.current = true;
     setAnkiDeckBusy(true);
-    try {
+    return await attempt(async () => {
       await ankiWriteQueue.current;
       if (generation !== identityGeneration.current || !ankiSyncHealthy.current) return;
       await deleteAnkiDeck(deck.id);
@@ -2584,19 +2587,19 @@ export default function Workspace() {
         setAnkiRemoteReady(false);
         await loadAnkiData(generation);
       }
-    } catch {
+    }, async () => {
       if (generation === identityGeneration.current) {
         ankiSyncHealthy.current = false;
         setAnkiRemoteReady(false);
         setAnkiLoadFailed(true);
         setError('删除牌组的结果未确认，请重新连接后核对牌组列表。');
       }
-    } finally {
+    }, async () => {
       if (generation === identityGeneration.current) {
         ankiDeckMutation.current = false;
         setAnkiDeckBusy(false);
       }
-    }
+    });
   }
 
   function openAnkiCard(id: string) {
@@ -2606,7 +2609,7 @@ export default function Workspace() {
 
   async function addSampleCards() {
     if (!ankiDeckId || !ankiSyncHealthy.current) return;
-    try {
+    return await attempt(async () => {
       const deckId = ankiDeckId;
       const generation = identityGeneration.current;
       await ankiWriteQueue.current;
@@ -2618,32 +2621,21 @@ export default function Workspace() {
       ankiCardsRef.current = [...ankiCardsRef.current, ...display];
       setAnkiCards(ankiCardsRef.current);
       setAnkiSchedules(current => ({ ...current, ...Object.fromEntries(cards.map(card => [card.id, card])) }));
-    } catch { setError('示例闪卡未全部保存，请重新打开牌组检查。'); }
+    }, async () => { setError('示例闪卡未全部保存，请重新打开牌组检查。'); });
   }
 
   async function exportAnki() {
-    try {
+    return await attempt(async () => {
       const blob = ankiRemoteReady && ankiDeckId ? await exportAnkiDeck(ankiDeckId) : new Blob([ankiCards.map(card => `${card.front}\t${card.back}\t${card.tags}`).join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url; link.download = 'tjuclaw-anki-deck.tsv'; link.click();
       URL.revokeObjectURL(url);
-    } catch { setError('导出闪卡失败，请稍后再试。'); }
+    }, async () => { setError('导出闪卡失败，请稍后再试。'); });
   }
 
   function exportLegacyAnkiBackup() {
-    try {
-      const raw = localStorage.getItem('tjuclaw.anki.cards.v1');
-      if (raw === null) return;
-      const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'tjuclaw-legacy-browser-cards.json';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setError('无法读取旧版浏览器卡片，请检查浏览器存储权限。');
-    }
+    if (!downloadLegacyAnkiBackup()) setError('无法读取旧版浏览器卡片，请检查浏览器存储权限。');
   }
 
   async function importAnki(file: File) {
@@ -2653,7 +2645,7 @@ export default function Workspace() {
       setError('导入文件过大，请使用小于 200 KB 的 TSV 文件。');
       throw new Error('anki_import_too_large');
     }
-    try {
+    return await attempt(async () => {
       const tsv = await file.text();
       if (!tsv.split(/\r?\n/).some(line => line.split('\t').length >= 2)) {
         setError('请选择包含正面和背面两列的 TSV 文件。');
@@ -2668,12 +2660,12 @@ export default function Workspace() {
       ankiDeckIdRef.current = imported.deck.id;
       setAnkiDeckId(imported.deck.id);
       adoptAnkiCards(imported.cards);
-    } catch (cause) {
+    }, async (cause) => {
       if (generation === identityGeneration.current && !(cause instanceof Error && cause.message.startsWith('anki_import_'))) {
         setError('导入闪卡失败，原有牌组未更改；请检查文件格式后重试。');
       }
       throw cause;
-    }
+    });
   }
 
   function logoutWorkspace() {
@@ -2718,7 +2710,8 @@ export default function Workspace() {
     const pane = open ? 'outline' : 'files';
     setNotesPane(pane);
     if (open) { setSidebarOpen(true); if (view !== 'notes' && view !== 'anki') switchView('notes'); }
-    try { localStorage.setItem(NOTES_PANE_KEY, pane); } catch { /* the choice lasts for this page */ }
+    // When storage is disabled the choice lasts for this page.
+    storeItem(localStorage, NOTES_PANE_KEY, pane);
   }
 
   // The outline keeps the section being read in sight as the page scrolls.

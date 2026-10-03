@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { describeSkillError, listSkills, setSkill, type Skill } from '../lib/skills';
+import { attempt } from '../lib/attempt';
 
 /**
  * Skill plugins in Settings: each is a reviewed set of instructions. The
@@ -18,10 +19,10 @@ export function SkillSettings() {
 
   async function toggle(skill: Skill) {
     setBusy(skill.id); setError('');
-    try {
+    return await attempt(async () => {
       await setSkill(skill.id, !skill.enabled);
       setSkills(current => current?.map(item => item.id === skill.id ? { ...item, enabled: !skill.enabled } : item) ?? null);
-    } catch (cause) { setError(describeSkillError(cause)); } finally { setBusy(''); }
+    }, async (cause) => { setError(describeSkillError(cause)); }, async () => { setBusy(''); });
   }
 
   return <>

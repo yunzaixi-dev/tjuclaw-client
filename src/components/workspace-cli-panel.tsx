@@ -9,6 +9,7 @@ import {
   type WorkspaceCliApproval, type WorkspaceCliAvailability, type WorkspaceCliConfig, type WorkspaceCliConnectorStatus,
 } from '../lib/workspace-cli';
 import { workspaceCapabilities, type WorkspaceCapability, type WorkspaceRegistration } from '../lib/workspace-connections';
+import { attempt } from '../lib/attempt';
 
 const capabilityLabels: Record<WorkspaceCapability, string> = {
   'pi.prompt': 'Pi 提示任务', 'claude.prompt': 'Claude 提示任务',
@@ -95,7 +96,7 @@ export function NativeWorkspaceCliPanel({
     setConnector(null);
     setApprovals(null);
     setAvailability(null);
-    try {
+    return await attempt(async () => {
       const found = await workspaceCliAvailability();
       if (!alive.current || request !== sequence.current.version) return;
       setAvailability(found);
@@ -108,14 +109,14 @@ export function NativeWorkspaceCliPanel({
         const status = await workspaceCliStatus();
         if (alive.current && request === sequence.current.version) updateConfig(status);
       }
-    } catch (failure) {
+    }, async (failure) => {
       if (alive.current && request === sequence.current.version) setError(nativeCliError(failure));
-    } finally {
+    }, async () => {
       if (alive.current && request === sequence.current.version) {
         locked.current = false;
         setPhase(null);
       }
-    }
+    });
   }, [updateConfig]);
 
   useEffect(() => {
@@ -151,15 +152,15 @@ export function NativeWorkspaceCliPanel({
       if (!active || !alive.current || locked.current || pollInFlight.current || document.visibilityState !== 'visible') return;
       const request = sequence.current.version;
       pollInFlight.current = true;
-      try {
+      return await attempt(async () => {
         const status = await workspaceCliConnectorStatus();
         if (active && alive.current && request === sequence.current.version) setConnector(status);
-      } catch {
+      }, async () => {
         if (active && alive.current && request === sequence.current.version) {
           setConnector(null);
           setError('未能读取本机连接器状态。请重新检查；页面不会因此自动启动或重启。');
         }
-      } finally { pollInFlight.current = false; }
+      }, async () => { pollInFlight.current = false; });
     };
     const timer = window.setInterval(() => void poll(), 3000);
     return () => { active = false; window.clearInterval(timer); };
@@ -172,19 +173,19 @@ export function NativeWorkspaceCliPanel({
     setPhase(key);
     setError('');
     setNotice('');
-    try {
+    return await attempt(async () => {
       const result = await task();
       if (!alive.current || request !== sequence.current.version) return;
       commit(result);
       setNotice(message);
-    } catch (failure) {
+    }, async (failure) => {
       if (alive.current && request === sequence.current.version) setError(nativeCliError(failure));
-    } finally {
+    }, async () => {
       if (alive.current && request === sequence.current.version) {
         locked.current = false;
         setPhase(null);
       }
-    }
+    });
   }
 
   const stopped = connector?.state === 'stopped' || connector?.state === 'failed';

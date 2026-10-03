@@ -3,6 +3,7 @@ import { version } from '../package.json';
 import { viewports, type Manifest, type Screen } from './audit-types';
 import { AuthAudit } from './audit-auth';
 import './styles.css';
+import { attempt } from './lib/attempt';
 
 function Description({ id }: { id: string }) {
   const [text, setText] = useState('正在读取逐图描述…');
@@ -61,7 +62,7 @@ export default function Audit() {
     const target = current.id;
     const targetViewport = viewport;
     setBusy(true); setNotice('');
-    try {
+    return await attempt(async () => {
       if (file.size > 20 * 1024 * 1024) throw new Error('PNG 最大 20 MB。');
       const bitmap = await createImageBitmap(file);
       const correct = bitmap.width === vp.width && bitmap.height === vp.height;
@@ -70,8 +71,7 @@ export default function Audit() {
       const response = await fetch(`/__audit/runtime/${target}/${targetViewport}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: file });
       if (!response.ok) throw new Error(await response.text());
       setNotice(`${target} · ${vp.label}截图已保存到本地。`); setRefresh(v => v + 1);
-    } catch (e) { setNotice(e instanceof Error ? e.message : '导入失败'); }
-    finally { setBusy(false); if (input.current) input.current.value = ''; }
+    }, async (e) => { setNotice(e instanceof Error ? e.message : '导入失败'); }, async () => { setBusy(false); if (input.current) input.current.value = ''; });
   }
   function picture(src: string, title: string) {
     return <button className="picture" onClick={() => setZoom({ src, title })} aria-label={`放大：${title}`}>

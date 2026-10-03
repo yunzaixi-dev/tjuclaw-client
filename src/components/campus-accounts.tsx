@@ -3,6 +3,7 @@ import { LockKeyhole, Trash2, UnlockKeyhole } from 'lucide-react';
 import type { CampusCredentials } from '../lib/campus-api';
 import { forgetCampusCredentials, hasCampusCredentials, storeCampusCredentials, unlockCampusCredentials } from '../lib/campus-vault';
 import { hasOfficeAccount, hasWpyAccount, publishCampusCredentials, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
+import { attempt } from '../lib/attempt';
 
 const empty: CampusCredentials = { wpyUsername: '', wpyPassword: '', officeUsername: '', officePassword: '' };
 
@@ -31,23 +32,21 @@ export function CampusAccounts({ identity }: { identity: string }) {
     event.preventDefault();
     setBusy(true); setMessage('');
     const credentials = { ...form, wpyUsername: form.wpyUsername.trim(), officeUsername: form.officeUsername.trim() };
-    try {
+    return await attempt(async () => {
       await storeCampusCredentials(identity, passphrase, credentials);
       setExists(true); setEditing(false); setPassphrase(''); setForm(empty);
       publishCampusCredentials(identity, credentials);
       setMessage('已加密保存在这台设备上。');
-    } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败。'); }
-    finally { setBusy(false); }
+    }, async (error) => { setMessage(error instanceof Error ? error.message : '保存失败。'); }, async () => { setBusy(false); });
   }
 
   async function unlock(event: FormEvent) {
     event.preventDefault();
     setBusy(true); setMessage('');
-    try {
+    return await attempt(async () => {
       publishCampusCredentials(identity, await unlockCampusCredentials(identity, passphrase));
       setPassphrase('');
-    } catch { setMessage('解锁失败：口令错误或本地数据已损坏。'); }
-    finally { setBusy(false); }
+    }, async () => { setMessage('解锁失败：口令错误或本地数据已损坏。'); }, async () => { setBusy(false); });
   }
 
   function edit() {

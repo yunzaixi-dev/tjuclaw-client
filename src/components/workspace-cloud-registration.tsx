@@ -5,6 +5,7 @@ import { listEntries, listLibraries } from '../lib/library';
 import { workspaceConnectionError } from '../lib/workspace-connections';
 import type { SystemWorkspace } from '../lib/workspace-connections';
 import { cloudAgentOptions, ownedCloudLibraries, workspaceRegistrationOptions, type CloudWorkspaceInput } from '../lib/workspace-cloud-registration';
+import { attempt } from '../lib/attempt';
 
 type LibraryOption = { id: string; name: string };
 type AgentOption = { id: string; title: string };
@@ -58,7 +59,7 @@ export function CloudWorkspaceRegistration({
     setLibraries([]);
     setLibraryState('loading');
     setLibraryError('');
-    try {
+    return await attempt(async () => {
       const options = await workspaceRegistrationOptions(controller.signal);
       if (controller.signal.aborted || !active.current) return;
       const enabled = options.cloud_registration_supported === true;
@@ -69,13 +70,13 @@ export function CloudWorkspaceRegistration({
       // Undefined/subscribed roles are not ownership. Discard all other fields.
       setLibraries(ownedCloudLibraries(rows));
       setLibraryState('ready');
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted || !active.current) return;
       onAuthFailure(error);
       setSupported(value => value === true);
       setLibraryState('error');
       setLibraryError(workspaceConnectionError(error));
-    }
+    });
   }, [clearSelection, onAuthFailure]);
 
   useEffect(() => {
@@ -121,18 +122,18 @@ export function CloudWorkspaceRegistration({
     const controller = new AbortController();
     agentController.current = controller;
     setAgentState('loading');
-    try {
+    return await attempt(async () => {
       const rows = await listEntries(id, controller.signal);
       if (controller.signal.aborted || !active.current || selectedLibrary.current !== id) return;
       // Discard the other entry fields received from the existing listing API.
       setAgents(cloudAgentOptions(rows, id));
       setAgentState('ready');
-    } catch (error) {
+    }, async (error) => {
       if (controller.signal.aborted || !active.current || selectedLibrary.current !== id) return;
       onAuthFailure(error);
       setAgentError(workspaceConnectionError(error));
       setAgentState('error');
-    }
+    });
   }
 
   async function register(event: FormEvent<HTMLFormElement>) {
@@ -142,7 +143,7 @@ export function CloudWorkspaceRegistration({
       || !libraries.some(library => library.id === libraryId) || !agents.some(agent => agent.id === agentId) || !name.trim()) return;
     const request = Symbol();
     submitting.current = request;
-    try {
+    return await attempt(async () => {
       const completed = await onRegister({ name, agent_entry_id: agentId, capabilities: allowPi ? ['pi.prompt'] : [] });
       if (completed && active.current && submitting.current === request) {
         onRegistered(completed);
@@ -150,7 +151,7 @@ export function CloudWorkspaceRegistration({
         setAgentId('');
         setAllowPi(false);
       }
-    } finally { if (submitting.current === request) submitting.current = null; }
+    }, undefined, async () => { if (submitting.current === request) submitting.current = null; });
   }
 
   if (supported !== true) return <div className="connections-cloud-availability">

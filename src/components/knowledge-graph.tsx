@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Network, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { getEntry, type Entry } from '../lib/library';
+import { attempt } from '../lib/attempt';
 
 export function KnowledgeGraph({ open, onOpenChange, entries, onOpenNote }: {
   open: boolean;
@@ -19,7 +20,7 @@ export function KnowledgeGraph({ open, onOpenChange, entries, onOpenNote }: {
     if (!open || notes.length === 0) return;
     const controller = new AbortController();
     void (async () => {
-      try {
+      return await attempt(async () => {
         const loaded: Entry[] = [];
         for (let index = 0; index < notes.length; index += 6) {
           const batch = await Promise.all(notes.slice(index, index + 6).map(note => getEntry(note.id, controller.signal)));
@@ -27,9 +28,9 @@ export function KnowledgeGraph({ open, onOpenChange, entries, onOpenNote }: {
           loaded.push(...batch);
         }
         if (!controller.signal.aborted) setSnapshot({ key: requestKey, notes: loaded, error: false });
-      } catch {
+      }, async () => {
         if (!controller.signal.aborted) setSnapshot({ key: requestKey, notes: [], error: true });
-      }
+      });
     })();
     return () => controller.abort();
   }, [open, notes, requestKey]);

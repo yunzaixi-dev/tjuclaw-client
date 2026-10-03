@@ -4,6 +4,12 @@ import type { Update } from '@tauri-apps/plugin-updater';
 import { Download, X } from 'lucide-react';
 import { summaryFromNotes } from '../lib/release-notes';
 import './update-notice.css';
+import { attempt } from '../lib/attempt';
+
+// Native plugins load on first use. Outside the component: the React
+// compiler cannot compile a dynamic import.
+const loadUpdater = () => import('@tauri-apps/plugin-updater');
+const loadProcess = () => import('@tauri-apps/plugin-process');
 
 const DISMISS_KEY = 'tjuclaw.update-dismissed';
 const FIRST_CHECK_DELAY_MS = 5_000;
@@ -41,15 +47,15 @@ export function UpdateNotice() {
     const run = async () => {
       if (busy.current) return;
       asked = Date.now();
-      try {
-        const { check } = await import('@tauri-apps/plugin-updater');
+      return await attempt(async () => {
+        const { check } = await loadUpdater();
         const update = await check();
         if (cancelled || !update || busy.current) return;
         if (dismissedVersion() === update.version) return;
         setPhase({ kind: 'available', update });
-      } catch {
+      }, async () => {
         // 移动端未注册更新插件、离线或清单不可用时静默跳过，下次定时再查。
-      }
+      });
     };
 
     const first = window.setTimeout(run, FIRST_CHECK_DELAY_MS);
@@ -75,7 +81,7 @@ export function UpdateNotice() {
     let received = 0;
     let total: number | null = null;
     setPhase({ kind: 'downloading', update, received, total });
-    try {
+    return await attempt(async () => {
       await update.downloadAndInstall(event => {
         if (event.event === 'Started') {
           total = event.data.contentLength ?? null;
@@ -87,12 +93,12 @@ export function UpdateNotice() {
         }
         setPhase({ kind: 'downloading', update, received, total });
       });
-      const { relaunch } = await import('@tauri-apps/plugin-process');
+      const { relaunch } = await loadProcess();
       await relaunch();
-    } catch {
+    }, async () => {
       busy.current = false;
       setPhase({ kind: 'failed', update });
-    }
+    });
   };
 
   const dismiss = () => {

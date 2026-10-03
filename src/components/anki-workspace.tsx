@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { ArrowLeft, BarChart3, BookOpen, Check, Download, FileUp, SquareStack, MoreHorizontal, Pencil, Play, Plus, Search, Settings2, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import './anki-workspace.css';
+import { attempt } from '../lib/attempt';
 
 export type AnkiCard = { id: string; front: string; back: string; tags: string };
 export type AnkiSchedule = { due: string; interval: number; ease: number; reps: number; lapses: number };
@@ -48,6 +49,17 @@ function downloadText(filename: string, content: string, type = 'text/plain;char
   URL.revokeObjectURL(url);
 }
 
+/** This device's study state for the identity, or a fresh one. */
+function readLocalState(identity: string): AnkiLocalState {
+  try {
+    const raw = localStorage.getItem(`tjuclaw.anki.state.v2.${identity}`);
+    const parsed = raw ? JSON.parse(raw) as AnkiLocalState : null;
+    return parsed?.metas && typeof parsed.deckName === 'string' ? parsed : { deckName: '默认牌组', metas: {} };
+  } catch {
+    return { deckName: '默认牌组', metas: {} };
+  }
+}
+
 export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]; identity: string; deckName?: string; schedules?: Record<string, AnkiSchedule>; lastStudyAt?: number | null; onCreateCard?: () => Promise<AnkiCard | null>; onReviewCard?: (id: string, rating: 1 | 2 | 3 | 4) => Promise<void>; onImportFile?: (file: File) => Promise<void>; onCardsChange: (cards: AnkiCard[]) => void; onExport: () => void; onAddSampleCards?: () => Promise<void>; openCardId?: string | null; onOpenCardHandled?: () => void }>(function AnkiWorkspace({ cards, identity, deckName, schedules, lastStudyAt, onCreateCard, onReviewCard, onImportFile, onCardsChange, onExport, onAddSampleCards, openCardId, onOpenCardHandled }, ref) {
   const [mode, setMode] = useState<AnkiMode>('overview');
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -57,15 +69,7 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
   const [now, setNow] = useState(() => Date.now());
   const [reviewing, setReviewing] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [localState, setLocalState] = useState<AnkiLocalState>(() => {
-    try {
-      const raw = localStorage.getItem(`tjuclaw.anki.state.v2.${identity}`);
-      const parsed = raw ? JSON.parse(raw) as AnkiLocalState : null;
-      return parsed?.metas && typeof parsed.deckName === 'string' ? parsed : { deckName: '默认牌组', metas: {} };
-    } catch {
-      return { deckName: '默认牌组', metas: {} };
-    }
-  });
+  const [localState, setLocalState] = useState<AnkiLocalState>(() => readLocalState(identity));
   const importRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -116,44 +120,19 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
 
   // Space or Enter reveals the answer; 1–4 rate it, as in Anki.
   const answerRef = useRef<(rating: 'again' | 'hard' | 'good' | 'easy') => void>(() => undefined);
-  useEffect(() => { answerRef.current = rating => void answerCard(rating); });
-  useEffect(() => {
-    if (mode !== 'study') return;
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return;
-      if ((event.key === ' ' || event.key === 'Enter') && !showAnswer) { event.preventDefault(); setShowAnswer(true); return; }
-      const rating = ({ 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' } as const)[event.key as '1' | '2' | '3' | '4'];
-      if (rating && showAnswer) { event.preventDefault(); answerRef.current(rating); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [mode, showAnswer]);
-
-  useImperativeHandle(ref, () => ({
-    startStudy: beginStudy,
-    openCard: id => {
-      setSelectedCardId(id);
-      setMode('add');
-    },
-  }), [beginStudy]);
-
   async function answerCard(rating: 'again' | 'hard' | 'good' | 'easy') {
     if (!activeStudy || reviewing) return;
     if (onReviewCard) {
       setReviewing(true);
-      try {
+      // The workspace reports an API error; the card stays visible for a retry.
+      await attempt(async () => {
         await onReviewCard(activeStudy.card.id, ({ again: 1, hard: 2, good: 3, easy: 4 } as const)[rating]);
         setNow(Date.now());
         const nextDue = cardsWithMeta.find(item => item.card.id !== activeStudy.card.id && item.meta.due <= Date.now());
         if (nextDue) setActiveStudyId(nextDue.card.id);
         else { setActiveStudyId(null); setMode('overview'); }
         setShowAnswer(false);
-      } catch {
-        // The workspace reports the API error; keep the card visible for retry.
-      } finally {
-        setReviewing(false);
-      }
+      }, () => undefined, () => setReviewing(false));
       return;
     }
     const previous = activeStudy.meta;
@@ -190,6 +169,29 @@ export const AnkiWorkspace = forwardRef<AnkiWorkspaceHandle, { cards: AnkiCard[]
       setMode('overview');
     }
   }
+
+  useEffect(() => { answerRef.current = rating => void answerCard(rating); });
+  useEffect(() => {
+    if (mode !== 'study') return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      if ((event.key === ' ' || event.key === 'Enter') && !showAnswer) { event.preventDefault(); setShowAnswer(true); return; }
+      const rating = ({ 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' } as const)[event.key as '1' | '2' | '3' | '4'];
+      if (rating && showAnswer) { event.preventDefault(); answerRef.current(rating); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, showAnswer]);
+
+  useImperativeHandle(ref, () => ({
+    startStudy: beginStudy,
+    openCard: id => {
+      setSelectedCardId(id);
+      setMode('add');
+    },
+  }), [beginStudy]);
+
 
   async function addCard() {
     const card = onCreateCard ? await onCreateCard() : { id: crypto.randomUUID(), front: '', back: '', tags: '' };
