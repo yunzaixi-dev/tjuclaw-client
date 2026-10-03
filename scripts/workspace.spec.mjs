@@ -2274,7 +2274,7 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
   await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 350 } });
   await expect(sidebar).toHaveAttribute('inert', '');
   await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
-  await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
+  await expect(page.locator('.mobile-sidebar-backdrop')).toBeHidden();
   // Home has the composer at its foot; a note or session does not.
   await expect(page.getByRole('form', { name: '问 TJUClaw' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
@@ -2317,6 +2317,38 @@ test('plugins live in Settings and open the real built-in features', async ({ pa
   await expect(activity.getByRole('button', { name: '记忆闪卡' })).toHaveAttribute('aria-current', 'page');
 });
 
+test('the phone drawer follows a swipe: closed from the drawer, opened from the edge, and a short swipe springs back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  const app = page.locator('.obsidian-app');
+  const sidebar = page.locator('.obsidian-sidebar');
+  // Touch pointers as a finger produces them; the drawer listens on the app.
+  const swipe = (selector, from, to, steps = 8) => page.evaluate(({ selector, from, to, steps }) => {
+    const target = document.querySelector(selector);
+    const fire = (type, x) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: 420 }));
+    fire('pointerdown', from);
+    for (let step = 1; step <= steps; step++) fire('pointermove', from + (to - from) * step / steps);
+    fire('pointerup', to);
+  }, { selector, from, to, steps });
+
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await expect(app).not.toHaveClass(/sidebar-collapsed/);
+  await expect.poll(() => sidebar.evaluate(element => Math.round(element.getBoundingClientRect().left))).toBe(0);
+  // A short swipe is not enough: the drawer settles back open.
+  await swipe('.obsidian-sidebar .notion-apps', 200, 160);
+  await expect(app).not.toHaveClass(/sidebar-collapsed/);
+  expect(await sidebar.evaluate(element => element.style.transform)).toBe('');
+  // A long one closes it.
+  await swipe('.obsidian-sidebar .notion-apps', 300, 60);
+  await expect(app).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator('.mobile-sidebar-backdrop')).toBeHidden();
+  // From the screen's left edge, a swipe right opens it again.
+  await swipe('.mobile-drawer-edge', 4, 260);
+  await expect(app).not.toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator('.mobile-sidebar-backdrop')).toBeVisible();
+});
+
 test('reduced motion keeps the mobile drawer operable without a transition', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2326,7 +2358,7 @@ test('reduced motion keeps the mobile drawer operable without a transition', asy
   await expect(page.locator('.obsidian-sidebar')).toBeInViewport();
   await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 350 } });
   await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
-  await expect(page.locator('.mobile-sidebar-backdrop')).toHaveCount(0);
+  await expect(page.locator('.mobile-sidebar-backdrop')).toBeHidden();
 });
 
 test('desktop workspace expands the document when the file pane closes', async ({ page }) => {
@@ -2765,6 +2797,17 @@ test('phones replace the tab strip with the page title and a tab sheet', async (
     await sheet.getByRole('button', { name: '关闭标签页列表' }).tap();
     await expect(sheet).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    // Pulled down by its grip, the sheet follows the finger and slides away.
+    await title.tap();
+    await expect(sheet).toBeVisible();
+    await page.evaluate(() => {
+      const grip = document.querySelector('.mobile-tab-sheet-grip');
+      const fire = (type, y) => grip.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 9, pointerType: 'touch', isPrimary: true, clientX: 195, clientY: y }));
+      fire('pointerdown', 500);
+      for (let step = 1; step <= 10; step++) fire('pointermove', 500 + step * 30);
+      fire('pointerup', 800);
+    });
+    await expect(sheet).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -3100,7 +3143,7 @@ test('graph links notes by wikilink title and opens its node', async ({ page }) 
   await mockWorkspace(page, state);
   await page.goto('/workspace');
   await page.getByRole('button', { name: '知识图谱' }).click();
-  await expect(page.getByRole('dialog').getByText('2 篇笔记 · 1 条双向链接')).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('2 篇笔记 · 1 条链接')).toBeVisible();
   await expect(page.locator('.graph-edge')).toHaveCount(1);
   await page.getByRole('button', { name: '打开笔记 Second note' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -3121,10 +3164,10 @@ test('graph reports detail read failures and retries without showing a false emp
   await page.goto('/workspace');
   await page.getByRole('button', { name: '知识图谱' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('暂时无法读取笔记链接');
-  await expect(page.getByRole('dialog').getByText('0 条双向链接')).toHaveCount(0);
+  await expect(page.getByRole('dialog').getByText(/0 条链接/)).toHaveCount(0);
   unavailable = false;
   await page.getByRole('button', { name: '重试加载' }).click();
-  await expect(page.getByRole('dialog').getByText('2 篇笔记 · 1 条双向链接')).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('2 篇笔记 · 1 条链接')).toBeVisible();
   await expect(page.locator('.graph-edge')).toHaveCount(1);
 });
 
@@ -3138,6 +3181,8 @@ test('mobile settings and graph stay inside the viewport', async ({ page }) => {
   await page.screenshot({ path: 'test-results/workspace/settings-mobile.png' });
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
   await page.getByRole('button', { name: '关闭设置' }).click();
+  // Opening Settings closed the drawer behind it.
+  await page.getByRole('button', { name: '打开侧栏' }).click();
   await page.getByRole('button', { name: '知识图谱' }).click();
   await expect(page.getByRole('dialog').getByRole('heading', { name: '知识图谱' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -4267,9 +4312,11 @@ test('the conversation background is still by default, and the Game of Life is a
   await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: '外观', exact: true }).click();
-  const choice = dialog.getByRole('group', { name: '会话背景动画' });
-  await expect(choice.getByRole('button', { name: '关闭' })).toHaveAttribute('aria-pressed', 'true');
-  await choice.getByRole('button', { name: '开启' }).click();
+  // An on/off setting is a switch.
+  const toggle = dialog.getByRole('switch', { name: '会话背景动画' });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Escape');
   await expect(page.locator('canvas.life-background')).toHaveCount(1);
   // The choice is remembered.
@@ -4598,4 +4645,69 @@ test('adds, checks, pauses and removes MCP servers without showing their keys', 
   await settings.getByRole('button', { name: '移除「DeepWiki」' }).click();
   await expect(settings.getByRole('button', { name: '移除「DeepWiki」' })).toHaveCount(0);
   await expect(settings.getByRole('article', { name: 'DeepWiki' }).getByRole('button', { name: '添加' })).toBeVisible();
+});
+
+test('the graph zooms with the wheel and buttons, fits the window and finds a note', async ({ page }) => {
+  const state = defaultState();
+  const second = { ...noteA, id: '33333333333333333333333333333333', title: 'Second note', body: 'Backlink' };
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body: '[[Second note]]' } : entry).concat(second);
+  state.entryById[noteA.id] = { ...noteA, body: '[[Second note]]' };
+  state.entryById[second.id] = second;
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '知识图谱' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('2 篇笔记 · 1 条链接')).toBeVisible();
+  const zoom = dialog.locator('.graph-zoom');
+  const percent = async () => Number((await zoom.textContent()).replace('%', ''));
+  const fitted = await percent();
+  await dialog.getByRole('button', { name: '放大' }).click();
+  expect(await percent()).toBeGreaterThan(fitted);
+  await dialog.getByRole('button', { name: '缩小' }).click();
+  await dialog.getByRole('button', { name: '缩小' }).click();
+  expect(await percent()).toBeLessThan(fitted);
+  // The wheel zooms around the pointer.
+  const stage = dialog.locator('.graph-stage');
+  const box = await stage.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const before = await percent();
+  await page.mouse.wheel(0, -400);
+  await expect.poll(percent).toBeGreaterThan(before);
+  // Dragging the background pans: the layer's transform moves.
+  const layer = dialog.locator('.graph-canvas > g');
+  const moved = await layer.getAttribute('transform');
+  await page.mouse.move(box.x + 40, box.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 140, box.y + 90, { steps: 5 });
+  await page.mouse.up();
+  expect(await layer.getAttribute('transform')).not.toBe(moved);
+  await dialog.getByRole('button', { name: '适应窗口' }).click();
+  expect(await percent()).toBe(fitted);
+  // Searching lights the note and its neighbour and dims nothing else here.
+  await dialog.getByRole('searchbox', { name: '在图谱中查找笔记' }).fill('Second');
+  await expect(dialog.locator('.graph-node.is-focus')).toHaveAttribute('aria-label', '打开笔记 Second note');
+  await dialog.getByRole('searchbox', { name: '在图谱中查找笔记' }).fill('不存在');
+  await expect(dialog.getByText('无匹配')).toBeVisible();
+});
+
+test('on a phone, Settings lists its sections and drills into one with a way back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '打开侧栏' }).click();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const nav = page.getByRole('navigation', { name: '设置分类' });
+  await expect(nav).toBeVisible();
+  // Opening does not raise the keyboard by focusing the search field.
+  await expect(dialog.getByRole('searchbox', { name: '搜索设置' })).not.toBeFocused();
+  await nav.getByRole('button', { name: '外观' }).click();
+  await expect(nav).toBeHidden();
+  await expect(dialog.getByRole('heading', { name: '外观' })).toBeVisible();
+  await expect(dialog.getByRole('switch', { name: '会话背景动画' })).toBeVisible();
+  await dialog.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(nav).toBeVisible();
+  await nav.getByRole('button', { name: '账户' }).click();
+  await expect(dialog.getByRole('heading', { name: '账户' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });

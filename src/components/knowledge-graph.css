@@ -1,0 +1,204 @@
+/* Knowledge graph: a large, quiet canvas. Notes are dots sized by how
+   connected they are; the focused note and its neighbours stay lit while
+   the rest step back. Controls float over the canvas. */
+
+.knowledge-graph-dialog.ui-dialog-content {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 48px));
+  height: min(760px, calc(100dvh - 48px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.graph-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 12px 14px 12px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.graph-heading { display: grid; flex: 1 1 auto; min-width: 0; gap: 2px; }
+.graph-heading .ui-dialog-title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.graph-heading .ui-dialog-description { margin: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.graph-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: min(260px, 38vw);
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  transition: box-shadow 160ms ease;
+}
+.graph-search:focus-within { box-shadow: 0 0 0 2px var(--ring); }
+.graph-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+}
+.graph-search input::placeholder { color: var(--muted-foreground); }
+.graph-search-miss { flex: none; font-size: 11px; }
+
+.graph-close {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.graph-close:hover { background: var(--muted); color: var(--foreground); }
+
+.graph-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--background);
+  background-image: radial-gradient(circle, color-mix(in oklch, var(--foreground) 14%, transparent) 1px, transparent 1.3px);
+  background-size: 22px 22px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.graph-stage:active { cursor: grabbing; }
+.graph-canvas { display: block; width: 100%; height: 100%; overflow: visible; }
+
+.graph-edge {
+  stroke: var(--muted-foreground);
+  stroke-opacity: .32;
+  stroke-width: calc(1.1px / var(--graph-scale, 1));
+  transition: stroke-opacity 160ms ease, stroke 160ms ease;
+}
+.graph-canvas.has-focus .graph-edge { stroke-opacity: .08; }
+.graph-canvas.has-focus .graph-edge.is-lit { stroke: var(--primary); stroke-opacity: .85; stroke-width: calc(1.6px / var(--graph-scale, 1)); }
+
+.graph-node { cursor: pointer; outline: none; transition: opacity 160ms ease; }
+.graph-hit { fill: transparent; }
+.graph-dot {
+  fill: var(--primary);
+  stroke: var(--background);
+  stroke-width: calc(2px / var(--graph-scale, 1));
+  transition: r 160ms ease, fill 160ms ease;
+}
+.graph-node.is-orphan .graph-dot { fill: color-mix(in oklch, var(--muted-foreground) 70%, var(--background)); }
+.graph-node.is-dim { opacity: .18; }
+.graph-node.is-focus .graph-dot,
+.graph-node:focus-visible .graph-dot { stroke: var(--ring); stroke-width: calc(3px / var(--graph-scale, 1)); }
+
+.graph-node text {
+  fill: var(--foreground);
+  font-size: calc(11px / var(--graph-scale, 1));
+  font-weight: 500;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--background);
+  stroke-width: calc(3.5px / var(--graph-scale, 1));
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+/* Zoomed out, only well-connected notes and the focus keep their names. */
+.graph-canvas.is-far .graph-node:not(.is-major):not(.is-focus) text { opacity: 0; }
+
+.graph-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  box-shadow: 0 8px 24px oklch(0% 0 0 / .08), 0 1px 2px oklch(0% 0 0 / .06);
+  cursor: default;
+}
+.graph-controls button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.graph-controls button:hover { background: var(--muted); }
+.graph-zoom { min-width: 44px; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
+.graph-controls-rule { width: 1px; height: 18px; margin: 0 3px; background: var(--border); }
+
+.graph-hint {
+  position: absolute;
+  left: 18px;
+  bottom: 22px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.graph-empty {
+  display: grid;
+  flex: 1 1 auto;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.graph-empty p { margin: 4px 0 0; color: var(--foreground); font-size: 15px; font-weight: 600; }
+.graph-empty span { max-width: 340px; font-size: 13px; line-height: 1.6; }
+.graph-empty button {
+  margin-top: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.knowledge-graph-dialog button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .knowledge-graph-dialog.ui-dialog-content {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    transform: none;
+  }
+  .graph-header { gap: 8px; padding: max(10px, env(safe-area-inset-top)) 8px 10px 16px; }
+  .graph-search { width: 42vw; }
+  .graph-controls { right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .graph-controls button { width: 40px; height: 40px; }
+  .graph-hint { left: 16px; right: 200px; bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-edge, .graph-node, .graph-dot { transition: none; }
+}

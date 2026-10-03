@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { Blocks, BookOpen, Bot, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Plug, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
+import { Blocks, BookOpen, Bot, ChevronLeft, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Plug, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { CampusAccounts } from './campus-accounts';
@@ -64,6 +64,11 @@ function SettingRow({ title, description, children }: { title: string; descripti
   return <div className="settings-entry"><div className="settings-entry-copy"><strong>{title}</strong>{description ? <span>{description}</span> : null}</div><div className="settings-entry-action">{children}</div></div>;
 }
 
+/** An on/off setting: a switch, not two buttons. */
+function SettingSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className="settings-switch" onClick={() => onChange(!checked)}><span aria-hidden="true" /></button>;
+}
+
 function SettingChoices<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string; Icon?: typeof Monitor }[]; onChange: (value: T) => void }) {
   return <div className="settings-segments" role="group" aria-label={label}>{options.map(({ value: option, label: name, Icon }) => <button key={option} type="button" aria-pressed={value === option} onClick={() => onChange(option)}>{Icon ? <Icon size={15} /> : null}{name}</button>)}</div>;
 }
@@ -110,6 +115,9 @@ export function WorkspaceSettings({
   const matches = sections.filter(item => `${item.label} ${item.keywords}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const active = search && !matches.some(item => item.id === section) ? matches[0]?.id ?? section : section;
   const heading = sections.find(item => item.id === active)?.label ?? '设置';
+  // On a phone, Settings opened in general starts at the list of sections and
+  // drills into one; opened for a particular section, it goes straight there.
+  const [listing, setListing] = useState(() => window.matchMedia('(max-width: 720px)').matches && section === 'appearance');
 
   useEffect(() => {
     if (!open || (active !== 'account' && active !== 'model')) return;
@@ -183,25 +191,28 @@ export function WorkspaceSettings({
     }
     onOpenChange(nextOpen);
   }}>
-    <DialogContent className="workspace-settings">
-      <div className="settings-shell">
+    <DialogContent className="workspace-settings" onOpenAutoFocus={event => {
+      // On a phone, focusing the search field would raise the keyboard over the list.
+      if (window.matchMedia('(max-width: 720px)').matches) { event.preventDefault(); (event.currentTarget as HTMLElement | null)?.focus(); }
+    }}>
+      <div className={`settings-shell${listing ? ' is-listing' : ''}`}>
         <aside className="settings-navigation">
-          <div className="settings-navigation-title"><Settings2 size={17} /><span>设置</span></div>
+          <div className="settings-navigation-title"><Settings2 size={17} /><span>设置</span>{listing ? <DialogClose asChild><button className="settings-list-close" type="button" aria-label="关闭设置"><X size={18} /></button></DialogClose> : null}</div>
           <label className="settings-search"><Search size={16} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索设置…" aria-label="搜索设置" /></label>
           <nav className="settings-sections" aria-label="设置分类">
-            {matches.length ? matches.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={active === id ? 'is-active' : ''} aria-current={active === id ? 'page' : undefined} onClick={() => { onSectionChange(id); setSearch(''); }}><Icon size={17} /><span>{label}</span></button>) : <span className="settings-empty-search">没有匹配的设置</span>}
+            {matches.length ? matches.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={active === id ? 'is-active' : ''} aria-current={active === id ? 'page' : undefined} onClick={() => { onSectionChange(id); setSearch(''); setListing(false); }}><Icon size={17} /><span>{label}</span></button>) : <span className="settings-empty-search">没有匹配的设置</span>}
           </nav>
           <span className="settings-navigation-foot">{libraryName}</span>
         </aside>
         <div className="settings-content">
-          <header className="settings-content-header"><div><DialogTitle>{heading}</DialogTitle><DialogDescription>{descriptions[active]}</DialogDescription></div><DialogClose asChild><button className="settings-close" type="button" aria-label="关闭设置"><X size={18} /></button></DialogClose></header>
+          <header className="settings-content-header"><button type="button" className="settings-back" onClick={() => setListing(true)}><ChevronLeft size={18} aria-hidden="true" />设置</button><div><DialogTitle>{heading}</DialogTitle><DialogDescription>{descriptions[active]}</DialogDescription></div><DialogClose asChild><button className="settings-close" type="button" aria-label="关闭设置"><X size={18} /></button></DialogClose></header>
           <div className="settings-content-body">
             {active === 'appearance' ? <>
               <h3>界面</h3>
               <SettingRow title="配色模式" description="跟随系统，或固定为浅色、深色。"><SettingChoices<Mode> label="配色模式" value={appearance.mode} onChange={mode => setAppearance({ mode })} options={[{ value: 'system', label: '系统', Icon: Monitor }, { value: 'light', label: '浅色', Icon: Sun }, { value: 'dark', label: '深色', Icon: Moon }]} /></SettingRow>
               <SettingRow title="强调色" description="仅用于当前选中项和操作焦点。"><SettingChoices<Accent> label="强调色" value={appearance.accent} onChange={accent => setAppearance({ accent })} options={[{ value: 'mono', label: '单色' }, { value: 'blue', label: '蓝色' }]} /></SettingRow>
               <SettingRow title="页面字体" description="笔记正文与标题使用的字体。"><SettingChoices<PageFont> label="页面字体" value={appearance.font} onChange={font => setAppearance({ font })} options={[{ value: 'sans', label: '默认' }, { value: 'serif', label: '文楷' }, { value: 'mono', label: '等宽' }]} /></SettingRow>
-              <SettingRow title="会话背景动画" description="在会话页的背景上播放康威生命游戏。默认关闭。"><SettingChoices<'off' | 'on'> label="会话背景动画" value={appearance.life ? 'on' : 'off'} onChange={value => setAppearance({ life: value === 'on' })} options={[{ value: 'off', label: '关闭' }, { value: 'on', label: '开启' }]} /></SettingRow>
+              <SettingRow title="会话背景动画" description="在会话页的背景上播放康威生命游戏。默认关闭。"><SettingSwitch label="会话背景动画" checked={appearance.life} onChange={life => setAppearance({ life })} /></SettingRow>
               {!appearance.canPersist ? <p className="settings-notice" role="status">浏览器阻止保存外观偏好，本次会话内仍可调整。</p> : null}
             </> : null}
             {active === 'editor' ? <>

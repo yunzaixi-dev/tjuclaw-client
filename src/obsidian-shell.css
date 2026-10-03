@@ -1437,8 +1437,7 @@
 }
 .settings-content-header .ui-dialog-title { margin: 0 0 7px; font-size: 20px; font-weight: 650; }
 .settings-content-header .ui-dialog-description { margin: 0; line-height: 1.5; }
-.settings-content-header .settings-close,
-.graph-header button {
+.settings-content-header .settings-close {
   position: static;
   display: grid;
   width: 30px;
@@ -1451,8 +1450,7 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.settings-content-header .settings-close:hover,
-.graph-header button:hover { background: var(--selected); color: var(--foreground); }
+.settings-content-header .settings-close:hover { background: var(--selected); color: var(--foreground); }
 .settings-content-body { min-height: 0; padding: 24px 30px 40px; overflow-y: auto; overscroll-behavior: contain; }
 .settings-content-body h3 { margin: 0 0 8px; color: var(--muted-foreground); font-size: 11px; font-weight: 650; }
 .settings-entry {
@@ -1560,43 +1558,13 @@
 .settings-notice,
 .settings-about-note { max-width: 520px; margin: 20px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
 .workspace-settings button:focus-visible,
-.workspace-settings input:focus-visible,
-.knowledge-graph-dialog button:focus-visible,
-.knowledge-graph-dialog .graph-node:focus-visible {
+.workspace-settings input:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 .workspace-settings .settings-search input:focus-visible { outline: 0; }
 
-.knowledge-graph-dialog.ui-dialog-content {
-  --line: var(--border);
-  width: min(760px, calc(100vw - 48px));
-  max-height: calc(100dvh - 48px);
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-}
-.graph-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--line); }
-.graph-header .ui-dialog-title { margin: 0 0 5px; font-size: 16px; }
-.graph-header .ui-dialog-description { margin: 0; color: var(--muted-foreground); font-size: 12px; }
-.graph-stage {
-  margin: 15px;
-  overflow: auto;
-  background: radial-gradient(circle, var(--line) 1px, transparent 1.5px) 0 0 / 22px 22px, var(--background);
-}
-.graph-stage svg { display: block; width: 100%; min-width: 420px; max-height: min(55dvh, 470px); }
-.graph-edge { stroke: var(--muted-foreground); stroke-opacity: .42; stroke-width: 1; }
-.graph-node { cursor: pointer; }
-.graph-node circle { fill: var(--primary); stroke: var(--surface); stroke-width: 2; }
-.graph-node text { fill: var(--foreground); font-size: 10px; paint-order: stroke; stroke: var(--background); stroke-width: 3px; }
-.graph-node:hover circle,
-.graph-node:focus-visible circle { stroke: var(--ring); stroke-width: 4; }
-.graph-empty { display: grid; place-items: center; gap: 8px; min-height: 250px; color: var(--muted-foreground); }
-.graph-empty p { margin: 0; color: var(--foreground); }
-.graph-empty span { font-size: 12px; }
-.graph-hint { margin: 0; padding: 0 22px 18px; color: var(--muted-foreground); font-size: 11px; }
+/* The knowledge graph's styles live in components/knowledge-graph.css. */
 
 @media (max-width: 720px) {
   .sidebar-bottom { height: 72px; padding: 6px 12px 6px 16px; border-top: 1px solid var(--line); }
@@ -1628,9 +1596,6 @@
   .settings-segments { max-width: 100%; flex-wrap: wrap; }
   .settings-segments button,
   .settings-action-button { min-height: 40px; }
-  .knowledge-graph-dialog.ui-dialog-content { inset: auto 8px max(8px, env(safe-area-inset-bottom)); width: calc(100% - 16px); max-height: 85dvh; border-radius: 14px; transform: none; }
-  .graph-header { padding: 16px; }
-  .graph-hint { padding: 0 16px 16px; }
 }
 
 .anki-sidebar-list { display: grid; gap: 1px; }
@@ -2868,4 +2833,359 @@
   .mobile-ask-send:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   /* The page scrolls clear of the composer. */
   .obsidian-app .new-note-home { padding-bottom: 150px; }
+}
+
+/* Phone drawer: one compositor-only transform, no opacity or layout change.
+   It follows the finger (use-drawer-gesture) and settles with a spring-like
+   ease. Closed, it sits past its own shadow so no edge shows. */
+@media (max-width: 720px) {
+  .obsidian-app .obsidian-sidebar {
+    position: absolute; z-index: 20; inset: 0 auto 0 0;
+    width: min(86vw, 340px); height: 100%;
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition: transform 380ms cubic-bezier(.32, .72, 0, 1);
+    will-change: transform;
+    backface-visibility: hidden;
+    contain: layout paint style;
+    touch-action: pan-y;
+    box-shadow: 1px 0 0 var(--border), 14px 0 36px oklch(0% 0 0 / .16);
+  }
+  .obsidian-app.sidebar-collapsed .obsidian-sidebar {
+    width: min(86vw, 340px);
+    opacity: 1;
+    transform: translate3d(calc(-100% - 48px), 0, 0);
+    pointer-events: none;
+    transition-duration: 320ms;
+  }
+  .obsidian-app .mobile-sidebar-backdrop {
+    display: block; position: absolute; z-index: 19; inset: 0;
+    width: 100%; height: 100%; padding: 0; border: 0;
+    background: oklch(0% 0 0 / .34);
+    opacity: 1; visibility: visible;
+    transition: opacity 380ms cubic-bezier(.32, .72, 0, 1), visibility 0s;
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+  }
+  .obsidian-app.sidebar-collapsed .mobile-sidebar-backdrop {
+    display: block;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 320ms cubic-bezier(.32, .72, 0, 1), visibility 0s 320ms;
+  }
+  .obsidian-app .mobile-drawer-edge {
+    position: absolute; z-index: 18; top: 0; bottom: 0; left: 0;
+    width: 22px; touch-action: pan-y;
+  }
+}
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+  .obsidian-app .obsidian-sidebar,
+  .obsidian-app.sidebar-collapsed .obsidian-sidebar,
+  .obsidian-app .mobile-sidebar-backdrop,
+  .obsidian-app.sidebar-collapsed .mobile-sidebar-backdrop { transition: none; }
+}
+
+/* ── Settings ────────────────────────────────────────────────────────────
+   A calm two-pane window: a light navigation column, and settings set in
+   rounded groups on a faintly tinted canvas, the way system settings read.
+   Choices are a single segmented track; on/off is a switch. On a phone it
+   is a full-screen sheet that lists the sections and drills into one. */
+.workspace-settings.ui-dialog-content {
+  width: min(980px, calc(100vw - 64px));
+  height: min(700px, calc(100dvh - 64px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 28px 72px oklch(0% 0 0 / .18), 0 2px 8px oklch(0% 0 0 / .06);
+}
+.workspace-settings .settings-navigation {
+  width: 248px;
+  gap: 12px;
+  padding: 18px 12px 14px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 72%, var(--surface));
+}
+.workspace-settings .settings-navigation-title {
+  display: flex; align-items: center; gap: 8px;
+  padding: 2px 8px 0;
+  font-size: 13px; font-weight: 650;
+}
+.workspace-settings .settings-list-close { display: none; }
+.workspace-settings .settings-search {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.workspace-settings .settings-search:focus-within { box-shadow: inset 0 0 0 1px var(--ring), 0 0 0 3px color-mix(in oklch, var(--ring) 22%, transparent); }
+.workspace-settings .settings-sections { gap: 1px; }
+.workspace-settings .settings-sections button {
+  height: 34px;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.workspace-settings .settings-sections button:hover { background: color-mix(in oklch, var(--foreground) 6%, transparent); color: var(--foreground); }
+.workspace-settings .settings-sections button.is-active {
+  background: var(--surface);
+  color: var(--foreground);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px oklch(0% 0 0 / .06);
+}
+.workspace-settings .settings-navigation-foot { padding: 0 10px; color: var(--muted-foreground); font-size: 11px; }
+
+.workspace-settings .settings-content { background: color-mix(in oklch, var(--muted) 38%, var(--surface)); }
+.workspace-settings .settings-content-header {
+  position: relative;
+  display: block;
+  min-height: 0;
+  padding: 30px 72px 4px 40px;
+  border-bottom: 0;
+}
+.workspace-settings .settings-content-header .ui-dialog-title { margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.02em; line-height: 1.25; }
+.workspace-settings .settings-content-header .ui-dialog-description { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.workspace-settings .settings-content-header .settings-close {
+  position: absolute; top: 18px; right: 18px;
+  width: 32px; height: 32px; border-radius: 9px;
+}
+.workspace-settings .settings-back { display: none; }
+.workspace-settings .settings-content-body { padding: 14px 40px 56px; }
+.workspace-settings .settings-content-body h3 {
+  margin: 22px 0 8px 4px;
+  color: var(--muted-foreground);
+  font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: none;
+}
+.workspace-settings .settings-content-body > h3:first-child { margin-top: 10px; }
+
+/* Consecutive rows form one rounded group. */
+.workspace-settings .settings-content-body > .settings-entry {
+  min-height: 60px;
+  margin: 0;
+  padding: 13px 18px;
+  border: 1px solid var(--border);
+  border-top-width: 0;
+  background: var(--surface);
+}
+.workspace-settings .settings-content-body > .settings-entry:first-child,
+.workspace-settings .settings-content-body > :not(.settings-entry) + .settings-entry {
+  border-top-width: 1px;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.workspace-settings .settings-content-body > .settings-entry:not(:has(+ .settings-entry)) {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.workspace-settings .settings-entry-copy { gap: 3px; }
+.workspace-settings .settings-entry-copy strong { font-size: 13.5px; font-weight: 600; }
+.workspace-settings .settings-entry-copy span { font-size: 12.5px; line-height: 1.5; }
+
+.workspace-settings .settings-segments {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--muted);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 70%, transparent);
+}
+.workspace-settings .settings-segments button {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12.5px; font-weight: 500;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.workspace-settings .settings-segments button:hover { color: var(--foreground); background: transparent; }
+.workspace-settings .settings-segments button[aria-pressed="true"] {
+  border: 0;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(0% 0 0 / .12), 0 0 0 1px color-mix(in oklch, var(--border) 80%, transparent);
+}
+
+.settings-switch {
+  position: relative;
+  flex: none;
+  width: 40px; height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted-foreground) 38%, var(--muted));
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+.settings-switch span {
+  position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px oklch(0% 0 0 / .25);
+  transition: transform 220ms cubic-bezier(.32, .72, 0, 1);
+}
+.settings-switch[aria-checked="true"] { background: var(--primary); }
+.settings-switch[aria-checked="true"] span { transform: translateX(16px); }
+.settings-switch:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.workspace-settings .settings-action-button {
+  min-height: 32px;
+  border-radius: 8px;
+  box-shadow: 0 1px 1px oklch(0% 0 0 / .04);
+}
+.workspace-settings .settings-model-form input,
+.workspace-settings .settings-model-form select { border-radius: 9px; }
+
+@media (max-width: 720px) {
+  .workspace-settings.ui-dialog-content {
+    inset: 0; top: 0; bottom: 0; left: 0;
+    width: 100%; height: 100dvh; max-height: none;
+    border: 0; border-radius: 0;
+    transform: none;
+    box-shadow: none;
+    animation: settings-sheet-in 320ms cubic-bezier(.32, .72, 0, 1);
+  }
+  .workspace-settings .settings-shell { flex-direction: column; }
+  .workspace-settings .settings-shell.is-listing .settings-content { display: none; }
+  .workspace-settings .settings-shell:not(.is-listing) .settings-navigation { display: none; }
+  .workspace-settings .settings-navigation {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    gap: 14px;
+    padding: max(14px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+    border-right: 0;
+    overflow-y: auto;
+    background: color-mix(in oklch, var(--muted) 60%, var(--background));
+  }
+  .workspace-settings .settings-navigation-title {
+    justify-content: space-between;
+    padding: 8px 4px 2px;
+    font-size: 28px; font-weight: 720; letter-spacing: -.02em;
+  }
+  .workspace-settings .settings-navigation-title > svg { display: none; }
+  .workspace-settings .settings-list-close {
+    display: grid; place-items: center;
+    width: 36px; height: 36px;
+    border: 0; border-radius: 50%;
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
+    color: var(--muted-foreground);
+  }
+  .workspace-settings .settings-search { height: 40px; border-radius: 11px; }
+  .workspace-settings .settings-sections {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+  }
+  .workspace-settings .settings-sections button,
+  .workspace-settings .settings-sections button.is-active {
+    height: 52px;
+    gap: 14px;
+    padding: 0 16px;
+    border-radius: 0;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 16px; font-weight: 500;
+    box-shadow: none;
+  }
+  .workspace-settings .settings-sections button + button { box-shadow: 0 -1px 0 color-mix(in oklch, var(--border) 80%, transparent); }
+  .workspace-settings .settings-sections button::after {
+    content: '';
+    width: 8px; height: 8px;
+    margin-left: auto;
+    border-top: 2px solid var(--muted-foreground);
+    border-right: 2px solid var(--muted-foreground);
+    opacity: .5;
+    transform: rotate(45deg);
+  }
+  .workspace-settings .settings-sections button:active { background: var(--muted); }
+  .workspace-settings .settings-sections button svg { color: var(--muted-foreground); }
+  .workspace-settings .settings-navigation-foot { display: block; text-align: center; }
+
+  .workspace-settings .settings-content { flex: 1 1 auto; min-height: 0; }
+  .workspace-settings .settings-content-header { padding: max(8px, env(safe-area-inset-top)) 64px 2px 16px; }
+  .workspace-settings .settings-back {
+    display: inline-flex; align-items: center; gap: 2px;
+    height: 44px; margin-left: -8px; padding: 0 8px 0 2px;
+    border: 0; background: transparent;
+    color: var(--primary); font-size: 16px;
+  }
+  .workspace-settings .settings-content-header .ui-dialog-title { font-size: 28px; font-weight: 720; }
+  .workspace-settings .settings-content-header .settings-close { top: max(8px, env(safe-area-inset-top)); right: 12px; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in oklch, var(--foreground) 8%, transparent); }
+  .workspace-settings .settings-content-body { padding: 10px 16px calc(40px + env(safe-area-inset-bottom)); }
+  .workspace-settings .settings-content-body > .settings-entry { flex-wrap: wrap; gap: 10px; padding: 14px 16px; }
+  .workspace-settings .settings-segments { max-width: 100%; overflow-x: auto; }
+  .workspace-settings .settings-segments button { height: 34px; }
+}
+@keyframes settings-sheet-in { from { transform: translate3d(0, 24px, 0); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .settings-switch, .settings-switch span, .workspace-settings .settings-segments button { transition: none; }
+  .workspace-settings.ui-dialog-content { animation: none; }
+}
+
+/* Menus and sheets enter on the compositor only (transform and opacity):
+   a small pop from the pointer on desktop, a spring-eased slide from the
+   bottom edge on a phone, with the veil fading in behind. */
+.workspace-context-menu {
+  transform-origin: top left;
+  animation: menu-pop 150ms cubic-bezier(.2, .9, .3, 1) both;
+}
+@keyframes menu-pop { from { opacity: 0; transform: scale(.96); } }
+@media (max-width: 720px) {
+  .obsidian-app .workspace-context-menu {
+    animation: sheet-up 340ms cubic-bezier(.32, .72, 0, 1) both;
+    will-change: transform;
+    contain: layout paint;
+  }
+  .mobile-tab-sheet-backdrop { animation: veil-fade 260ms ease-out both; }
+  .mobile-tab-sheet {
+    animation: sheet-up 360ms cubic-bezier(.32, .72, 0, 1) both;
+    will-change: transform;
+    contain: layout paint;
+  }
+  .agent-model-menu { animation-duration: 180ms; transform-origin: bottom left; will-change: transform; }
+}
+@keyframes sheet-up { from { transform: translate3d(0, 100%, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes veil-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-context-menu,
+  .obsidian-app .workspace-context-menu,
+  .mobile-tab-sheet,
+  .mobile-tab-sheet-backdrop { animation: none; }
+}
+
+[data-sheet-handle] { touch-action: none; }
+.workspace-context-grip { display: none; }
+@media (max-width: 720px) {
+  /* The sheet's top padding becomes the grip a finger pulls down. */
+  .obsidian-app .workspace-context-grip {
+    display: block;
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 28px;
+  }
+  .obsidian-app .workspace-context-grip::after {
+    content: '';
+    position: absolute; top: 11px; left: 50%;
+    width: 36px; height: 4px; margin-left: -18px;
+    border-radius: 2px;
+    background: var(--border);
+  }
 }

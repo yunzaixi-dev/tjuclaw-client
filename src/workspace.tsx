@@ -6,7 +6,7 @@ import { loadMath, mathML, mathReady } from './components/markdown-extras';
 import { highlightHtml, onHighlighterLoaded } from './lib/code-highlight';
 import { renderMermaidBlocks } from './lib/mermaid-render';
 import { EditorView } from '@codemirror/view';
-import { AnimatePresence, m, useReducedMotion } from 'motion/react';
+import { useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
@@ -26,6 +26,8 @@ import { type AnkiCard, type AnkiSchedule, type AnkiWorkspaceHandle } from './co
 import { AuthError, logout, readSession, type IdentitySession } from './lib/auth';
 import { VaultError } from './lib/sealed-vault';
 import { attempt } from './lib/attempt';
+import { useDrawerGesture } from './lib/use-drawer-gesture';
+import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
 import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
@@ -68,11 +70,22 @@ const nameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'b
 const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
 const AgentThread = lazy(() => import('./components/agent-thread').then(module => ({ default: module.AgentThread })));
 const NoteHistory = lazy(() => import('./components/note-history').then(module => ({ default: module.NoteHistory })));
-const SearchPalette = lazy(() => import('./components/search-palette').then(module => ({ default: module.SearchPalette })));
+// Panels opened from the sidebar load in idle time after the workspace shows,
+// and on pointer-down of their buttons, so they open at once.
+const loadSearchPalette = () => import('./components/search-palette');
+const loadKnowledgeGraph = () => import('./components/knowledge-graph');
+const loadWorkspaceSettings = () => import('./components/workspace-settings');
+const SearchPalette = lazy(() => loadSearchPalette().then(module => ({ default: module.SearchPalette })));
 const ScrollReader = lazy(() => import('./components/scroll-reader').then(module => ({ default: module.ScrollReader })));
 const FilePreview = lazy(() => import('./components/file-preview').then(module => ({ default: module.FilePreview })));
-const KnowledgeGraph = lazy(() => import('./components/knowledge-graph').then(module => ({ default: module.KnowledgeGraph })));
-const WorkspaceSettings = lazy(() => import('./components/workspace-settings').then(module => ({ default: module.WorkspaceSettings })));
+const KnowledgeGraph = lazy(() => loadKnowledgeGraph().then(module => ({ default: module.KnowledgeGraph })));
+const WorkspaceSettings = lazy(() => loadWorkspaceSettings().then(module => ({ default: module.WorkspaceSettings })));
+
+function preloadPanels() {
+  void loadWorkspaceSettings().catch(() => undefined);
+  void loadSearchPalette().catch(() => undefined);
+  void loadKnowledgeGraph().catch(() => undefined);
+}
 const AnkiWorkspace = lazy(() => import('./components/anki-workspace').then(module => ({ default: module.AnkiWorkspace })));
 const CampusTools = lazy(() => import('./components/campus-tools').then(module => ({ default: module.CampusTools })));
 
@@ -147,7 +160,11 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
         : menu.kind === 'session' ? [['new-chat', '新会话'], ['history', '历史会话'], ['search', '搜索']]
           : menu.kind === 'conversation' ? [['rename', '重命名'], ['delete', '删除']]
           : [['copy', '复制 Markdown'], ['select-all', '全选']];
-  return <div className="workspace-context-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={menu.kind === 'session' || menu.kind === 'conversation' ? '会话操作' : '文档操作'} onContextMenu={event => event.preventDefault()}>
+  // On a phone the menu is a bottom sheet that the grip pulls down.
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  useSheetGesture({ sheet: sheetRef, enabled: window.innerWidth <= 720, onClose });
+  return <div ref={sheetRef} className="workspace-context-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={menu.kind === 'session' || menu.kind === 'conversation' ? '会话操作' : '文档操作'} onContextMenu={event => event.preventDefault()}>
+    <div className="workspace-context-grip" data-sheet-handle aria-hidden="true" />
     {items.map(([action, label], index) => action === 'divider'
       ? <div className="workspace-context-divider" key={`divider-${index}`} />
       : <button key={action} type="button" className={action === 'delete' ? 'is-danger' : ''} role="menuitem" onClick={() => { onAction(action); onClose(); }}>{icons[action]}<span>{label}</span></button>)}
@@ -615,6 +632,24 @@ export default function Workspace() {
   const chatRequestRef = useRef(0);
   const sendingRef = useRef(false);
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const appRef = useRef<HTMLDivElement | null>(null);
+  const backdropRef = useRef<HTMLButtonElement | null>(null);
+  // After the first screen has settled, so it never competes with it.
+  useEffect(() => {
+    let idleHandle = 0;
+    const timer = window.setTimeout(() => {
+      idleHandle = window.requestIdleCallback ? window.requestIdleCallback(preloadPanels, { timeout: 3000 }) : window.setTimeout(preloadPanels, 0);
+    }, 1500);
+    return () => {
+      window.clearTimeout(timer);
+      if (window.cancelIdleCallback) window.cancelIdleCallback(idleHandle); else window.clearTimeout(idleHandle);
+    };
+  }, []);
+  const tabSheetRef = useRef<HTMLDivElement | null>(null);
+  const tabVeilRef = useRef<HTMLDivElement | null>(null);
+  const closeTabSheet = useCallback(() => setTabSheetOpen(false), []);
+  useSheetGesture({ sheet: tabSheetRef, veil: tabVeilRef, enabled: isMobile && tabSheetOpen, onClose: closeTabSheet });
+  useDrawerGesture({ root: appRef, drawer: sidebarRef, backdrop: backdropRef, open: sidebarOpen, enabled: isMobile, onOpenChange: setSidebarOpen });
   const railRef = useRef<HTMLElement | null>(null);
   const dragSource = useRef<{ id: string; group: string } | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
@@ -2804,10 +2839,9 @@ export default function Workspace() {
   if (!openingDone) return <WorkspaceLoading step="done" />;
   if (workspaceGate) return <WorkspacePassphraseGate identity={session.id} workspaceId={workspaceGate.workspaceId} workspaceName={workspaceGate.workspaceName} mode={workspaceGate.mode} verification={workspaceGate.verification} firstWorkspace={workspaceGate.firstWorkspace} accountEmail={session.email} onUnlocked={continueAfterWorkspaceUnlock} />;
 
-  return <div data-view={view} className={`obsidian-app${entering.fade ? ' is-entering' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) 0px` }}>
-    <m.aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}
-      initial={false} animate={{ x: isMobile && !sidebarOpen ? '-100%' : '0%', opacity: isMobile && !sidebarOpen ? 0 : 1 }}
-      transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}>
+  return <div ref={appRef} data-view={view} className={`obsidian-app${entering.fade ? ' is-entering' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}${railOpen ? '' : ' rail-collapsed'}`} style={{ gridTemplateColumns: `${sidebarOpen ? sidebarWidth : 0}px minmax(0, 1fr) 0px` }}>
+    {/* On a phone the drawer slides on the compositor (CSS transform) and follows the finger. */}
+    <aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}>
       {/* Notion-style sidebar: workspace, a pill row, the section's own list, apps. */}
       <div className="notion-side-head">
         <button type="button" className="sidebar-library-button" title={library?.name ?? '我的知识库'} aria-label={`${library?.name ?? '我的知识库'}，${fileCount} 个文件，${folders.length} 个文件夹`} onClick={() => { setSettingsSection('library'); setSettingsOpen(true); }}>
@@ -2883,23 +2917,24 @@ export default function Workspace() {
         {([
           { id: 'tools', label: '小工具', Icon: Wrench },
         ] as const).map(({ id, label, Icon }) => <button key={id} type="button" className={`notion-side-row${view === id ? ' is-active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => switchView(id)}><Icon size={15} /><span>{label}</span></button>)}
-        <button type="button" className="notion-side-row" onClick={() => setGraphOpen(true)}><Network size={15} /><span>知识图谱</span></button>
-        <button type="button" className="notion-side-row" onClick={() => { setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
+        <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setGraphOpen(true); }}><Network size={15} /><span>知识图谱</span></button>
+        <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
       </div>
       <div className="sidebar-bottom notion-side-bottom" aria-label="工作区工具">
         <button type="button" className="notion-new-chat" onClick={() => void startNewChat()}><MessageCircle size={15} /><span>新对话</span></button>
         <button type="button" className="notion-new-page" title="新建笔记" aria-label="新建笔记页面" onClick={() => void createNote()}><SquarePen size={16} /></button>
       </div>
       </div>
-    </m.aside>
-    <AnimatePresence initial={false}>{isMobile && sidebarOpen ? <m.button type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" onClick={() => setSidebarOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} /> : null}</AnimatePresence>
+    </aside>
+    {isMobile ? <button ref={backdropRef} type="button" className="mobile-sidebar-backdrop" aria-label="收起侧栏" tabIndex={sidebarOpen ? 0 : -1} aria-hidden={!sidebarOpen} onClick={() => setSidebarOpen(false)} /> : null}
+    {isMobile && !sidebarOpen ? <div className="mobile-drawer-edge" aria-hidden="true" /> : null}
     <div className="panel-resizer panel-resizer-sidebar" style={{ left: sidebarOpen ? sidebarWidth : 0 }} role="separator" aria-label="调整左侧面板宽度" onPointerDown={event => startResize('sidebar', event)} />
     <main className="obsidian-main" inert={(sidebarOpen || railOpen) && window.innerWidth <= 720}>
       <header className="obsidian-topbar"><Button variant="ghost" size="icon" className="sidebar-opener" onClick={() => setSidebarOpen(value => !value)} aria-label={sidebarOpen ? '收起侧栏' : '打开侧栏'}><PanelLeft size={18} /></Button>{/* Phones show the current page instead of a tab strip; tabs live in a bottom sheet. */}<button type="button" className="mobile-tab-title" onClick={() => setTabSheetOpen(true)} aria-haspopup="dialog" aria-label={`标签页：${visibleTabs.find(tab => tab.key === activeTabKey)?.title || '未命名笔记'}，共 ${visibleTabs.length} 个`}><span>{visibleTabs.find(tab => tab.key === activeTabKey)?.title || (visibleTabs.length ? '未命名笔记' : '标签页')}</span><ChevronDown size={15} aria-hidden="true" /></button><div className="workspace-tabs" role="tablist" aria-label="打开的标签页">{visibleTabs.map(tab => <div key={tab.key} className={`workspace-tab${activeTabKey === tab.key ? ' is-active' : ''}`} role="presentation"><button type="button" role="tab" aria-selected={activeTabKey === tab.key} aria-label={`${tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记'} ${tab.title || '未命名笔记'}`} onClick={() => activateTab(tab)}><span>{tab.title || '未命名笔记'}</span></button><button type="button" className="workspace-tab-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} title="关闭标签" onClick={() => closeTab(tab.key)}><X size={14} /></button></div>)}</div><button type="button" className="workspace-new-tab" aria-label="新建标签页" title="新建标签页" onClick={() => newBlankTab()}><Plus size={18} /></button><div className="topbar-actions">{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? <div className="note-topbar-controls"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={16} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={16} /></button></div><div className="mode-switch"><button type="button" className={editorMode === 'edit' ? 'is-active' : ''} onClick={() => setEditorMode('edit')} aria-label="编辑模式" title="编辑模式"><Pencil size={15} /></button><button type="button" className={editorMode === 'preview' ? 'is-active' : ''} onClick={() => setEditorMode('preview')} aria-label="阅读模式" title="阅读模式"><Eye size={15} /></button></div></div> : null}{selected?.kind === 'note' && view === 'notes' && gitStatus?.enabled ? <Button variant="ghost" size="icon" onClick={() => setHistoryOpen(true)} aria-label="版本历史" title="版本历史（Git）"><History size={17} /></Button> : null}{view === 'sessions' && selected?.kind === 'agent' ? <><Button variant="ghost" size="icon" onClick={() => void startNewChat()} aria-label="新会话" title="新会话"><SquarePen size={17} /></Button></> : null}<Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="快速切换" title="快速切换"><Search size={17} /></Button></div><div className="mobile-topbar-actions"><button type="button" className="mobile-tab-count" onClick={() => setTabSheetOpen(true)} aria-label={`打开的标签页（${visibleTabs.length}）`}><span>{visibleTabs.length}</span></button>{selected?.kind === 'note' && view === 'notes' ? <button type="button" onClick={() => setEditorMode(value => value === 'edit' ? 'preview' : 'edit')} aria-label={editorMode === 'edit' ? '阅读模式' : '编辑模式'}>{editorMode === 'edit' ? <BookOpen size={18} /> : <Pencil size={18} />}</button> : null}<button type="button" className="mobile-more" onClick={event => { event.stopPropagation(); if (selected?.kind === 'note' && view === 'notes') setContextMenu({ x: 0, y: 0, kind: 'note', id: selected.id }); else if (view === 'sessions') setContextMenu({ x: 0, y: 0, kind: 'session' }); else setCommandOpen(true); }} aria-label={view === 'sessions' ? '会话操作' : '更多操作'}><MoreHorizontal size={19} /></button></div></header>
-      {tabSheetOpen ? <div className="mobile-tab-sheet-backdrop" onClick={() => setTabSheetOpen(false)}>
-        <div className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
-          <div className="mobile-tab-sheet-grip" aria-hidden="true" />
-          <div className="mobile-tab-sheet-head"><strong>标签页</strong><span>{visibleTabs.length} 个</span><button type="button" autoFocus onClick={() => setTabSheetOpen(false)} aria-label="关闭标签页列表"><X size={18} /></button></div>
+      {tabSheetOpen ? <div ref={tabVeilRef} className="mobile-tab-sheet-backdrop" onClick={() => dismissSheet(tabSheetRef.current, tabVeilRef.current, closeTabSheet)}>
+        <div ref={tabSheetRef} className="mobile-tab-sheet" role="dialog" aria-modal="true" aria-label="标签页" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setTabSheetOpen(false); }}>
+          <div className="mobile-tab-sheet-grip" data-sheet-handle aria-hidden="true" />
+          <div className="mobile-tab-sheet-head" data-sheet-handle><strong>标签页</strong><span>{visibleTabs.length} 个</span><button type="button" autoFocus onClick={() => setTabSheetOpen(false)} aria-label="关闭标签页列表"><X size={18} /></button></div>
           <ul>{visibleTabs.map(tab => <li key={tab.key} className={activeTabKey === tab.key ? 'is-active' : ''}>
             <button type="button" className="mobile-tab-sheet-open" aria-current={activeTabKey === tab.key ? 'page' : undefined} onClick={() => { activateTab(tab); setTabSheetOpen(false); }}><small>{(tab.kind === 'agent' || tab.kind === 'agent-blank' ? '会话' : tab.kind === 'anki' ? '闪卡' : tab.kind === 'tool' ? '小工具' : '笔记')}</small><span>{tab.title || '未命名笔记'}</span></button>
             <button type="button" className="mobile-tab-sheet-close" aria-label={`关闭标签 ${tab.title || '未命名笔记'}`} onClick={() => closeTab(tab.key)}><X size={17} /></button>
@@ -2945,7 +2980,7 @@ export default function Workspace() {
     </main>
     {backHint ? <div className="back-exit-hint" role="status">再按一次返回退出</div> : null}
     {contextMenu ? <><button className="mobile-context-backdrop" type="button" aria-label="关闭操作菜单" onClick={() => setContextMenu(null)} /><WorkspaceContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onAction={handleContextAction} /></> : null}
-    <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载设置" /></div>}>{settingsOpen ? <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
+    <Suspense fallback={null}>{settingsOpen ? <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
       setSettingsOpen(false);
       if (id === 'graph') { setGraphOpen(true); return; }
       switchView(id === 'flashcards' ? 'anki' : 'notes');
