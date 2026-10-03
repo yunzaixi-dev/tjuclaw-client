@@ -44,7 +44,7 @@ export function WorkspacePlugins({ activeId, onOpen }: { activeId: BuiltInPlugin
       <button className="plugin-open-button" type="button" onClick={() => onOpen(plugin.id)}>{plugin.action}</button>
       <div className="plugin-availability">
         <Blocks size={18} />
-        <div><strong>第三方插件尚未开放</strong><p>当前不能安装或运行外部插件。上方列出的是工作区已提供的功能。</p></div>
+        <div><strong>Agent 技能与 MCP 服务</strong><p>在设置的“插件”里启用技能，在“MCP 服务”里接入外部工具；暂不支持安装运行任意第三方代码。</p></div>
       </div>
     </div>
   </section>;

@@ -32,6 +32,12 @@ const count = (value: unknown, unit: string) => Array.isArray(value) ? `${value.
 const fileName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? '';
 const isImage = (path: string) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/i.test(path);
 
+/** Names of the reviewed skills, for the step that reads one. */
+const skillTitles: Record<string, string> = {
+  'exam-review': '考前复习', 'lab-report': '实验报告', citation: '参考文献格式',
+  'paper-reading': '文献精读', 'code-debug': '课程项目调试', 'english-writing': '英文写作润色',
+};
+
 interface ToolView { icon: LucideIcon; label: string; detail?: string; code?: boolean }
 
 /** How each tool reads in the transcript. */
@@ -42,6 +48,10 @@ function describe(step: TurnStep): ToolView {
   // A tool from one of the user's MCP servers: mcp__<server>__<tool>.
   const mcp = /^mcp__([a-z][a-z0-9_]*?)__(.+)$/.exec(step.name ?? '');
   if (mcp) return { icon: Plug, label: `${mcp[1]} · ${mcp[2]}` };
+  if (step.name === 'read_skill') {
+    const name = text(field(input, 'name'));
+    return { icon: BookOpen, label: `读取技能${name ? `「${skillTitles[name] ?? name}」` : ''}` };
+  }
   switch (step.name) {
     case 'list_tree': return { icon: FolderTree, label: '查看笔记目录', detail: count(output, '个条目') };
     case 'read_entry': return { icon: BookOpen, label: `阅读${quote(title) || '笔记'}` };

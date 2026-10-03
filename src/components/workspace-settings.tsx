@@ -5,6 +5,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { CampusAccounts } from './campus-accounts';
 import { McpSettings } from './mcp-settings';
+import { SkillSettings } from './skill-settings';
 import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
@@ -20,7 +21,7 @@ const sections = [
   { id: 'flashcards', label: '记忆闪卡', icon: SquareStack, keywords: 'Anki 导出 TSV' },
   { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
-  { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置' },
+  { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置 技能 实验报告 参考文献 复习 文献 调试 英文写作' },
   { id: 'mcp', label: 'MCP 服务', icon: Plug, keywords: 'MCP 工具 服务 扩展 市场 GitHub 高德 搜索 DeepWiki Context7' },
   { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
@@ -33,7 +34,7 @@ const descriptions: Record<SettingsSection, string> = {
   flashcards: '管理记忆卡片与 Anki 格式导出。',
   model: 'Agent 对话使用的模型服务。',
   campus: '校园小工具使用的微北洋与办公网账号，各自独立绑定。',
-  plugins: '工作区内置的能力，无需安装。',
+  plugins: '工作区内置的能力，以及可以按需启用的 Agent 技能。',
   mcp: '为 Agent 接入外部服务的工具。',
   account: '当前登录状态与账户操作。',
   about: '关于此工作区。',
@@ -268,7 +269,7 @@ export function WorkspaceSettings({
             {active === 'plugins' ? <>
               <h3>内置插件</h3>
               {builtInPlugins.map(plugin => <SettingRow key={plugin.id} title={plugin.name} description={plugin.description}><button type="button" className="settings-action-button" onClick={() => onOpenPlugin(plugin.id)}>{plugin.action} <ChevronRight size={14} /></button></SettingRow>)}
-              <p className="settings-about-note">第三方插件尚未开放。</p>
+              <SkillSettings />
             </> : null}
             {active === 'account' ? <>
               <h3>当前会话</h3>
@@ -287,7 +288,7 @@ export function WorkspaceSettings({
               <UpdateCheck />
               <h3>工作区</h3>
               <SettingRow title="笔记工作区" description="笔记、文件夹与记忆闪卡保存在服务端；旧版浏览器卡片不会自动合并。"><span className="settings-value">Web</span></SettingRow>
-              <p className="settings-about-note">记忆闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器尚未接入。Agent 能力以当前服务端实际可用范围为准；第三方插件尚未开放。</p>
+              <p className="settings-about-note">记忆闪卡支持 TSV 导出；Anki 模板、调度与媒体解释器尚未接入。Agent 能力以当前服务端实际可用范围为准；可以在“插件”中启用技能、在“MCP 服务”中接入外部工具。</p>
             </> : null}
           </div>
         </div>

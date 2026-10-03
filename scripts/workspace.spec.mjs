@@ -2282,6 +2282,17 @@ test('mobile drawer uses the Notion sidebar with motion-aware dismissal', async 
 
 test('plugins live in Settings and open the real built-in features', async ({ page }) => {
   await mockWorkspace(page, defaultState());
+  const skills = [{ id: 'lab-report', title: '实验报告', summary: '按规范结构整理数据和结论', description: '整理成结构完整的实验报告。', enabled: false }];
+  const toggles = [];
+  await page.route('**/api/account/skills**', route => {
+    const request = route.request();
+    if (request.method() === 'PUT') {
+      toggles.push([new URL(request.url()).pathname, JSON.parse(request.postData())]);
+      skills[0].enabled = JSON.parse(request.postData()).enabled;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ skill: skills[0] }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ skills }) });
+  });
   await page.goto('/workspace');
   const activity = page.locator('.obsidian-sidebar');
   await expect(activity.getByRole('button', { name: '插件' })).toHaveCount(0);
@@ -2290,7 +2301,12 @@ test('plugins live in Settings and open the real built-in features', async ({ pa
     await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '插件' }).click();
   };
   await openPlugins();
-  await expect(page.getByRole('dialog').getByText('第三方插件尚未开放。')).toBeVisible();
+  // Skills are enabled here; the Agent reads one when a task fits it.
+  const lab = page.getByRole('dialog').getByRole('article', { name: '实验报告' });
+  await expect(lab.getByText('按规范结构整理数据和结论')).toBeVisible();
+  await lab.getByRole('checkbox', { name: '启用「实验报告」' }).click();
+  await expect(lab.getByText('已启用')).toBeVisible();
+  expect(toggles).toEqual([['/api/account/skills/lab-report', { enabled: true }]]);
   await page.getByRole('button', { name: /打开知识图谱/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('navigation', { name: '设置分类' })).toHaveCount(0);
