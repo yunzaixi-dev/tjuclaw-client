@@ -99,8 +99,11 @@ pub fn prepare() {
         version,
     );
     // Tauri's universal bundle expects a universal sidecar in addition to the
-    // two arch-specific sidecars used by its underlying Cargo builds.
-    if env::var("TAURI_ENV_TARGET_TRIPLE").as_deref() == Ok("universal-apple-darwin") {
+    // two arch-specific sidecars used by its underlying Cargo builds. Those
+    // builds run once per architecture and are not told they belong to a
+    // universal bundle, so any macOS build on a Mac stages all three: the Go
+    // builds take seconds, and the bundler picks the one it needs.
+    if target.ends_with("-apple-darwin") && cfg!(target_os = "macos") {
         for (triple, architecture) in [
             ("x86_64-apple-darwin", "amd64"),
             ("aarch64-apple-darwin", "arm64"),
