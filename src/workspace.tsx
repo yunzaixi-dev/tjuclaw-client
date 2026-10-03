@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug, BriefcaseBusiness } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { loadMath, mathML, mathReady } from './components/markdown-extras';
@@ -2861,7 +2861,7 @@ export default function Workspace() {
       </div>
       <div className="notion-nav" aria-label="工作区导航">
         <button type="button" className={`notion-nav-home${sideView === 'notes' ? ' is-active' : ''}`} aria-current={sideView === 'notes' ? 'page' : undefined} onClick={() => showNotesHome()}><House size={16} /><span>主页</span></button>
-        <button type="button" className={view === 'sessions' ? 'is-active' : ''} aria-label="Agent" title="Agent" aria-current={view === 'sessions' ? 'page' : undefined} onClick={() => switchView('sessions')}><MessageCircle size={16} /></button>
+        <button type="button" className={`notion-nav-work${view === 'sessions' ? ' is-active' : ''}`} title="工作：和 Agent 一起完成任务" aria-current={view === 'sessions' ? 'page' : undefined} onClick={() => switchView('sessions')}><BriefcaseBusiness size={16} /><span>工作</span></button>
         <button type="button" className="notion-nav-search" aria-label="搜索" title="搜索" onClick={() => setCommandOpen(true)}><Search size={16} /></button>
       </div>
       <div className="sidebar-pane">

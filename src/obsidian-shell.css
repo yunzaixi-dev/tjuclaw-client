@@ -2312,7 +2312,7 @@
 .notion-nav button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; min-width: 30px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--muted-foreground); font-size: 14px; font-weight: 500; }
 .notion-nav button:hover { background: var(--hover-wash); color: var(--foreground); }
 .notion-nav button.is-active { background: var(--selected); color: var(--foreground); }
-.notion-nav .notion-nav-home { padding: 0 12px 0 10px; }
+.notion-nav .notion-nav-home, .notion-nav .notion-nav-work { padding: 0 12px 0 10px; }
 .notion-nav .notion-nav-search { margin-left: auto; }
 
 .obsidian-app .obsidian-sidebar .tree-heading { padding: 12px 10px 4px 18px; }
