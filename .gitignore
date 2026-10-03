@@ -7,3 +7,6 @@ test-results
 .env*
 !.env.toolchain.example
 !.env.example
+
+# The product CLI checked out for desktop builds (see .github/actions/cli-source).
+.cli-source/

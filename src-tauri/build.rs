@@ -1,4 +1,7 @@
+mod sidecar_build;
+
 fn main() {
+    sidecar_build::prepare();
     // The desktop sandbox pulls these public, digest-pinned images.
     for (key, value) in [
         (
@@ -25,6 +28,19 @@ fn main() {
             "local_sandbox_start",
             "local_sandbox_stop",
             "local_sandbox_turn",
+            "workspace_cli_availability",
+            "workspace_cli_status",
+            "workspace_cli_init",
+            "workspace_cli_connector_status",
+            "workspace_cli_connector_start",
+            "workspace_cli_connector_stop",
+            "workspace_cli_configure",
+            "workspace_cli_import",
+            "workspace_cli_link",
+            "workspace_cli_unlink",
+            "workspace_cli_allow",
+            "workspace_cli_approvals",
+            "workspace_cli_review_approval",
         ]),
     ))
     .expect("failed to run tauri build script");

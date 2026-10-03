@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workspace-cli-availability"
+description = "Enables the workspace_cli_availability command without any pre-configured scope."
+commands.allow = ["workspace_cli_availability"]
+
+[[permission]]
+identifier = "deny-workspace-cli-availability"
+description = "Denies the workspace_cli_availability command without any pre-configured scope."
+commands.deny = ["workspace_cli_availability"]

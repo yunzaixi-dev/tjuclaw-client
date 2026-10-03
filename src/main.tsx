@@ -17,6 +17,7 @@ registerServiceWorker();
 // instead of when React first renders the lazy component.
 const page = import.meta.env.MODE === 'audit' ? import('./audit')
   : location.pathname === '/preview/appearance' ? import('./product')
+  : location.pathname === '/workspace/connections' ? import('./workspace-connections')
   : location.pathname.startsWith('/workspace') ? import('./workspace') : import('./auth');
 const App = lazy(() => page);
 // Motion's animation code (~100 KB) arrives after the first paint; the m.*

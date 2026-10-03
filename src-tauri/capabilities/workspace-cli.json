@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "workspace-cli",
+  "description": "Fixed desktop CLI adapter. Mutations require native-local selection/confirmation; no dialog, filesystem or shell plugin IPC is granted to HTML.",
+  "windows": ["main"],
+  "platforms": ["linux", "windows", "macOS"],
+  "remote": { "urls": ["https://app.tjuclaw.cloud/*"] },
+  "permissions": [
+    "allow-workspace-cli-availability",
+    "allow-workspace-cli-status",
+    "allow-workspace-cli-init",
+    "allow-workspace-cli-connector-status",
+    "allow-workspace-cli-connector-start",
+    "allow-workspace-cli-connector-stop",
+    "allow-workspace-cli-configure",
+    "allow-workspace-cli-import",
+    "allow-workspace-cli-link",
+    "allow-workspace-cli-unlink",
+    "allow-workspace-cli-allow",
+    "allow-workspace-cli-approvals",
+    "allow-workspace-cli-review-approval"
+  ]
+}

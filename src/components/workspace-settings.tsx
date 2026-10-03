@@ -20,7 +20,7 @@ const sections = [
   { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
   { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置' },
-  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
+  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录 系统工作空间连接 Workspace CLI 本机 云端 远程' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
 
@@ -263,6 +263,7 @@ export function WorkspaceSettings({
             {active === 'account' ? <>
               <h3>当前会话</h3>
               <SettingRow title="登录邮箱"><span className="settings-value settings-email">{email}</span></SettingRow>
+              <SettingRow title="系统工作空间连接" description="管理同账号的完整系统环境与远程能力，不是当前知识资料库。"><a className="settings-action-button" style={{ minHeight: 44 }} href="/workspace/connections">管理系统连接 <ChevronRight size={14} aria-hidden="true" /></a></SettingRow>
               {!modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.unit === 'tokens'
                 ? (window.used && window.resets_at ? `滚动统计，按模型实际消耗的 token 计，不同模型倍率不同；最早的用量将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，按模型实际消耗的 token 计，不同模型倍率不同。使用自己的模型不占用额度。')
                 : (window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。')}><span className="settings-value" role="status">{formatQuotaUse(window)}</span></SettingRow>)

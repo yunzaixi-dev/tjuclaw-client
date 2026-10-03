@@ -32,6 +32,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Check out the pinned product CLI
+        uses: ./.github/actions/cli-source
       - name: Restore Rust build cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -50,10 +52,10 @@ jobs:
         with:
           node-version: '24'
           cache: pnpm
-      - name: Set up Go for Task installation
+      - name: Set up Go for Task and the bundled product CLI
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.26.x'
+          go-version: '1.27.0'
           cache: false
       - name: Install Task
         run: |

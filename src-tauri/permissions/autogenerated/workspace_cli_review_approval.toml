@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workspace-cli-review-approval"
+description = "Enables the workspace_cli_review_approval command without any pre-configured scope."
+commands.allow = ["workspace_cli_review_approval"]
+
+[[permission]]
+identifier = "deny-workspace-cli-review-approval"
+description = "Denies the workspace_cli_review_approval command without any pre-configured scope."
+commands.deny = ["workspace_cli_review_approval"]

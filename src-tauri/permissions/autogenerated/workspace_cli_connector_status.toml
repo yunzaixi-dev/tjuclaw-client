@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workspace-cli-connector-status"
+description = "Enables the workspace_cli_connector_status command without any pre-configured scope."
+commands.allow = ["workspace_cli_connector_status"]
+
+[[permission]]
+identifier = "deny-workspace-cli-connector-status"
+description = "Denies the workspace_cli_connector_status command without any pre-configured scope."
+commands.deny = ["workspace_cli_connector_status"]

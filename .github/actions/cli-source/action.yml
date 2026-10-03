@@ -1,0 +1,26 @@
+name: 'Check out the pinned product CLI'
+description: >-
+  Desktop packages bundle the public tjuclaw CLI, built from source by
+  src-tauri/sidecar_build.rs. This checks out the reviewed revision named in
+  src-tauri/CLI_REVISION and points the build at it. Nothing else is fetched.
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Read the pinned CLI revision
+      id: pin
+      shell: bash
+      run: |
+        sha=$(tr -d '[:space:]' < src-tauri/CLI_REVISION)
+        [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo 'src-tauri/CLI_REVISION must be a full commit SHA' >&2; exit 1; }
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+    - name: Check out the public CLI at that revision
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      with:
+        repository: yunzaixi-dev/tjucli
+        ref: ${{ steps.pin.outputs.sha }}
+        path: .cli-source
+        persist-credentials: false
+    - name: Point the desktop build at it
+      shell: bash
+      run: echo "TJUCLAW_CLI_SOURCE_DIR=$GITHUB_WORKSPACE/.cli-source" >> "$GITHUB_ENV"
