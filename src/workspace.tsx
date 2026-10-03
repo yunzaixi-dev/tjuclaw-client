@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug, BriefcaseBusiness } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug, BriefcaseBusiness, Cloud, Laptop, FolderGit2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { loadMath, mathML, mathReady } from './components/markdown-extras';
@@ -35,6 +35,8 @@ import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
 import { storedItemExists, storedJSON, storeItem } from './lib/safe-storage';
+import { CLOUD_HOST, describeWorkError, getWorkLayout, listWorkHosts, placeSession, type SessionPlace, type WorkHost, type WorkLayout } from './lib/work';
+import { WorkTree } from './components/work-tree';
 
 type VaultFolder = { id: string; name: string; parentId: string | null };
 type VaultPlacement = Record<string, string | null>;
@@ -164,7 +166,7 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
       ? [['open', '打开'], ['outline', '大纲'], ['move', '移动到…'], ['divider', ''], ['move-up', '上移'], ['move-down', '下移'], ['divider', ''], ['rename', '重命名'], ['delete', '删除']]
       : menu.kind === 'sidebar' ? [['move-up', '上移'], ['move-down', '下移']]
         : menu.kind === 'session' ? [['new-chat', '新会话'], ['history', '历史会话'], ['search', '搜索']]
-          : menu.kind === 'conversation' ? [['rename', '重命名'], ['delete', '删除']]
+          : menu.kind === 'conversation' ? [['rename', '重命名'], ['move', '移动到…'], ['divider', ''], ['delete', '删除']]
           : [['copy', '复制 Markdown'], ['select-all', '全选']];
   // On a phone the menu is a bottom sheet that the grip pulls down.
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -623,7 +625,21 @@ export default function Workspace() {
   const sessionChoiceRef = useRef<Record<string, string>>({});
   // Conversations are listed on their own; Agents are only where they are stored.
   // `named`: the title is a name the user gave, not the first question.
-  const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string; named?: boolean }[]>([]);
+  const [conversations, setConversations] = useState<{ id: string; entryId: string; updatedAt: string; title?: string; named?: boolean; host?: string; projectId?: string; folderId?: string }[]>([]);
+  // The work view: hosts the user can run on, and their projects and folders.
+  const [workLayout, setWorkLayout] = useState<WorkLayout>({ projects: [], folders: [] });
+  const [workHosts, setWorkHosts] = useState<WorkHost[]>([{ id: CLOUD_HOST, name: '云端沙箱', kind: 'cloud', online: true }]);
+  const pendingPlaceRef = useRef<SessionPlace | null>(null);
+  const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
+  // The work view's hosts, projects and folders load when it is first shown.
+  const workShown = view === 'sessions';
+  useEffect(() => {
+    if (!workShown) return;
+    const controller = new AbortController();
+    void getWorkLayout(controller.signal).then(setWorkLayout).catch(() => undefined);
+    void listWorkHosts(controller.signal).then(setWorkHosts).catch(() => undefined);
+    return () => controller.abort();
+  }, [workShown]);
   const pendingChatRequestRef = useRef<PendingChatRequest | null>(null);
   const activeTabRef = useRef<string | null>(boot?.selected ? 'restored-note' : 'home');
   const identityRef = useRef<string | null>(boot?.session.id ?? null);
@@ -1056,6 +1072,7 @@ export default function Workspace() {
     }
     if (contextMenu.kind === 'conversation' && contextMenu.id) {
       if (action === 'rename') setEditingConversationId(contextMenu.id);
+      if (action === 'move') setMovingConversationId(contextMenu.id);
       if (action === 'delete') void removeConversation(contextMenu.id);
       return;
     }
@@ -1430,7 +1447,7 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     let cancelled = false;
     void (async () => {
-      const lists = await Promise.all(agentKey.split(',').map(id => listSessions(id).then(list => list.map(item => ({ id: item.id, entryId: id, updatedAt: item.updated_at, listed: item.title, named: Boolean(item.name) }))).catch(() => [])));
+      const lists = await Promise.all(agentKey.split(',').map(id => listSessions(id).then(list => list.map(item => ({ id: item.id, entryId: id, updatedAt: item.updated_at, listed: item.title, named: Boolean(item.name), host: item.host, projectId: item.project_id, folderId: item.folder_id }))).catch(() => [])));
       if (cancelled || generation !== identityGeneration.current) return;
       const merged = lists.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       // The list names each conversation, so every title shows at once.
@@ -1457,9 +1474,36 @@ export default function Workspace() {
   const listedConversations = useMemo(() => {
     const known = agentKey ? conversations : [];
     if (!chat) return known;
-    const row = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title: conversationTitle(chat), named: Boolean(chat.name) };
+    const row = { id: chat.id, entryId: chat.entry_id, updatedAt: chat.updated_at, title: conversationTitle(chat), named: Boolean(chat.name), host: chat.host, projectId: chat.project_id, folderId: chat.folder_id };
     return [row, ...known.filter(item => item.id !== chat.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
   }, [agentKey, conversations, chat]);
+
+  /** Moves a conversation in the work view and shows it there at once. */
+  async function moveConversation(id: string, place: SessionPlace) {
+    try {
+      const placed = await placeSession(id, place);
+      const fields = { host: placed.host, projectId: placed.project_id, folderId: placed.folder_id };
+      setConversations(current => current.map(item => item.id === id ? { ...item, ...fields } : item));
+      setChat(current => current?.id === id ? { ...current, host: placed.host, project_id: placed.project_id, folder_id: placed.folder_id } : current);
+    } catch (error) {
+      setError(describeWorkError(error));
+    }
+  }
+
+  /** Starts a conversation in a host, project or folder. */
+  function newChatIn(place: SessionPlace) {
+    pendingPlaceRef.current = place;
+    void startNewChat();
+  }
+
+  // A conversation started from a host or project takes its place once it exists.
+  useEffect(() => {
+    const place = pendingPlaceRef.current;
+    if (!place || !chat || chat.messages?.length) return;
+    pendingPlaceRef.current = null;
+    if ((chat.host ?? '') === (place.host ?? '') && (chat.project_id ?? '') === (place.project_id ?? '') && (chat.folder_id ?? '') === (place.folder_id ?? '')) return;
+    void moveConversation(chat.id, place);
+  }, [chat]);
 
   /**
    * A reply arrives before the notes its turn wrote reach the library. Wait
@@ -1523,7 +1567,7 @@ export default function Workspace() {
     setChat(next);
     const title = conversationTitle(next);
     // Keep the row once the conversation is no longer the open one.
-    setConversations(current => [{ id: next.id, entryId: next.entry_id, updatedAt: next.updated_at, title, named: Boolean(next.name) },
+    setConversations(current => [{ id: next.id, entryId: next.entry_id, updatedAt: next.updated_at, title, named: Boolean(next.name), host: next.host, projectId: next.project_id, folderId: next.folder_id },
       ...current.filter(item => item.id !== next.id)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)));
     setTabs(current => current.map(tab => tab.key === activeTabRef.current && tab.kind === 'agent' && tab.title !== title ? { ...tab, title } : tab));
   }
@@ -2806,6 +2850,18 @@ export default function Workspace() {
     return () => { document.removeEventListener('scroll', schedule, true); if (frame) cancelAnimationFrame(frame); };
   }, [notesPane, sidebarOpen, view, selected?.id, selected?.kind, headings, editorMode]);
 
+  /** One conversation in the work view's sidebar, indented by its depth in the tree. */
+  function conversationRow(item: (typeof listedConversations)[number], depth: number) {
+    return <div key={item.id} style={depth ? { paddingLeft: depth * 22 + 18 } : undefined} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`} onContextMenu={event => openContextMenu(event, 'conversation', item.id)}>
+              {editingConversationId === item.id
+                ? <input className="tree-inline-input conversation-name-input" autoFocus aria-label="会话名称" maxLength={60} defaultValue={item.named ? item.title ?? '' : ''} placeholder={item.title ?? '新对话'}
+                  onFocus={event => event.currentTarget.select()} onBlur={event => void saveConversationName(item.id, event.currentTarget.value)}
+                  onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.stopPropagation(); setEditingConversationId(null); } }} />
+                : <><button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
+                  <button type="button" className="conversation-more" aria-label={`「${item.title ?? '新对话'}」的操作`} title="重命名或删除" onClick={event => openContextMenu(event, 'conversation', item.id)}><MoreHorizontal size={15} /></button></>}
+            </div>;
+  }
+
   function sidebarRow(id: string, group: string, label: string, icon: ReactNode, onClick: () => void, active = false, extraClass = '') {
     return <div className={`sidebar-sort-row${active ? ' is-active' : ''}${extraClass ? ` ${extraClass}` : ''}`} key={id} {...dragProps(id, group)}
       onContextMenu={event => openContextMenu(event, 'sidebar', id, group)}>
@@ -2870,19 +2926,19 @@ export default function Workspace() {
         <button type="button" role="tab" aria-selected={notesPane === 'outline'} onClick={() => setOutlineOpen(true)}>大纲</button>
       </div> : null}
       {sideView === 'notes' && notesPane === 'outline' ? <div className="notes-outline-pane">{outlineTree()}</div> : <>
-      <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'sessions' ? '会话' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
+      {/* The work view's tree has its own 主机 and 文件夹 headings. */}
+      {sideView !== 'sessions' ? <div className="tree-heading"><span>{sideView === 'notes' ? '私人' : sideView === 'tools' ? '校园与专注' : '内置能力'}</span>
         <div className="tree-heading-actions">
           {sideView === 'notes' ? <><button type="button" disabled={Boolean(operations.create)} onClick={() => void createNote()} aria-label="新建笔记" title="新建 Markdown 笔记"><Plus size={15} /></button><button type="button" onClick={() => void createRichText()} aria-label="新建富文本文档" title="新建富文本文档"><FilePenLine size={15} /></button><button type="button" onClick={() => uploadPicker()} aria-label="上传文件" title="上传文件"><FileUp size={15} /></button><button type="button" onClick={() => createFolder()} aria-label="新建文件夹"><FolderPlus size={15} /></button></> : null}
-          {sideView === 'sessions' ? <button type="button" onClick={() => void startNewChat()} aria-label="新建对话" title="新对话"><Plus size={15} /></button> : null}
-          {sideView !== 'sessions' ? <div className="sidebar-sort-anchor" ref={sortMenuRef}>
+          <div className="sidebar-sort-anchor" ref={sortMenuRef}>
             <button type="button" aria-label="侧栏排序" aria-expanded={sortMenuOpen} title={`排序：${sortLabels[sidebarSort[sideView]]}`} onClick={() => setSortMenuOpen(open => !open)}><ListTree size={15} /></button>
             {sortMenuOpen ? <div className="sidebar-sort-menu" role="menu" aria-label="侧栏排序方式">
               {(sideView === 'notes' ? Object.keys(sortLabels) : ['manual', 'name-asc', 'name-desc']).map(mode => <button type="button" role="menuitemradio" aria-checked={sidebarSort[sideView] === mode} key={mode} onClick={() => changeSort(mode as SortMode)}><span>{sortLabels[mode as SortMode]}</span>{sidebarSort[sideView] === mode ? <Check size={14} /> : null}</button>)}
               <small>拖动或在项目操作中上移/下移，可改为手动排序</small>
             </div> : null}
-          </div> : null}
+          </div>
         </div>
-      </div>
+      </div> : null}
       <input ref={uploadRef} type="file" multiple hidden aria-label="上传课程资料" onChange={event => { void handleFileUpload(event.target.files); event.target.value = ''; }} />
       <nav className="obsidian-tree">
         {sideView === 'tools' ? <div className="campus-sidebar-list">{toolRows}</div> : sideView === 'plugins' ? <>
@@ -2907,16 +2963,11 @@ export default function Workspace() {
         </div>
           </div>
         </> : <>
-          {listedConversations.filter(item => !query.trim() || (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item =>
-            <div key={item.id} className={`sidebar-sort-row conversation-row${view === 'sessions' && chat?.id === item.id ? ' is-active' : ''}`} onContextMenu={event => openContextMenu(event, 'conversation', item.id)}>
-              {editingConversationId === item.id
-                ? <input className="tree-inline-input conversation-name-input" autoFocus aria-label="会话名称" maxLength={60} defaultValue={item.named ? item.title ?? '' : ''} placeholder={item.title ?? '新对话'}
-                  onFocus={event => event.currentTarget.select()} onBlur={event => void saveConversationName(item.id, event.currentTarget.value)}
-                  onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.stopPropagation(); setEditingConversationId(null); } }} />
-                : <><button className="session-tree-item" type="button" onClick={() => openConversation(item.entryId, item.id)}><MessageCircle size={15} /><span>{item.title ?? '…'}</span></button>
-                  <button type="button" className="conversation-more" aria-label={`「${item.title ?? '新对话'}」的操作`} title="重命名或删除" onClick={event => openContextMenu(event, 'conversation', item.id)}><MoreHorizontal size={15} /></button></>}
-            </div>)}
-          {!listedConversations.length ? <p className="plugin-sidebar-note">还没有对话</p> : null}
+          {query.trim()
+            ? listedConversations.filter(item => (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item => conversationRow(item, 0))
+            : <WorkTree hosts={workHosts} layout={workLayout} onLayoutChange={setWorkLayout} conversations={listedConversations}
+              renderConversation={(item, depth) => conversationRow(listedConversations.find(row => row.id === item.id)!, depth)}
+              onNewChat={newChatIn} onError={setError} />}
         </>}
       </nav>
       </>}
@@ -2997,6 +3048,20 @@ export default function Workspace() {
       if (id === 'graph') { setGraphOpen(true); return; }
       switchView(id === 'flashcards' ? 'anki' : id === 'tools' ? 'tools' : 'notes');
     }} /> : null}</Suspense>
+    <Dialog open={movingConversationId !== null} onOpenChange={open => { if (!open) setMovingConversationId(null); }}>
+      <DialogContent className="workspace-move-dialog work-move-dialog">
+        <DialogTitle>移动到</DialogTitle>
+        <DialogDescription>选择主机、项目或文件夹。放进项目后，之后的对话会在项目的文件夹中进行。</DialogDescription>
+        <div className="work-move-list" role="listbox" aria-label="目标位置">
+          {workHosts.map(host => <Fragment key={host.id}>
+            <button type="button" role="option" aria-selected={false} className="work-move-host" onClick={() => { const id = movingConversationId; setMovingConversationId(null); if (id) void moveConversation(id, { host: host.id, project_id: '', folder_id: '' }); }}>{host.kind === 'cloud' ? <Cloud size={15} /> : <Laptop size={15} />}<span>{host.name}</span></button>
+            {workLayout.projects.filter(project => project.host === host.id).map(project => <button key={project.id} type="button" role="option" aria-selected={false} className="work-move-project" onClick={() => { const id = movingConversationId; setMovingConversationId(null); if (id) void moveConversation(id, { project_id: project.id }); }}><FolderGit2 size={15} /><span>{project.name}</span></button>)}
+          </Fragment>)}
+          {workLayout.folders.length ? <p className="work-move-heading">文件夹</p> : null}
+          {workLayout.folders.map(folder => <button key={folder.id} type="button" role="option" aria-selected={false} onClick={() => { const id = movingConversationId; setMovingConversationId(null); if (id) void moveConversation(id, { folder_id: folder.id }); }}><Folder size={15} /><span>{folder.name}</span></button>)}
+        </div>
+      </DialogContent>
+    </Dialog>
     <Suspense fallback={null}>{libraryMenu && library ? <LibraryMenu name={library.name} noteCount={noteCount} fileCount={fileCount} folderCount={folders.length} anchor={libraryMenu}
       onClose={() => setLibraryMenu(null)}
       onRename={async name => { const updated = await renameLibrary(library.id, name); setLibraries(current => current.map(item => item.id === updated.id ? updated : item)); }}

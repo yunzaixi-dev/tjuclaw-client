@@ -290,7 +290,8 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
         const question = session.messages?.find(message => message.role === 'user')?.content.trim().replace(/\s+/g, ' ').slice(0, 40);
         const title = session.name || question;
         return { id: session.id, entry_id: session.entry_id, created_at: session.created_at, updated_at: session.updated_at,
-          ...(session.name ? { name: session.name } : {}), ...(title && !state.listWithoutTitles ? { title } : {}) };
+          ...(session.name ? { name: session.name } : {}), ...(title && !state.listWithoutTitles ? { title } : {}),
+          ...Object.fromEntries(['host', 'project_id', 'folder_id'].filter(key => session[key]).map(key => [key, session[key]])) };
       }),
     });
     if (sessions && method === 'POST') {
@@ -299,9 +300,21 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
     }
     const oneSession = path.match(/^\/api\/sessions\/([0-9a-f]{32})$/);
     if (oneSession && method === 'PATCH') {
-      const name = String(route.request().postDataJSON().title ?? '').trim().replace(/\s+/g, ' ');
+      const body = route.request().postDataJSON();
       const found = state.sessionById[oneSession[1]];
       if (!found) return json(route, 404, { error: { id: 'session_not_found' } });
+      // Placing, as the server does: a project brings its host and leaves any folder; a folder leaves the project.
+      if ('host' in body || 'project_id' in body || 'folder_id' in body) {
+        const place = { host: found.host ?? '', project_id: found.project_id ?? '', folder_id: found.folder_id ?? '' };
+        if ('host' in body) { if (body.host !== place.host) place.project_id = ''; place.host = body.host; }
+        if (body.project_id) { place.project_id = body.project_id; place.host = (state.workLayout?.projects ?? []).find(project => project.id === body.project_id)?.host ?? place.host; place.folder_id = ''; }
+        else if ('project_id' in body) place.project_id = '';
+        if (body.folder_id) { place.folder_id = body.folder_id; place.project_id = ''; } else if ('folder_id' in body) place.folder_id = '';
+        state.sessionById[oneSession[1]] = { ...state.sessionById[oneSession[1]], ...place };
+        state.placements = [...(state.placements ?? []), { id: found.id, ...place }];
+        return json(route, 200, { id: found.id, ...place });
+      }
+      const name = String(body.title ?? '').trim().replace(/\s+/g, ' ');
       state.sessionById[oneSession[1]] = { ...found, name: name || undefined };
       return json(route, 200, { id: found.id, name });
     }
@@ -4831,4 +4844,82 @@ test('on a phone the menu button opens the drawer even at its very edge, and the
   } finally {
     await context.close();
   }
+});
+
+test('the work view groups conversations by host, project and folder, and moves and starts them in place', async ({ page }) => {
+  const state = defaultState();
+  const project = { id: 'p1'.padEnd(32, '0'), host: 'ws:laptop', name: 'tjuclaw', path: '/home/me/tjuclaw', created_at: '2026-01-01T00:00:00Z' };
+  state.workLayout = { projects: [project], folders: [] };
+  const sessions = [
+    { ...sessionA, id: 'a1'.padEnd(32, '0'), name: '修复登录页', host: 'ws:laptop', project_id: project.id },
+    { ...sessionA, id: 'a2'.padEnd(32, '0'), name: '随便问问' },
+  ];
+  state.sessionsByEntry[guideA.id] = sessions;
+  for (const item of sessions) state.sessionById[item.id] = item;
+  await mockWorkspace(page, state);
+  const created = [];
+  await page.route('**/api/work/**', async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const body = request.postData() ? JSON.parse(request.postData()) : {};
+    if (path === '/api/work/layout') return json(route, 200, { layout: state.workLayout });
+    if (path === '/api/work/projects' && request.method() === 'POST') {
+      if (body.host !== 'cloud' && !body.path?.startsWith('/')) return json(route, 400, { error: { id: 'invalid_project' } });
+      const made = { id: `p${state.workLayout.projects.length + 1}`.padEnd(32, '0'), created_at: '2026-01-02T00:00:00Z', ...body };
+      state.workLayout.projects.push(made); created.push(made);
+      return json(route, 201, { project: made });
+    }
+    if (path === '/api/work/folders' && request.method() === 'POST') {
+      const folder = { id: 'f1'.padEnd(32, '0'), name: body.name, created_at: '2026-01-02T00:00:00Z' };
+      state.workLayout.folders.push(folder);
+      return json(route, 201, { folder });
+    }
+    const folderPath = path.match(/^\/api\/work\/folders\/(\w+)$/);
+    if (folderPath && request.method() === 'PATCH') {
+      const folder = state.workLayout.folders.find(item => item.id === folderPath[1]);
+      folder.name = body.name;
+      return json(route, 200, { folder });
+    }
+    return route.fallback();
+  });
+  await page.route('**/api/workspaces', route => json(route, 200, { workspaces: [{ id: 'laptop', name: '我的电脑', kind: 'local', capabilities: [], online: true, last_seen_at: null, created_at: '2026-01-01T00:00:00Z' }] }));
+  await page.goto('/workspace');
+  const sidebar = page.locator('.obsidian-sidebar');
+  await sidebar.getByRole('button', { name: '工作', exact: true }).click();
+  const tree = sidebar.locator('.work-tree');
+
+  // Hosts first: the cloud and the registered computer; its project holds its conversation.
+  await expect(tree.getByRole('button', { name: /^云端沙箱/ })).toBeVisible();
+  await expect(tree.getByText('随便问问')).toBeVisible();
+  await tree.getByRole('button', { name: /^我的电脑/ }).click();
+  await tree.getByRole('button', { name: /^tjuclaw/ }).click();
+  await expect(tree.getByText('修复登录页')).toBeVisible();
+
+  // A computer's project needs its directory; a cloud project does not.
+  await tree.getByRole('button', { name: '在「我的电脑」新建项目' }).click();
+  const dialog = page.getByRole('dialog', { name: '新建项目' });
+  await dialog.getByLabel('项目名称').fill('课程设计');
+  await expect(dialog.getByRole('button', { name: '创建项目' })).toBeDisabled();
+  await dialog.getByLabel('文件夹路径').fill('/home/me/课程设计');
+  await dialog.getByRole('button', { name: '创建项目' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(created[0]).toMatchObject({ host: 'ws:laptop', name: '课程设计', path: '/home/me/课程设计' });
+  await expect(tree.getByRole('button', { name: /^课程设计/ })).toBeVisible();
+
+  // A folder is named in place.
+  await tree.getByRole('button', { name: '新建会话文件夹' }).click();
+  await tree.getByRole('textbox', { name: '文件夹名称' }).fill('期末');
+  await tree.getByRole('textbox', { name: '文件夹名称' }).press('Enter');
+  await expect(tree.getByRole('button', { name: /^期末/ })).toBeVisible();
+
+  // Moving a conversation into the folder.
+  await tree.getByRole('button', { name: '「随便问问」的操作' }).click();
+  await page.getByRole('menuitem', { name: '移动到…' }).click();
+  await page.getByRole('dialog', { name: '移动到' }).getByRole('option', { name: '期末' }).click();
+  await expect.poll(() => state.placements?.at(-1)).toMatchObject({ id: sessions[1].id, folder_id: 'f1'.padEnd(32, '0') });
+  await expect(tree.locator('.work-node', { hasText: '期末' }).getByText('随便问问')).toBeVisible();
+
+  // A conversation started from a project is placed in it.
+  await tree.getByRole('button', { name: '在「课程设计」中新建对话' }).click();
+  await expect.poll(() => state.placements?.some(item => item.project_id === created[0].id)).toBe(true);
 });

@@ -192,6 +192,10 @@ export interface ChatSession {
   name?: string;
   /** How the session reads in a list: its name, or the start of the first question. Sent with a list of sessions, which has no messages. */
   title?: string;
+  /** Where the session sits in the work view; see lib/work.ts. */
+  host?: string;
+  project_id?: string;
+  folder_id?: string;
   messages?: ChatMessage[];
   created_at: string;
   updated_at: string;

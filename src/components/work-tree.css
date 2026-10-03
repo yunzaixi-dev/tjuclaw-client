@@ -1,0 +1,169 @@
+/* Work view sidebar: hosts › projects › conversations, then folders.
+   Rows share the notes tree's rhythm (30px, 6px radius, muted icons). */
+.work-tree { display: grid; gap: 1px; padding: 0 8px 12px; }
+
+.work-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin-top: 14px;
+  padding: 0 4px 0 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.work-section-head:first-child { margin-top: 4px; }
+.work-head-action,
+.work-row-action {
+  display: grid;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.work-head-action:hover,
+.work-row-action:hover { background: var(--hover-wash); color: var(--foreground); }
+
+.work-node { display: grid; gap: 1px; }
+.work-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding-right: 2px;
+  border-radius: 6px;
+}
+.work-row:hover { background: var(--hover-wash); }
+.work-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px 0 4px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklch, var(--foreground) 86%, var(--muted));
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.work-row-host .work-row-main { font-weight: 550; color: var(--foreground); }
+.work-row-main > svg { flex: none; color: var(--muted-foreground); }
+.work-chevron { transition: transform 160ms ease; }
+.work-chevron[data-open="true"] { transform: rotate(90deg); }
+.work-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-count { margin-left: auto; color: var(--muted-foreground); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.work-status { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--muted-foreground); opacity: .5; }
+.work-status.is-online { background: oklch(70% .17 150); opacity: 1; }
+
+/* Row actions show on hover or focus; on touch they are always there. */
+.work-row .work-row-action { opacity: 0; transition: opacity 120ms ease; }
+.work-row:hover .work-row-action,
+.work-row:focus-within .work-row-action,
+.work-row .work-row-action[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .work-row .work-row-action { opacity: 1; } }
+
+.work-children { display: grid; gap: 1px; }
+.work-children .conversation-row { margin-top: 0; }
+.work-empty { margin: 2px 0 6px; padding-right: 8px; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.work-name-input { flex: 1; min-width: 0; height: 26px; margin: 0 4px 0 30px; }
+
+.work-row-menu { position: relative; display: inline-flex; }
+.work-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px oklch(0% 0 0 / .12);
+  animation: menu-pop 140ms cubic-bezier(.2, .9, .3, 1) both;
+}
+.work-menu button {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.work-menu button:hover { background: var(--hover-wash); }
+.work-menu button.is-danger { color: var(--destructive); }
+.work-tree button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* New project dialog. */
+.work-project-dialog.ui-dialog-content { width: min(440px, calc(100vw - 32px)); padding: 22px 22px 18px; border-radius: 14px; }
+.work-project-dialog .ui-dialog-title { margin: 0; font-size: 17px; font-weight: 650; }
+.work-project-dialog .ui-dialog-description { margin: 6px 0 14px; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.work-project-dialog form { display: grid; gap: 12px; }
+.work-project-dialog label { display: grid; gap: 6px; }
+.work-project-dialog label span { font-size: 12px; font-weight: 550; }
+.work-project-dialog input,
+.work-project-dialog select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+}
+.work-project-dialog input:focus,
+.work-project-dialog select:focus { border-color: var(--ring); outline: 2px solid color-mix(in oklch, var(--ring) 25%, transparent); }
+.work-dialog-error { margin: 0; color: var(--destructive); font-size: 12.5px; }
+.work-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.work-dialog-actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.work-dialog-actions .is-primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.work-dialog-actions button:disabled { opacity: .45; cursor: default; }
+
+@media (max-width: 720px) {
+  .work-row, .work-row-main { min-height: 40px; height: auto; }
+  .work-row-main { font-size: 15px; }
+  .work-row-action, .work-head-action { width: 34px; height: 34px; }
+  .work-project-dialog input, .work-project-dialog select { height: 44px; font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .work-chevron, .work-menu { transition: none; animation: none; } }
+
+/* Move dialog: hosts with their projects beneath, then folders. */
+.work-move-list { display: grid; gap: 2px; max-height: min(60dvh, 420px); margin-top: 12px; overflow-y: auto; }
+.work-move-list button {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 36px; padding: 0 10px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--foreground);
+  font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.work-move-list button svg { flex: none; color: var(--muted-foreground); }
+.work-move-list button:hover, .work-move-list button:focus-visible { background: var(--hover-wash); outline: none; }
+.work-move-list .work-move-host { font-weight: 550; }
+.work-move-list .work-move-project { padding-left: 32px; }
+.work-move-heading { margin: 10px 10px 2px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
