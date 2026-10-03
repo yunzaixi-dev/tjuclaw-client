@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, Wrench, FileUp, FilePenLine, Paperclip } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { loadMath, mathML, mathReady } from './components/markdown-extras';
@@ -28,7 +28,7 @@ import { VaultError } from './lib/sealed-vault';
 import { attempt } from './lib/attempt';
 import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
-import { createEntry, describeLibraryError, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -80,11 +80,17 @@ const ScrollReader = lazy(() => import('./components/scroll-reader').then(module
 const FilePreview = lazy(() => import('./components/file-preview').then(module => ({ default: module.FilePreview })));
 const KnowledgeGraph = lazy(() => loadKnowledgeGraph().then(module => ({ default: module.KnowledgeGraph })));
 const WorkspaceSettings = lazy(() => loadWorkspaceSettings().then(module => ({ default: module.WorkspaceSettings })));
+const loadExtensionsCenter = () => import('./components/extensions-center');
+const ExtensionsCenter = lazy(() => loadExtensionsCenter().then(module => ({ default: module.ExtensionsCenter })));
+const LibraryMenu = lazy(() => import('./components/library-menu').then(module => ({ default: module.LibraryMenu })));
+// ZIP support loads only when a library is exported or imported.
+const loadLibraryTransfer = () => import('./lib/library-transfer');
 
 function preloadPanels() {
   void loadWorkspaceSettings().catch(() => undefined);
   void loadSearchPalette().catch(() => undefined);
   void loadKnowledgeGraph().catch(() => undefined);
+  void loadExtensionsCenter().catch(() => undefined);
 }
 const AnkiWorkspace = lazy(() => import('./components/anki-workspace').then(module => ({ default: module.AnkiWorkspace })));
 const CampusTools = lazy(() => import('./components/campus-tools').then(module => ({ default: module.CampusTools })));
@@ -516,6 +522,8 @@ export default function Workspace() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance');
   const [graphOpen, setGraphOpen] = useState(false);
+  const [extensionsTab, setExtensionsTab] = useState<'plugins' | 'mcp' | null>(null);
+  const [libraryMenu, setLibraryMenu] = useState<DOMRect | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [moveEntryId, setMoveEntryId] = useState<string | null>(null);
@@ -2844,7 +2852,7 @@ export default function Workspace() {
     <aside ref={sidebarRef} className="obsidian-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen}>
       {/* Notion-style sidebar: workspace, a pill row, the section's own list, apps. */}
       <div className="notion-side-head">
-        <button type="button" className="sidebar-library-button" title={library?.name ?? '我的知识库'} aria-label={`${library?.name ?? '我的知识库'}，${fileCount} 个文件，${folders.length} 个文件夹`} onClick={() => { setSettingsSection('library'); setSettingsOpen(true); }}>
+        <button type="button" className="sidebar-library-button" title={library?.name ?? '我的知识库'} aria-label={`${library?.name ?? '我的知识库'}，${fileCount} 个文件，${folders.length} 个文件夹`} onClick={event => setLibraryMenu(event.currentTarget.getBoundingClientRect())}>
           <span className="notion-workspace-mark" aria-hidden="true"><LibraryBig size={16} strokeWidth={1.8} /></span>
           <span className="sidebar-library-copy"><strong className="sidebar-library-name">{library?.name ?? '我的知识库'}</strong><small>{fileCount} 个文件 · {folders.length} 个文件夹</small></span>
           <ChevronDown className="sidebar-library-chevron" size={14} />
@@ -2914,9 +2922,8 @@ export default function Workspace() {
       </>}
       <div className="notion-side-section notion-apps" aria-label="应用">
         <div className="tree-heading"><span>应用</span></div>
-        {([
-          { id: 'tools', label: '小工具', Icon: Wrench },
-        ] as const).map(({ id, label, Icon }) => <button key={id} type="button" className={`notion-side-row${view === id ? ' is-active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => switchView(id)}><Icon size={15} /><span>{label}</span></button>)}
+        <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setExtensionsTab('plugins'); }}><Blocks size={15} /><span>插件</span></button>
+        <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setExtensionsTab('mcp'); }}><Plug size={15} /><span>MCP 服务</span></button>
         <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setGraphOpen(true); }}><Network size={15} /><span>知识图谱</span></button>
         <button type="button" className="notion-side-row" onPointerDown={preloadPanels} onClick={() => { if (isMobile) setSidebarOpen(false); setSettingsSection('appearance'); setSettingsOpen(true); }}><Settings size={15} /><span>设置</span></button>
       </div>
@@ -2983,8 +2990,26 @@ export default function Workspace() {
     <Suspense fallback={null}>{settingsOpen ? <WorkspaceSettings open={settingsOpen} onOpenChange={setSettingsOpen} section={settingsSection} onSectionChange={setSettingsSection} libraryName={library?.name ?? '我的知识库'} fileCount={fileCount} noteCount={noteCount} folderCount={folders.length} cardCount={ankiCards.length} email={session.email} editorMode={editorMode} onEditorModeChange={setEditorMode} onShowNotes={() => { setView('notes'); setSettingsOpen(false); setSidebarOpen(true); }} onShowCards={() => { setView('anki'); setSettingsOpen(false); setSidebarOpen(true); }} onExportCards={exportAnki} legacyAnkiBackupAvailable={legacyAnkiBackupAvailable} onExportLegacyAnkiBackup={exportLegacyAnkiBackup} onLogout={logoutWorkspace} identity={session.id} onOpenPlugin={id => {
       setSettingsOpen(false);
       if (id === 'graph') { setGraphOpen(true); return; }
-      switchView(id === 'flashcards' ? 'anki' : 'notes');
+      switchView(id === 'flashcards' ? 'anki' : id === 'tools' ? 'tools' : 'notes');
     }} /> : null}</Suspense>
+    <Suspense fallback={null}>{extensionsTab ? <ExtensionsCenter open tab={extensionsTab} onTabChange={setExtensionsTab} onOpenChange={open => { if (!open) setExtensionsTab(null); }} onOpenPlugin={id => {
+      setExtensionsTab(null);
+      if (id === 'graph') { setGraphOpen(true); return; }
+      switchView(id === 'flashcards' ? 'anki' : id === 'tools' ? 'tools' : 'notes');
+    }} /> : null}</Suspense>
+    <Suspense fallback={null}>{libraryMenu && library ? <LibraryMenu name={library.name} noteCount={noteCount} fileCount={fileCount} folderCount={folders.length} anchor={libraryMenu}
+      onClose={() => setLibraryMenu(null)}
+      onRename={async name => { const updated = await renameLibrary(library.id, name); setLibraries(current => current.map(item => item.id === updated.id ? updated : item)); }}
+      onExport={async progress => (await loadLibraryTransfer()).exportLibrary(library, progress)}
+      onImport={async (files, progress) => {
+        const result = await (await loadLibraryTransfer()).importIntoLibrary(library.id, files, undefined, progress);
+        const items = (await listEntries(library.id)).map(listedWithCache);
+        pruneEntryCache(items);
+        showTree(items);
+        return `已导入 ${result.notes} 篇笔记${result.files ? `、${result.files} 个文件` : ''}${result.folders ? `，新建 ${result.folders} 个文件夹` : ''}${result.skipped ? `；${result.skipped} 个空文件或超过 8 MB 的文件已跳过` : ''}。`;
+      }}
+      onDelete={async () => { await deleteLibrary(library.id); location.reload(); }}
+      onOpenSettings={() => { setLibraryMenu(null); setSettingsSection('library'); setSettingsOpen(true); }} /> : null}</Suspense>
     <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载知识图谱" /></div>}>{graphOpen ? <KnowledgeGraph key={session.id} open={graphOpen} onOpenChange={setGraphOpen} entries={entries} onOpenNote={id => { void openEntry(id); setGraphOpen(false); }} /> : null}</Suspense>
     <Dialog open={moveEntryId !== null} onOpenChange={open => { if (!open) setMoveEntryId(null); }}><DialogContent className="workspace-move-dialog"><DialogTitle>移动到</DialogTitle><DialogDescription>选择文档所在的文件夹</DialogDescription><div className="workspace-folder-picker"><button type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, null)}><Folder size={17} /> 知识库根目录 <MoveRight size={15} /></button>{folders.map(folder => <button key={folder.id} type="button" onClick={() => moveEntryId && moveEntry(moveEntryId, folder.id)} style={{ paddingLeft: 16 + folders.filter(parent => parent.id === folder.parentId).length * 16 }}><Folder size={17} /> {folder.name} <MoveRight size={15} /></button>)}</div></DialogContent></Dialog>
     <Suspense fallback={<div className="workspace-feature-loading"><OperationProgress label="正在加载快速切换" /></div>}>{commandOpen ? <SearchPalette open={commandOpen} onOpenChange={setCommandOpen} libraryId={library?.id} sources={{

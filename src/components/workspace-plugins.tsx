@@ -1,4 +1,4 @@
-import { Blocks, FileText, Network, SquareStack } from 'lucide-react';
+import { Blocks, FileText, Network, SquareStack, Wrench } from 'lucide-react';
 
 export const builtInPlugins = [
   {
@@ -24,6 +24,14 @@ export const builtInPlugins = [
     details: ['编辑卡片正面、背面与标签', '导出 TSV 文件'],
     action: '打开记忆闪卡',
     Icon: SquareStack,
+  },
+  {
+    id: 'tools',
+    name: '校园小工具',
+    description: '课表、GPA、考试、自习室、校园论坛与入校码。',
+    details: ['微北洋与办公网账号分别绑定', '课表与 GPA 可本地手动维护'],
+    action: '打开校园小工具',
+    Icon: Wrench,
   },
 ] as const;
 

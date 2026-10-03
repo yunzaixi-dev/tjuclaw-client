@@ -2839,8 +2839,9 @@
    It follows the finger (use-drawer-gesture) and settles with a spring-like
    ease. Closed, it sits past its own shadow so no edge shows. */
 @media (max-width: 720px) {
+  /* Above the floating composer (25) and the rail (20); below menus and sheets. */
   .obsidian-app .obsidian-sidebar {
-    position: absolute; z-index: 20; inset: 0 auto 0 0;
+    position: absolute; z-index: 40; inset: 0 auto 0 0;
     width: min(86vw, 340px); height: 100%;
     opacity: 1;
     transform: translate3d(0, 0, 0);
@@ -2859,7 +2860,7 @@
     transition-duration: 320ms;
   }
   .obsidian-app .mobile-sidebar-backdrop {
-    display: block; position: absolute; z-index: 19; inset: 0;
+    display: block; position: absolute; z-index: 39; inset: 0;
     width: 100%; height: 100%; padding: 0; border: 0;
     background: oklch(0% 0 0 / .34);
     opacity: 1; visibility: visible;
@@ -2873,8 +2874,9 @@
     opacity: 0; visibility: hidden; pointer-events: none;
     transition: opacity 320ms cubic-bezier(.32, .72, 0, 1), visibility 0s 320ms;
   }
+  /* Starts below the top bar, so the menu button there always gets its tap. */
   .obsidian-app .mobile-drawer-edge {
-    position: absolute; z-index: 18; top: 0; bottom: 0; left: 0;
+    position: absolute; z-index: 18; top: calc(64px + env(safe-area-inset-top)); bottom: 0; left: 0;
     width: 22px; touch-action: pan-y;
   }
 }

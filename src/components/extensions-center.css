@@ -1,0 +1,70 @@
+/* Extension centre: one large panel with a segmented switch between plugins and MCP. */
+.extensions-center.ui-dialog-content {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, calc(100vw - 64px));
+  height: min(720px, calc(100dvh - 64px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--muted) 38%, var(--surface));
+  box-shadow: 0 28px 72px oklch(0% 0 0 / .18), 0 2px 8px oklch(0% 0 0 / .06);
+}
+.extensions-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 18px 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.extensions-title { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.extensions-title .ui-dialog-title { margin: 0; font-size: 22px; font-weight: 680; letter-spacing: -.02em; }
+.extensions-title .ui-dialog-description { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.extensions-tabs {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--muted);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 70%, transparent);
+}
+.extensions-tabs button {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 14px;
+  border: 0; border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit; font-size: 13px; font-weight: 550;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.extensions-tabs button[aria-selected="true"] { background: var(--surface); color: var(--foreground); box-shadow: 0 1px 2px oklch(0% 0 0 / .12), 0 0 0 1px color-mix(in oklch, var(--border) 80%, transparent); }
+.extensions-close { display: grid; flex: none; width: 34px; height: 34px; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.extensions-close:hover { background: var(--muted); color: var(--foreground); }
+.extensions-body { flex: 1; min-height: 0; padding: 8px 32px 48px; overflow-y: auto; overscroll-behavior: contain; }
+.extensions-body h3 { margin: 22px 0 10px 2px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.extensions-body .settings-about-note { max-width: 680px; }
+.extensions-body .mcp-card { background: var(--surface); }
+.extensions-center button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .extensions-center.ui-dialog-content {
+    inset: 0; top: 0; bottom: 0; left: 0;
+    width: 100%; height: 100dvh;
+    border: 0; border-radius: 0;
+    transform: none;
+    box-shadow: none;
+    animation: settings-sheet-in 320ms cubic-bezier(.32, .72, 0, 1);
+  }
+  .extensions-head { flex-wrap: wrap; gap: 12px; padding: max(14px, env(safe-area-inset-top)) 12px 14px 16px; }
+  .extensions-title { order: 1; flex-basis: calc(100% - 52px); }
+  .extensions-title .ui-dialog-title { font-size: 26px; }
+  .extensions-close { order: 2; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in oklch, var(--foreground) 8%, transparent); }
+  .extensions-tabs { order: 3; width: 100%; }
+  .extensions-tabs button { flex: 1; justify-content: center; height: 34px; }
+  .extensions-body { padding: 4px 16px calc(40px + env(safe-area-inset-bottom)); }
+}

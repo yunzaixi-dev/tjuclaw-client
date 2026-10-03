@@ -13,7 +13,7 @@ export function SkillSettings() {
 
   useEffect(() => {
     const controller = new AbortController();
-    listSkills(controller.signal).then(setSkills).catch(cause => { if (!controller.signal.aborted) setError(describeSkillError(cause)); });
+    listSkills(controller.signal).then(setSkills).catch(cause => { if (!controller.signal.aborted) setError(describeSkillError(cause, true)); });
     return () => controller.abort();
   }, []);
 

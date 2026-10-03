@@ -73,7 +73,8 @@ export function useDrawerGesture({ root, drawer, backdrop, open, enabled, onOpen
       const width = panel.getBoundingClientRect().width || 300;
       const onDrawer = panel.contains(target) || backdrop.current?.contains(target);
       if (open && !onDrawer) return;
-      if (!open && event.clientX > EDGE) return;
+      // A tap on a control near the edge (the menu button) is a tap, not a swipe.
+      if (!open && (event.clientX > EDGE || (target as Element).closest?.('button, a, input, textarea, [role="button"]'))) return;
       drag = {
         id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp, width,
         opening: !open, horizontal: null, dx: 0, lastX: event.clientX, lastTime: event.timeStamp, velocity: 0,
