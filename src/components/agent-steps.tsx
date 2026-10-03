@@ -1,7 +1,7 @@
 import { memo, useState } from 'react';
 import {
   BookOpen, Brain, CalendarDays, ChevronRight, DoorOpen, FileInput, FilePen, FilePlus2, FileSearch, FileText, FileX2, FolderTree,
-  GraduationCap, Image as ImageIcon, ListChecks, MessagesSquare, Search, SquareTerminal, Wrench, type LucideIcon,
+  GraduationCap, Image as ImageIcon, ListChecks, MessagesSquare, Plug, Search, SquareTerminal, Wrench, type LucideIcon,
 } from 'lucide-react';
 import type { LiveStatus, TurnStep } from '../lib/library';
 import './agent-steps.css';
@@ -39,6 +39,9 @@ function describe(step: TurnStep): ToolView {
   const input = parse(step.input);
   const output = unwrap(step.output);
   const title = text(field(input, 'title')) || text(field(output, 'title')) || text(field(output, 'Title'));
+  // A tool from one of the user's MCP servers: mcp__<server>__<tool>.
+  const mcp = /^mcp__([a-z][a-z0-9_]*?)__(.+)$/.exec(step.name ?? '');
+  if (mcp) return { icon: Plug, label: `${mcp[1]} · ${mcp[2]}` };
   switch (step.name) {
     case 'list_tree': return { icon: FolderTree, label: '查看笔记目录', detail: count(output, '个条目') };
     case 'read_entry': return { icon: BookOpen, label: `阅读${quote(title) || '笔记'}` };

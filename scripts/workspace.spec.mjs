@@ -4510,3 +4510,76 @@ test('a long conversation opens at its foot, and earlier replies are whole when 
   await expect(page.locator('.chat-message.assistant')).toHaveCount(31);
   await expect.poll(() => scroller.evaluate(node => Math.round(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2);
 });
+
+test('adds, checks, pauses and removes MCP servers without showing their keys', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  const catalog = [
+    { id: 'deepwiki', title: 'DeepWiki', publisher: 'Cognition', summary: '读懂 GitHub 上的开源项目', description: '按仓库名查询文档。', homepage: 'https://deepwiki.com', auth: 'none' },
+    { id: 'amap', title: '高德地图', publisher: '高德开放平台', summary: '地点搜索、路线规划和天气', description: '需要 Web 服务 Key。', homepage: 'https://lbs.amap.com', auth: 'query', key_label: 'Web 服务 Key', key_help: '在控制台创建', key_url: 'https://console.amap.com' },
+  ];
+  const servers = [];
+  const requests = [];
+  await page.route('**/api/account/mcp**', async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const body = request.postData() ? JSON.parse(request.postData()) : null;
+    requests.push({ method: request.method(), path, body });
+    const reply = (status, value) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
+    if (path === '/api/account/mcp' && request.method() === 'GET') return reply(200, { catalog, servers });
+    if (path === '/api/account/mcp' && request.method() === 'POST') {
+      const entry = catalog.find(item => item.id === body.catalog_id);
+      const server = { id: `s${servers.length + 1}`, catalog_id: body.catalog_id, name: body.catalog_id ?? body.name, title: entry?.title ?? (body.title || 'mcp.example.com'),
+        url: entry ? undefined : body.url, auth: entry?.auth ?? body.auth, has_secret: Boolean(body.secret), enabled: true };
+      servers.push(server);
+      return reply(201, { server });
+    }
+    const id = path.split('/')[4];
+    const server = servers.find(item => item.id === id);
+    if (path.endsWith('/check')) return server.title === '高德地图'
+      ? reply(502, { error: { id: 'mcp_unauthorized' } })
+      : reply(200, { tools: [{ name: 'read_wiki_structure', description: '' }, { name: 'ask_wiki_question', description: '' }] });
+    if (request.method() === 'PATCH') { Object.assign(server, body.enabled === undefined ? {} : { enabled: body.enabled }); return reply(200, { server }); }
+    if (request.method() === 'DELETE') { servers.splice(servers.indexOf(server), 1); return route.fulfill({ status: 204 }); }
+    return reply(404, {});
+  });
+  await page.goto('/workspace');
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: 'MCP 服务' }).click();
+  const settings = page.getByRole('dialog');
+  await expect(settings.getByText('还没有添加 MCP 服务。')).toBeVisible();
+
+  // A keyless catalog server is added at once and checked.
+  await settings.getByRole('article', { name: 'DeepWiki' }).getByRole('button', { name: '添加' }).click();
+  await expect(settings.getByText('连接正常，提供 2 个工具：read_wiki_structure、ask_wiki_question')).toBeVisible();
+  await expect(settings.getByRole('article', { name: 'DeepWiki' }).getByText('已添加')).toBeVisible();
+
+  // One that needs a key asks for it, with where to get one.
+  const amap = settings.getByRole('article', { name: '高德地图' });
+  await amap.getByRole('button', { name: '添加' }).click();
+  await expect(amap.getByRole('link', { name: '前往获取' })).toHaveAttribute('href', 'https://console.amap.com');
+  await amap.getByLabel('Web 服务 Key').fill('amap-secret-key');
+  await amap.getByRole('button', { name: '保存并添加' }).click();
+  await expect(settings.getByText('服务拒绝了访问，请检查密钥是否正确、是否有权限。')).toBeVisible();
+  expect(requests.find(item => item.body?.catalog_id === 'amap').body).toEqual({ catalog_id: 'amap', secret: 'amap-secret-key' });
+  await expect(settings.getByText('已设置密钥')).toBeVisible();
+  await expect(settings.getByText('amap-secret-key')).toHaveCount(0);
+
+  // Any Streamable HTTP server can be added by address.
+  await settings.getByRole('button', { name: '添加自定义服务' }).click();
+  await settings.getByLabel('服务地址').fill('https://mcp.example.com/mcp');
+  await settings.getByLabel('工具前缀').fill('course');
+  await settings.getByLabel('认证方式').selectOption('bearer');
+  await settings.getByLabel('密钥', { exact: true }).fill('custom-token');
+  await settings.locator('form').getByRole('button', { name: '添加' }).click();
+  await expect.poll(() => requests.find(item => item.body?.name === 'course')?.body).toEqual({ name: 'course', title: '', url: 'https://mcp.example.com/mcp', auth: 'bearer', auth_name: '', secret: 'custom-token' });
+  await expect(settings.getByText('https://mcp.example.com/mcp')).toBeVisible();
+
+  // Pausing keeps the server; removing asks first.
+  await settings.getByRole('checkbox').first().click();
+  await expect.poll(() => requests.some(item => item.method === 'PATCH' && item.body?.enabled === false)).toBe(true);
+  await expect(settings.getByText('已停用')).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await settings.getByRole('button', { name: '移除「DeepWiki」' }).click();
+  await expect(settings.getByRole('button', { name: '移除「DeepWiki」' })).toHaveCount(0);
+  await expect(settings.getByRole('article', { name: 'DeepWiki' }).getByRole('button', { name: '添加' })).toBeVisible();
+});

@@ -1,16 +1,17 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { Blocks, BookOpen, Bot, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
+import { Blocks, BookOpen, Bot, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Plug, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { CampusAccounts } from './campus-accounts';
+import { McpSettings } from './mcp-settings';
 import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
 import { versionLabel } from '../lib/version';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, formatQuotaUse, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 
-export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'account' | 'about';
+export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'mcp' | 'account' | 'about';
 
 const sections = [
   { id: 'appearance', label: '外观', icon: Palette, keywords: '配色 主题 强调色 深色 浅色 背景 动画 生命游戏' },
@@ -20,6 +21,7 @@ const sections = [
   { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
   { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置' },
+  { id: 'mcp', label: 'MCP 服务', icon: Plug, keywords: 'MCP 工具 服务 扩展 市场 GitHub 高德 搜索 DeepWiki Context7' },
   { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
@@ -32,6 +34,7 @@ const descriptions: Record<SettingsSection, string> = {
   model: 'Agent 对话使用的模型服务。',
   campus: '校园小工具使用的微北洋与办公网账号，各自独立绑定。',
   plugins: '工作区内置的能力，无需安装。',
+  mcp: '为 Agent 接入外部服务的工具。',
   account: '当前登录状态与账户操作。',
   about: '关于此工作区。',
 };
@@ -261,6 +264,7 @@ export function WorkspaceSettings({
               </form>
             </> : null}
             {active === 'campus' ? <CampusAccounts identity={identity} /> : null}
+            {active === 'mcp' ? <McpSettings /> : null}
             {active === 'plugins' ? <>
               <h3>内置插件</h3>
               {builtInPlugins.map(plugin => <SettingRow key={plugin.id} title={plugin.name} description={plugin.description}><button type="button" className="settings-action-button" onClick={() => onOpenPlugin(plugin.id)}>{plugin.action} <ChevronRight size={14} /></button></SettingRow>)}
