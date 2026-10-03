@@ -178,8 +178,11 @@ test('exact lazy route precedes the unchanged knowledge workspace prefix route',
   assert.match(entry, /pathname\.startsWith\('\/workspace'\) \? import\('\.\/workspace'\)/);
 });
 
-test('knowledge workspace settings expose a discoverable semantic connection-management link', async () => {
+test('settings keep the connection-management link behind a switch until users can get the CLI', async () => {
   const settings = await readFile(new URL('../src/components/workspace-settings.tsx', import.meta.url), 'utf8');
-  assert.match(settings, /SettingRow title="系统工作空间连接"[^]*?href="\/workspace\/connections"/);
-  assert.match(settings, /keywords: '[^']*系统工作空间连接[^']*'/);
+  // The link is written and ready, and shown only once the switch is turned on.
+  assert.match(settings, /\{SYSTEM_WORKSPACES_LISTED \? <SettingRow title="系统工作空间连接"[^]*?href="\/workspace\/connections"/);
+  assert.match(settings, /const SYSTEM_WORKSPACES_LISTED = false;/);
+  // Search does not lead to a page Settings does not show.
+  assert.doesNotMatch(settings, /keywords: '[^']*系统工作空间连接[^']*'/);
 });
