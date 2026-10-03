@@ -86,7 +86,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), ...(mode === 'audit' ? [] : [preloadWorkspace(), serviceWorker()]), ...(mode === 'audit'
     ? [auditServer(fileURLToPath(new URL('../private/audit/', import.meta.url)))] : [])],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  define: { __APP_VERSION__: JSON.stringify(packageVersion), __APP_COMMIT__: JSON.stringify(buildCommit()) },
+  define: { __APP_VERSION__: JSON.stringify(packageVersion), __APP_COMMIT__: JSON.stringify(buildCommit()), __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()) },
   clearScreen: false,
   server: {
     host: mode === 'audit' ? '127.0.0.1' : process.env.TAURI_DEV_HOST || '127.0.0.1',

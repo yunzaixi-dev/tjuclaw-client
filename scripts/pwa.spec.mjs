@@ -53,6 +53,13 @@ test('the app is installable and its shell opens offline, while the API is never
 });
 
 test('a newer build waits until the reader chooses to refresh', async ({ page }) => {
+  // The public changelog: one entry from before this build, two after it.
+  const later = minutes => new Date(Date.now() + minutes * 60_000).toISOString();
+  await page.route('**/api/release-notes', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [
+    { title: '刷新后编辑笔记可以正常保存', published_at: later(2) },
+    { title: '手机上从笔记主页直接提问', published_at: later(1) },
+    { title: '构建之前的旧条目', published_at: '2020-01-01T00:00:00Z' },
+  ] }) }));
   await page.goto('/auth/login');
   expect(await controlled(page)).toBe(true);
   await expect(page.getByRole('status', { name: '应用更新' })).toHaveCount(0);
@@ -68,10 +75,9 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
     await expect(notice).toContainText('新版本已就绪');
     // The notice names the build the reader is on.
     await expect(notice).toContainText(/当前 v\d+\.\d+\.\d+/);
-    // It says what the new build changes, in the few lines shipped with it, and where the rest is.
-    const shipped = JSON.parse(readFileSync(new URL('../dist/release-notes.json', import.meta.url), 'utf8')).items;
+    // It lists the changelog entries published since this build, newest first, and where the rest is.
     const summary = notice.getByRole('list', { name: '更新内容' });
-    await expect(summary.getByRole('listitem')).toHaveText(shipped.slice(0, 4));
+    await expect(summary.getByRole('listitem')).toHaveText(['刷新后编辑笔记可以正常保存', '手机上从笔记主页直接提问']);
     await expect(notice.getByRole('link', { name: '全部更新' })).toHaveAttribute('href', 'https://changelog.tjuclaw.cloud/');
     // Until the reader agrees, the page keeps the build it started with.
     expect(await page.evaluate(() => navigator.serviceWorker.getRegistration().then(registration => Boolean(registration.waiting)))).toBe(true);
@@ -79,6 +85,8 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
     await Promise.all([page.waitForEvent('load'), notice.getByRole('button', { name: '刷新', exact: true }).click()]);
     await expect(page.getByLabel('邮箱地址', { exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter(name => name.startsWith('tjuclaw-shell-')))).toEqual([`tjuclaw-shell-${'f'.repeat(16)}`]);
+    // Entries already shown are not listed again by the next update.
+    expect(Number(await page.evaluate(() => localStorage.getItem('tjuclaw.release-notes.seen')))).toBeGreaterThan(Date.now());
   } finally {
     writeFileSync(file, current);
   }
