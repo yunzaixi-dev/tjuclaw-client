@@ -70,8 +70,10 @@ export async function fetchReleaseSummary(builtAt: string, signal?: AbortSignal)
     const items: ChangelogItem[] = [];
     for (const value of raw) {
       if (!value || typeof value !== 'object') continue;
-      const { title, published_at: published } = value as { title?: unknown; published_at?: unknown };
+      const { title, published_at: published, tags } = value as { title?: unknown; published_at?: unknown; tags?: unknown };
       const at = typeof published === 'string' ? Date.parse(published) : NaN;
+      // A day's maintenance note covers changes users do not see, under the same title each day.
+      if (Array.isArray(tags) && tags.includes('维护')) continue;
       if (typeof title === 'string' && Number.isFinite(at) && at > since) items.push({ title, at });
     }
     items.sort((a, b) => b.at - a.at);

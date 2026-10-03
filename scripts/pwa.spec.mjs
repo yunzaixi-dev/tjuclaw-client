@@ -57,6 +57,7 @@ test('a newer build waits until the reader chooses to refresh', async ({ page })
   const later = minutes => new Date(Date.now() + minutes * 60_000).toISOString();
   await page.route('**/api/release-notes', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [
     { title: '刷新后编辑笔记可以正常保存', published_at: later(2) },
+    { title: '维护记录', published_at: later(3), tags: ['维护'] },
     { title: '手机上从笔记主页直接提问', published_at: later(1) },
     { title: '构建之前的旧条目', published_at: '2020-01-01T00:00:00Z' },
   ] }) }));
