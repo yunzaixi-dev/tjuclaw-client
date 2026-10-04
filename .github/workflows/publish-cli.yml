@@ -1,0 +1,77 @@
+name: Publish CLI Downloads
+
+# Publishes the tjuclaw CLI downloads (yunzaixi-dev/tjucli) to the same R2
+# bucket as the client, reusing this repository's R2 credentials. The CLI
+# source is public; only a commit already on its release branch is accepted,
+# and only the final publish step sees the credentials.
+on:
+  workflow_dispatch:
+    inputs:
+      cli_sha:
+        description: 'Exact tjucli commit SHA (40 hex) on its release branch'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, test and publish tjuclaw downloads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/release'
+    steps:
+      - name: Validate the requested commit
+        env:
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          [[ $CLI_SHA =~ ^[0-9a-f]{40}$ ]] || { echo "cli_sha must be a full 40-hex commit"; exit 1; }
+
+      - name: Checkout tjucli at that commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: yunzaixi-dev/tjucli
+          ref: ${{ inputs.cli_sha }}
+          path: cli
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the commit to be on tjucli's release branch
+        env:
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          git -C cli fetch --quiet origin release
+          git -C cli merge-base --is-ancestor "$CLI_SHA" origin/release || { echo "$CLI_SHA is not on tjucli release"; exit 1; }
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: cli/go.mod
+          cache: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+
+      - name: Build six platforms, scan them and test install.sh
+        working-directory: cli
+        run: |
+          bash scripts/build-downloads.sh
+          node --test scripts/publish-downloads.test.mjs
+          bash scripts/test-install.sh
+
+      - name: Publish (skips a version already published)
+        working-directory: cli
+        env:
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node scripts/publish-downloads.mjs
