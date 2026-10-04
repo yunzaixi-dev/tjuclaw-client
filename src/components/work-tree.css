@@ -167,3 +167,4 @@
 .work-move-list .work-move-host { font-weight: 550; }
 .work-move-list .work-move-project { padding-left: 32px; }
 .work-move-heading { margin: 10px 10px 2px; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.work-row-action:disabled { opacity: .35 !important; cursor: default; }

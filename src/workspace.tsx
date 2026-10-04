@@ -35,7 +35,8 @@ import './product.css';
 import './workspace.css';
 import './obsidian-shell.css';
 import { storedItemExists, storedJSON, storeItem } from './lib/safe-storage';
-import { CLOUD_HOST, describeWorkError, getWorkLayout, listWorkHosts, placeSession, type SessionPlace, type WorkHost, type WorkLayout } from './lib/work';
+import { CLOUD_HOST, describeWorkError, getWorkLayout, listWorkHosts, placeSession, type SessionPlace, type WorkHost, type WorkLayout, type WorkProject } from './lib/work';
+import type { TerminalTab } from './components/terminal-dock';
 import { WorkTree } from './components/work-tree';
 
 type VaultFolder = { id: string; name: string; parentId: string | null };
@@ -70,6 +71,7 @@ function storedSidebarOrder(identity: string | null | undefined): Record<string,
 }
 const nameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 const RichTextEditor = lazy(() => import('./components/rich-text-editor'));
+const TerminalDock = lazy(() => import('./components/terminal-dock'));
 const AgentThread = lazy(() => import('./components/agent-thread').then(module => ({ default: module.AgentThread })));
 const NoteHistory = lazy(() => import('./components/note-history').then(module => ({ default: module.NoteHistory })));
 // Panels opened from the sidebar load in idle time after the workspace shows,
@@ -629,6 +631,20 @@ export default function Workspace() {
   // The work view: hosts the user can run on, and their projects and folders.
   const [workLayout, setWorkLayout] = useState<WorkLayout>({ projects: [], folders: [] });
   const [workHosts, setWorkHosts] = useState<WorkHost[]>([{ id: CLOUD_HOST, name: '云端沙箱', kind: 'cloud', online: true }]);
+  // Live terminals on connected computers, docked under the page.
+  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [activeTerminal, setActiveTerminal] = useState('');
+  const openTerminalTab = (tab: TerminalTab) => { setTerminalTabs(current => [...current, tab]); setActiveTerminal(tab.key); };
+  const openTerminalOn = (host: WorkHost, project?: WorkProject) => {
+    if (!host.id.startsWith('ws:')) return;
+    if (window.innerWidth <= 720) setSidebarOpen(false);
+    openTerminalTab({ key: crypto.randomUUID(), workspaceId: host.id.slice(3), hostName: host.name, label: project?.name ?? host.name, ...(project?.path ? { cwd: project.path } : {}) });
+  };
+  const closeTerminalTab = (key: string) => setTerminalTabs(current => {
+    const next = current.filter(tab => tab.key !== key);
+    setActiveTerminal(active => active === key ? next[next.length - 1]?.key ?? '' : active);
+    return next;
+  });
   const pendingPlaceRef = useRef<SessionPlace | null>(null);
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   // The work view's hosts, projects and folders load when it is first shown.
@@ -2967,7 +2983,7 @@ export default function Workspace() {
             ? listedConversations.filter(item => (item.title ?? '').toLowerCase().includes(query.trim().toLowerCase())).map(item => conversationRow(item, 0))
             : <WorkTree hosts={workHosts} layout={workLayout} onLayoutChange={setWorkLayout} conversations={listedConversations}
               renderConversation={(item, depth) => conversationRow(listedConversations.find(row => row.id === item.id)!, depth)}
-              onNewChat={newChatIn} onError={setError} />}
+              onNewChat={newChatIn} onOpenTerminal={openTerminalOn} onError={setError} />}
         </>}
       </nav>
       </>}
@@ -3032,6 +3048,7 @@ export default function Workspace() {
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <div className="mobile-ask-bar"><button type="submit" className="mobile-ask-send" aria-label="发送" disabled={!homeAsk.trim() || askingFromHome}><ArrowUp size={16} /></button></div>
       </form> : null}
+      {terminalTabs.length ? <Suspense fallback={null}><TerminalDock tabs={terminalTabs} activeKey={activeTerminal} onActivate={setActiveTerminal} onClose={closeTerminalTab} onNew={openTerminalTab} /></Suspense> : null}
       <footer className="workspace-statusbar"><span>{library?.name ?? '我的知识库'}</span><span className="statusbar-details">{<>{saveConflictId ? `保存冲突 · ${selectedId === saveConflictId ? '当前内容' : '另一篇笔记'}未保存` : saveFailedId ? `保存失败 · ${selectedId === saveFailedId ? '当前内容' : '另一篇笔记'}未保存` : saving ? '保存中…' : '已保存'}{selected?.kind === 'note' ? ` · ${body.length} 字符` : ''}{selected && (selected.kind === 'note' || selected.kind === 'rich_text') && view === 'notes' ? ` · ${editedLabel(selected.updated_at)}` : ''}{gitStatusLabel(gitStatus) ? ` · ${gitStatusLabel(gitStatus)}` : ''}</>}</span></footer>
       {selected?.kind === 'note' && gitStatus?.enabled && historyOpen ? <Suspense fallback={<OperationProgress label="正在加载版本历史" />}><NoteHistory key={selected.id} entryId={selected.id} title={title} open={historyOpen} onOpenChange={setHistoryOpen} current={body} renderMarkdown={renderMarkdown}
         onRestore={content => { setBody(content); queueSave(title, content); setRestoreNonce(value => value + 1); }} /></Suspense> : null}

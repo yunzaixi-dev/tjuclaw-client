@@ -7,7 +7,8 @@ import { listSystemWorkspaces } from './workspace-connections';
 
 export const CLOUD_HOST = 'cloud';
 
-export interface WorkHost { id: string; name: string; kind: 'cloud' | 'computer'; online: boolean }
+/** terminal: the computer allows live terminals (terminal.open). */
+export interface WorkHost { id: string; name: string; kind: 'cloud' | 'computer'; online: boolean; terminal?: boolean }
 export interface WorkProject { id: string; host: string; name: string; path?: string; created_at: string }
 export interface WorkFolder { id: string; name: string; created_at: string }
 export interface WorkLayout { projects: WorkProject[]; folders: WorkFolder[] }
@@ -29,7 +30,7 @@ export async function listWorkHosts(signal?: AbortSignal): Promise<WorkHost[]> {
   const cloud: WorkHost = { id: CLOUD_HOST, name: '云端沙箱', kind: 'cloud', online: true };
   try {
     const computers = await listSystemWorkspaces(signal);
-    return [cloud, ...computers.filter(item => item.kind === 'local').map(item => ({ id: `ws:${item.id}`, name: item.name, kind: 'computer' as const, online: item.online }))];
+    return [cloud, ...computers.filter(item => item.kind === 'local').map(item => ({ id: `ws:${item.id}`, name: item.name, kind: 'computer' as const, online: item.online, terminal: item.capabilities.includes('terminal.open') }))];
   } catch {
     return [cloud];
   }

@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { ChevronRight, Cloud, Folder, FolderGit2, FolderPlus, Laptop, MoreHorizontal, Plus } from 'lucide-react';
+import { ChevronRight, Cloud, Folder, FolderGit2, FolderPlus, Laptop, MoreHorizontal, Plus, SquareTerminal } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { CLOUD_HOST, createWorkFolder, createWorkProject, deleteWorkFolder, deleteWorkProject, describeWorkError, renameWorkFolder, updateWorkProject,
   type SessionPlace, type WorkFolder, type WorkHost, type WorkLayout, type WorkProject } from '../lib/work';
@@ -15,13 +15,15 @@ const OPEN_KEY = 'tjuclaw.work.open.v1';
  * conversations that run there, then the folders the user made. Rows are
  * drawn by the caller, so a conversation keeps its usual actions.
  */
-export function WorkTree({ hosts, layout, onLayoutChange, conversations, renderConversation, onNewChat, onError }: {
+export function WorkTree({ hosts, layout, onLayoutChange, conversations, renderConversation, onNewChat, onOpenTerminal, onError }: {
   hosts: WorkHost[];
   layout: WorkLayout;
   onLayoutChange: (layout: WorkLayout) => void;
   conversations: WorkConversation[];
   renderConversation: (conversation: WorkConversation, depth: number) => ReactNode;
   onNewChat: (place: SessionPlace) => void;
+  /** Opens a live terminal on a computer, in a project's directory when given. */
+  onOpenTerminal?: (host: WorkHost, project?: WorkProject) => void;
   onError: (message: string) => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>(() => storedJSON(OPEN_KEY, { [`host:${CLOUD_HOST}`]: true }));
@@ -105,6 +107,7 @@ export function WorkTree({ hosts, layout, onLayoutChange, conversations, renderC
   function projectNode(project: WorkProject) {
     const key = `project:${project.id}`;
     const items = conversations.filter(item => !folderOf(item) && projectOf(item) === project.id);
+    const projectHost = hosts.find(host => host.id === project.host);
     return <div className="work-node" key={project.id}>
       <div className="work-row work-row-project" style={{ paddingLeft: 22 }}>
         <button type="button" className="work-row-main" aria-expanded={isOpen(key, false)} onClick={() => toggle(key, false)} title={project.path || undefined}>
@@ -115,7 +118,9 @@ export function WorkTree({ hosts, layout, onLayoutChange, conversations, renderC
         </button>
         {editing === key ? nameInput('project', project.id, project.name) : <>
           <button type="button" className="work-row-action" aria-label={`在「${project.name}」中新建对话`} title="在此项目中新建对话" onClick={() => onNewChat({ host: project.host, project_id: project.id })}><Plus size={14} /></button>
-          {rowMenu(key, project.name, [['重命名', () => setEditing(key)], ['删除', () => void remove('project', project)]])}
+          {rowMenu(key, project.name, [
+            ...(projectHost?.terminal && project.path && onOpenTerminal ? [['在终端中打开', () => onOpenTerminal(projectHost, project)] as [string, () => void]] : []),
+            ['重命名', () => setEditing(key)], ['删除', () => void remove('project', project)]])}
         </>}
       </div>
       {isOpen(key, false) ? <div className="work-children">{items.length ? items.map(item => renderConversation(item, 2)) : empty('还没有对话', 2)}</div> : null}
@@ -140,6 +145,7 @@ export function WorkTree({ hosts, layout, onLayoutChange, conversations, renderC
             <span className="work-row-label">{host.name}</span>
             {host.kind === 'computer' ? <span className={`work-status${host.online ? ' is-online' : ''}`} aria-label={host.online ? '在线' : '离线'} /> : null}
           </button>
+          {host.terminal && onOpenTerminal ? <button type="button" className="work-row-action" aria-label={`打开「${host.name}」的终端`} title={host.online ? '打开终端' : '电脑离线'} disabled={!host.online} onClick={() => onOpenTerminal(host)}><SquareTerminal size={14} /></button> : null}
           <button type="button" className="work-row-action" aria-label={`在「${host.name}」新建项目`} title="新建项目" onClick={() => setCreatingProject(host.id)}><FolderPlus size={14} /></button>
           <button type="button" className="work-row-action" aria-label={`在「${host.name}」新建对话`} title="新建对话" onClick={() => onNewChat({ host: host.id, project_id: '', folder_id: '' })}><Plus size={14} /></button>
         </div>

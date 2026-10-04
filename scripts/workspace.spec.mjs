@@ -4923,3 +4923,75 @@ test('the work view groups conversations by host, project and folder, and moves 
   await tree.getByRole('button', { name: '在「课程设计」中新建对话' }).click();
   await expect.poll(() => state.placements?.some(item => item.project_id === created[0].id)).toBe(true);
 });
+
+test('a terminal opens on a connected computer in a project directory and relays typing and output', async ({ page }) => {
+  const state = defaultState();
+  const project = { id: 'p1'.padEnd(32, '0'), host: 'ws:laptop', name: 'tjuclaw', path: '/home/me/tjuclaw', created_at: '2026-01-01T00:00:00Z' };
+  state.workLayout = { projects: [project], folders: [] };
+  await mockWorkspace(page, state);
+  await page.route('**/api/work/layout', route => json(route, 200, { layout: state.workLayout }));
+  await page.route('**/api/workspaces', route => json(route, 200, { workspaces: [
+    { id: 'laptop', name: '我的电脑', kind: 'local', capabilities: ['terminal.open'], online: true, last_seen_at: null, created_at: '2026-01-01T00:00:00Z' },
+    { id: 'lab', name: '实验室', kind: 'local', capabilities: ['pi.prompt'], online: true, last_seen_at: null, created_at: '2026-01-01T00:00:00Z' },
+  ] }));
+  const opened = [];
+  const typed = [];
+  let closed = 0;
+  const outputs = [btoa('me@laptop:~/tjuclaw$ ')];
+  await page.route('**/api/workspaces/laptop/terminals', async route => {
+    opened.push(JSON.parse(route.request().postData()));
+    return json(route, 201, { terminal: { id: 'term1', workspace_id: 'laptop', state: 'opening' } });
+  });
+  let cursor = 0;
+  await page.route('**/api/terminals/term1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    const body = JSON.parse(route.request().postData() || '{}');
+    if (path.endsWith('/input')) {
+      if (body.data) {
+        const text = atob(body.data);
+        typed.push(text);
+        if (text.includes('\r')) outputs.push(btoa('\r\nREADME.md  frontend\r\nme@laptop:~/tjuclaw$ '));
+      }
+      return route.fulfill({ status: 204 });
+    }
+    if (path.endsWith('/read')) {
+      const next = outputs.shift();
+      if (!next) { await new Promise(resolve => setTimeout(resolve, 200)); return json(route, 200, { data: '', cursor: body.cursor, state: 'open', skipped: false }); }
+      cursor += atob(next).length;
+      return json(route, 200, { data: next, cursor, state: 'open', skipped: false });
+    }
+    return route.fallback();
+  });
+  await page.route('**/api/terminals/term1', route => { closed++; return route.fulfill({ status: 204 }); });
+  await page.goto('/workspace');
+  const sidebar = page.locator('.obsidian-sidebar');
+  await sidebar.getByRole('button', { name: '工作', exact: true }).click();
+  const tree = sidebar.locator('.work-tree');
+
+  // Only the computer that allows terminals offers one.
+  await expect(tree.getByRole('button', { name: '打开「我的电脑」的终端' })).toBeVisible();
+  await expect(tree.getByRole('button', { name: '打开「实验室」的终端' })).toHaveCount(0);
+
+  // From the project's menu: the shell starts in the project's directory.
+  await tree.getByRole('button', { name: /^我的电脑/ }).click();
+  await tree.getByRole('button', { name: '「tjuclaw」的操作' }).click();
+  await page.getByRole('menuitem', { name: '在终端中打开' }).click();
+  const dock = page.getByRole('region', { name: '终端' });
+  await expect(dock).toBeVisible();
+  await expect.poll(() => opened[0]).toMatchObject({ cwd: '/home/me/tjuclaw' });
+  expect(opened[0].cols).toBeGreaterThan(10);
+  await expect(dock.locator('.xterm-rows')).toContainText('me@laptop:~/tjuclaw$');
+  await expect(dock.getByRole('tab', { name: /tjuclaw/ }).locator('.terminal-dot')).toHaveClass(/is-open/);
+
+  // Typing reaches the computer; its answer is drawn.
+  await dock.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('ls');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => typed.join('')).toBe('ls\r');
+  await expect(dock.locator('.xterm-rows')).toContainText('README.md  frontend');
+
+  // Closing the tab ends the shell and the dock.
+  await dock.getByRole('button', { name: '关闭终端 tjuclaw' }).click();
+  await expect(dock).toHaveCount(0);
+  await expect.poll(() => closed).toBe(1);
+});

@@ -1,0 +1,73 @@
+/* Terminal dock: sits under the page like an editor's panel. Its surface
+   follows the theme; the bar matches the sidebar's quiet rows. */
+:root { --terminal-background: #fbfbfa; --terminal-foreground: #2b2a27; }
+:root[data-theme="dark"] { --terminal-background: #141414; --terminal-foreground: #e6e6e3; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --terminal-background: #141414; --terminal-foreground: #e6e6e3; } }
+
+.terminal-dock {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 140px;
+  max-height: calc(100% - 120px);
+  border-top: 1px solid var(--border);
+  background: var(--terminal-background);
+  animation: terminal-rise 220ms cubic-bezier(.2, .9, .3, 1) both;
+}
+.terminal-dock.is-collapsed { min-height: 0; height: auto; }
+.terminal-dock.is-collapsed .terminal-body,
+.terminal-dock.is-collapsed .terminal-notice,
+.terminal-dock.is-collapsed .terminal-phone-keys { display: none; }
+@keyframes terminal-rise { from { opacity: 0; transform: translateY(12px); } }
+
+.terminal-dock-grip { position: absolute; top: -4px; right: 0; left: 0; z-index: 2; height: 8px; cursor: ns-resize; touch-action: none; }
+.terminal-dock-grip:hover { background: linear-gradient(transparent 3px, var(--ring) 3px, var(--ring) 5px, transparent 5px); }
+
+.terminal-dock-bar { display: flex; flex: none; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 8px; border-bottom: 1px solid color-mix(in oklch, var(--border) 70%, transparent); background: var(--shell-panel, var(--surface)); }
+.terminal-tabs { display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminal-tab { display: flex; flex: none; align-items: center; max-width: 240px; height: 28px; border-radius: 7px; color: var(--muted-foreground); }
+.terminal-tab:hover { background: var(--hover-wash); }
+.terminal-tab.is-active { background: var(--terminal-background); color: var(--foreground); box-shadow: 0 0 0 1px var(--border); }
+.terminal-tab > button:first-child { display: flex; align-items: center; gap: 7px; min-width: 0; height: 100%; padding: 0 4px 0 10px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 12.5px; cursor: pointer; }
+.terminal-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.terminal-tab small { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-tab-close { display: grid; width: 22px; height: 22px; margin-right: 3px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); cursor: pointer; opacity: 0; }
+.terminal-tab:hover .terminal-tab-close, .terminal-tab.is-active .terminal-tab-close, .terminal-tab-close:focus-visible { opacity: 1; }
+.terminal-tab-close:hover { background: var(--hover-wash); color: var(--foreground); }
+
+.terminal-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--muted-foreground); opacity: .55; }
+.terminal-dot.is-open { background: oklch(70% .17 150); opacity: 1; }
+.terminal-dot.is-connecting, .terminal-dot.is-reconnecting { background: oklch(78% .15 80); opacity: 1; animation: terminal-pulse 1.1s ease-in-out infinite; }
+@keyframes terminal-pulse { 50% { opacity: .35; } }
+
+.terminal-dock-actions { display: flex; flex: none; gap: 2px; }
+.terminal-dock-actions button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.terminal-dock-actions button:hover { background: var(--hover-wash); color: var(--foreground); }
+.terminal-dock button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+.terminal-notice { display: flex; flex: none; align-items: center; gap: 7px; margin: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); background: color-mix(in oklch, var(--terminal-background) 92%, oklch(78% .15 80)); color: var(--foreground); font-size: 12.5px; }
+.terminal-body { position: relative; flex: 1; min-height: 0; }
+.terminal-surface { position: absolute; inset: 6px 4px 4px 12px; }
+.terminal-surface[hidden] { display: none; }
+.terminal-surface .xterm { height: 100%; }
+.terminal-surface .xterm, .terminal-surface .xterm-viewport, .terminal-surface .xterm-scrollable-element { background: var(--terminal-background) !important; }
+.terminal-surface .xterm-viewport { scrollbar-width: thin; }
+
+.terminal-phone-keys { display: none; }
+
+@media (max-width: 720px) {
+  /* On a phone the dock takes the page, above the composer. */
+  .terminal-dock { position: absolute; inset: 43px 0 0; z-index: 30; height: auto !important; max-height: none; border-top: 0; }
+  .terminal-dock.is-collapsed { inset: auto 0 0; }
+  .terminal-dock-grip { display: none; }
+  .terminal-dock-bar { height: 44px; }
+  .terminal-tab { height: 34px; }
+  .terminal-tab-close { opacity: 1; width: 30px; height: 30px; }
+  .terminal-dock-actions button { width: 38px; height: 38px; }
+  .terminal-surface { inset: 4px 2px 2px 8px; }
+  .terminal-phone-keys { display: flex; flex: none; gap: 6px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); overflow-x: auto; border-top: 1px solid var(--border); background: var(--shell-panel, var(--surface)); scrollbar-width: none; }
+  .terminal-phone-keys button { flex: none; min-width: 42px; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--terminal-background); color: var(--foreground); font: 600 13px/1 "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .terminal-phone-keys button.is-held { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+}
+@media (prefers-reduced-motion: reduce) { .terminal-dock, .terminal-dot { animation: none; } }

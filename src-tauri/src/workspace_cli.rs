@@ -571,13 +571,20 @@ enum Mutation {
     Allow(Vec<String>),
 }
 
+const CAPABILITIES: [&str; 5] = [
+    "pi.prompt",
+    "claude.prompt",
+    "codex.prompt",
+    "mcp.call",
+    "terminal.open",
+];
+
 fn validate_capabilities(capabilities: &[String]) -> Result<(), &'static str> {
     let mut seen = std::collections::BTreeSet::new();
-    if capabilities.len() > 4
-        || capabilities.iter().any(|value| {
-            !["pi.prompt", "claude.prompt", "codex.prompt", "mcp.call"].contains(&value.as_str())
-                || !seen.insert(value)
-        })
+    if capabilities.len() > CAPABILITIES.len()
+        || capabilities
+            .iter()
+            .any(|value| !CAPABILITIES.contains(&value.as_str()) || !seen.insert(value))
     {
         return Err("workspace_cli_invalid_capabilities");
     }
@@ -860,11 +867,11 @@ fn parse_config(
         || !safe_text(&config.root, 4096)
         || has_direction_override(&config.root)
         || !Path::new(&config.root).is_absolute()
-        || config.allowed_capabilities.len() > 4
-        || !config.allowed_capabilities.iter().all(|capability| {
-            ["pi.prompt", "claude.prompt", "codex.prompt", "mcp.call"]
-                .contains(&capability.as_str())
-        })
+        || config.allowed_capabilities.len() > CAPABILITIES.len()
+        || !config
+            .allowed_capabilities
+            .iter()
+            .all(|capability| CAPABILITIES.contains(&capability.as_str()))
     {
         return Err("workspace_cli_invalid_output");
     }

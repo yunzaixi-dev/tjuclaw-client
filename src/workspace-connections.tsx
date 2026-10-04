@@ -19,6 +19,7 @@ const capabilityLabels: Record<WorkspaceCapability, string> = {
   'claude.prompt': 'Claude 提示任务',
   'codex.prompt': 'Codex 提示任务',
   'mcp.call': 'MCP 工具调用',
+  'terminal.open': '远程终端',
 };
 
 function dateLabel(value: string | null): string {

@@ -1,6 +1,6 @@
 import { AuthError, authRequest } from './auth';
 
-export const workspaceCapabilities = ['pi.prompt', 'claude.prompt', 'codex.prompt', 'mcp.call'] as const;
+export const workspaceCapabilities = ['pi.prompt', 'claude.prompt', 'codex.prompt', 'mcp.call', 'terminal.open'] as const;
 export type WorkspaceCapability = typeof workspaceCapabilities[number];
 export type WorkspaceKind = 'local' | 'cloud';
 export type SystemWorkspace = {

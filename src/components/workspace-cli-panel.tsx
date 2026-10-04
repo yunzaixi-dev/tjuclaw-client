@@ -13,7 +13,7 @@ import { attempt } from '../lib/attempt';
 
 const capabilityLabels: Record<WorkspaceCapability, string> = {
   'pi.prompt': 'Pi 提示任务', 'claude.prompt': 'Claude 提示任务',
-  'codex.prompt': 'Codex 提示任务', 'mcp.call': 'MCP 工具调用',
+  'codex.prompt': 'Codex 提示任务', 'mcp.call': 'MCP 工具调用', 'terminal.open': '远程终端',
 };
 type Phase = 'checking' | 'init' | 'link' | 'unlink' | 'capabilities' | 'start' | 'stop' | 'configure' | 'import' | 'approvals' | 'review';
 

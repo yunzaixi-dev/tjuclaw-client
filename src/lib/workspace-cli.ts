@@ -16,7 +16,7 @@ export interface WorkspaceCliAvailability {
   model_key_persistence: 'session_only';
 }
 
-export type WorkspaceCliCapability = 'pi.prompt' | 'claude.prompt' | 'codex.prompt' | 'mcp.call';
+export type WorkspaceCliCapability = 'pi.prompt' | 'claude.prompt' | 'codex.prompt' | 'mcp.call' | 'terminal.open';
 export interface WorkspaceCliEndpoint {
   name: string;
   model: string;
