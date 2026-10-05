@@ -4999,7 +4999,7 @@ test('a terminal opens on a connected computer in a project directory and relays
 
 test('spreadsheets preview as a grid with sheet tabs', async ({ page }) => {
   const state = defaultState();
-  const xlsx = readFileSync(new URL('../../backend/internal/library/testdata/grades.xlsx', import.meta.url));
+  const xlsx = readFileSync(new URL('./fixtures/grades.xlsx', import.meta.url));
   const sheet = { ...noteA, id: '99999999999999999999999999999997', kind: 'file', title: '成绩.xlsx', content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: xlsx.length, body: undefined };
   state.entries.push(sheet);
   state.entryById[sheet.id] = sheet;
