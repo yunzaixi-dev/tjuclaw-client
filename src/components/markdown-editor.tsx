@@ -14,6 +14,7 @@ import { FootnoteWidget, HtmlBlockWidget, htmlBlockRenders, ImageWidget, INLINE_
 import { classHighlighter } from '@lezer/highlight';
 import { codeLanguages } from '../lib/code-highlight';
 import { findDisplayMath } from './display-math';
+import { isImageTarget, resolveNoteFile } from '../lib/note-files';
 
 // Phones and tablets: CodeMirror's drawn cursor and selection hide the native
 // caret, selection handles and magnifier, so touch devices use the browser's
@@ -424,6 +425,12 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         for (const match of paragraph.matchAll(/!?\[\[([^\]\n]+)\]\]/g)) {
           const start = from + (match.index ?? 0);
           const end = start + match[0].length;
+          // An image embed shows as the library's image away from the caret.
+          const image = match[0][0] === '!' && isImageTarget(match[1]) ? resolveNoteFile(match[1]) : null;
+          if (image && !inCode(start) && !selected(start, end)) {
+            replaceWith(start, end, new ImageWidget(image, (match[1].split('|')[0].split('/').pop() ?? '')));
+            continue;
+          }
           const contentStart = start + (match[0][0] === '!' ? 3 : 2);
           const separator = match[1].lastIndexOf('|');
           const labelStart = separator < 0 ? contentStart : contentStart + separator + 1;

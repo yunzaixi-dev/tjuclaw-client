@@ -210,7 +210,9 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
       if (state.holdCreate) await state.holdCreate;
       if (state.session.id !== syntheticSessionA.id) return json(route, 401, { error: { id: 'session_required' } });
       const posted = route.request().postDataJSON() || {};
-      const entry = { ...createdNote, parent_id: posted.parent_id || '', kind: posted.kind || 'note', title: posted.title || createdNote.title, ...(posted.body === undefined ? {} : { body: posted.body }) };
+      // The first new note keeps the fixture id other tests expect; later ones get their own.
+      const id = state.entries.some(item => item.id === createdNote.id) ? (++state.nextFolder + 0xc000).toString(16).padStart(32, 'c') : createdNote.id;
+      const entry = { ...createdNote, id, parent_id: posted.parent_id || '', kind: posted.kind || 'note', title: posted.title || createdNote.title, ...(posted.body === undefined ? {} : { body: posted.body }) };
       state.entries = [...state.entries, entry];
       state.entryById[entry.id] = entry;
       return json(route, 201, { entry });
@@ -5053,4 +5055,28 @@ test('signing in from the CLI page returns to it', async ({ page }) => {
   await page.goto('/device?code=WDJB-MJHT');
   await expect(page).toHaveURL(/\/auth\/login$/);
   expect(await page.evaluate(() => sessionStorage.getItem('tjuclaw.return.v1'))).toBe('/device?code=WDJB-MJHT');
+});
+
+test('notes show Obsidian embeds and relative images from the library', async ({ page }) => {
+  const state = defaultState();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const folder = { ...noteA, id: '77777777777777777777777777777771', kind: 'folder', title: 'assets', body: undefined };
+  const first = { ...noteA, id: '77777777777777777777777777777772', kind: 'file', title: '图1.png', parent_id: folder.id, content_type: 'image/png', size: png.length, body: undefined };
+  const second = { ...noteA, id: '77777777777777777777777777777773', kind: 'file', title: '图2.png', parent_id: folder.id, content_type: 'image/png', size: png.length, body: undefined };
+  const note = { ...noteA, id: '77777777777777777777777777777774', title: '课程笔记', body: '# 课程笔记\n\n![[图1.png|200]]\n\n![示意](assets/%E5%9B%BE2.png)\n\n`![[图1.png]]` 在代码里不变\n' };
+  state.entries.push(folder, first, second, note);
+  for (const entry of [folder, first, second, note]) state.entryById[entry.id] = entry;
+  await mockWorkspace(page, state);
+  for (const file of [first, second]) await page.route(`**/api/entries/${file.id}/file`, route => route.fulfill({ status: 200, contentType: 'image/png', body: png }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '课程笔记' }).click();
+  // The editor shows the embed as the image away from the caret.
+  await expect(page.locator(`.cm-content img[src="/api/entries/${first.id}/file"]`)).toBeVisible();
+  await expect(page.locator(`.cm-content img[src="/api/entries/${second.id}/file"]`)).toBeVisible();
+  // The reader too, with the requested width; code keeps the embed as text.
+  await page.getByRole('button', { name: '阅读模式' }).first().click();
+  const reader = page.locator('.note-reader');
+  await expect(reader.locator(`img[src="/api/entries/${first.id}/file"]`)).toHaveAttribute('width', '200');
+  await expect(reader.locator(`img[src="/api/entries/${second.id}/file"]`)).toHaveAttribute('alt', '示意');
+  await expect(reader.locator('code')).toContainText('![[图1.png]]');
 });

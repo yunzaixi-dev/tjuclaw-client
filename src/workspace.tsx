@@ -10,6 +10,7 @@ import { useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
+import { expandEmbeds, resolveNoteFile, setNoteFiles } from './lib/note-files';
 import { openingHoldMs, openingWasVisible, WorkspaceLoading, type LoadStep } from './components/workspace-loading';
 import { OperationProgress } from './components/operation-progress';
 import { agentRuntime, sendLocalTurn } from './lib/local-sandbox';
@@ -181,15 +182,40 @@ function WorkspaceContextMenu({ menu, onClose, onAction }: { menu: Exclude<Conte
   </div>;
 }
 
-function TreeItem({ entry, entries, group, selectedId, onSelect, onContextMenu, orderChildren, dragProps }: { entry: Entry; entries: Entry[]; group: string; selectedId: string | null; onSelect: (id: string) => void; onContextMenu: (event: MouseEvent, kind: 'note' | 'file', id: string, group?: string) => void; orderChildren: (items: Entry[], group: string) => Entry[]; dragProps: (id: string, group: string) => React.HTMLAttributes<HTMLDivElement> & { draggable: boolean } }) {
+/** Sidebar children by parent: folders by folder, entries by folder, and the
+ * notes or files nested under a note. */
+function treeIndex(visible: Entry[], folders: VaultFolder[], placements: VaultPlacement) {
+  const foldersByParent = new Map<string, VaultFolder[]>();
+  for (const folder of folders) {
+    if (!folder.parentId) continue;
+    const list = foldersByParent.get(folder.parentId);
+    if (list) list.push(folder); else foldersByParent.set(folder.parentId, [folder]);
+  }
+  const entriesByFolder = new Map<string, Entry[]>();
+  const childEntries = new Map<string, Entry[]>();
+  for (const entry of visible) {
+    const folder = placements[entry.id];
+    if (folder) {
+      const list = entriesByFolder.get(folder);
+      if (list) list.push(entry); else entriesByFolder.set(folder, [entry]);
+    }
+    if (entry.parent_id && (entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file')) {
+      const list = childEntries.get(entry.parent_id);
+      if (list) list.push(entry); else childEntries.set(entry.parent_id, [entry]);
+    }
+  }
+  return { foldersByParent, entriesByFolder, childEntries };
+}
+
+function TreeItem({ entry, childrenOf, group, selectedId, onSelect, onContextMenu, orderChildren, dragProps }: { entry: Entry; childrenOf: (id: string) => Entry[]; group: string; selectedId: string | null; onSelect: (id: string) => void; onContextMenu: (event: MouseEvent, kind: 'note' | 'file', id: string, group?: string) => void; orderChildren: (items: Entry[], group: string) => Entry[]; dragProps: (id: string, group: string) => React.HTMLAttributes<HTMLDivElement> & { draggable: boolean } }) {
   const [open, setOpen] = useState(true);
-  const children = orderChildren(entries.filter(item => item.parent_id === entry.id && (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file')), `notes:entry:${entry.id}`);
+  const children = orderChildren(childrenOf(entry.id), `notes:entry:${entry.id}`);
   return <div className="obsidian-tree-node">
     <div className={`obsidian-tree-row${selectedId === entry.id ? ' is-active' : ''}`} role="treeitem" aria-label={entry.title || '未命名笔记'} aria-selected={selectedId === entry.id} {...dragProps(`entry:${entry.id}`, group)} onContextMenu={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)}>
       {children.length ? <button className="tree-toggle" type="button" onClick={() => setOpen(value => !value)} aria-label="展开或折叠"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button> : <span className="tree-spacer" />}
       <button className="tree-item" type="button" onPointerEnter={() => warmEntry(entry)} onFocus={() => warmEntry(entry)} onClick={() => onSelect(entry.id)}>{entry.kind === 'file' ? <Paperclip size={15} /> : entry.kind === 'rich_text' ? <FilePenLine size={15} /> : <FileText size={15} />}<span>{entry.title || '未命名笔记'}</span></button><button className="tree-more" type="button" onClick={event => onContextMenu(event, entry.kind === 'file' ? 'file' : 'note', `entry:${entry.id}`, group)} aria-label="文档操作"><MoreHorizontal size={14} /></button>
     </div>
-    {open && children.length ? <div className="tree-children">{children.map(child => <TreeItem key={child.id} entry={child} entries={entries} group={`notes:entry:${entry.id}`} selectedId={selectedId} onSelect={onSelect} onContextMenu={onContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
+    {open && children.length ? <div className="tree-children">{children.map(child => <TreeItem key={child.id} entry={child} childrenOf={childrenOf} group={`notes:entry:${entry.id}`} selectedId={selectedId} onSelect={onSelect} onContextMenu={onContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
   </div>;
 }
 
@@ -342,7 +368,9 @@ function proxiedImage(node: Element) {
     node.setAttribute('loading', 'lazy');
     node.setAttribute('referrerpolicy', 'no-referrer');
   } else if (!src.startsWith('data:') && !src.startsWith('/')) {
-    node.removeAttribute('src');
+    // A relative image in the user's own note may name a file in the library.
+    const file = allowExternalImages && !url ? resolveNoteFile(src) : null;
+    if (file) { node.setAttribute('src', file); node.setAttribute('loading', 'lazy'); } else node.removeAttribute('src');
   }
 }
 
@@ -382,7 +410,7 @@ marked.use({ extensions: [
 ] });
 
 function renderMarkdown(markdown: string, externalImages = false) {
-  const html = marked.parse(markdown, { gfm: true, breaks: true }) as string;
+  const html = marked.parse(externalImages ? expandEmbeds(markdown) : markdown, { gfm: true, breaks: true }) as string;
   DOMPurify.addHook('afterSanitizeAttributes', proxiedImage);
   allowExternalImages = externalImages;
   try {
@@ -474,6 +502,8 @@ export default function Workspace() {
   const [session, setSession] = useState<IdentitySession | null>(boot?.session ?? null);
   const [libraries, setLibraries] = useState<Library[]>(boot ? [boot.library] : []);
   const [entries, setEntries] = useState<Entry[]>(boot?.items ?? []);
+  // Notes show images by the library file's name or path.
+  useEffect(() => { setNoteFiles(entries); }, [entries]);
   const [folders, setFolders] = useState<VaultFolder[]>(boot?.folders ?? []);
   const [placements, setPlacements] = useState<VaultPlacement>(boot?.placements ?? {});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
@@ -939,6 +969,12 @@ export default function Workspace() {
   const visible = useMemo(() => entries.filter(entry => (view === 'notes' || view === 'anki' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
   const roots = visible.filter(entry => !entry.parent_id && !placements[entry.id]);
   const folderRoots = folders.filter(folder => !folder.parentId);
+  // Children by parent, built once a render: each tree row then looks up its
+  // own children instead of scanning every entry (thousands in an imported vault).
+  const tree = treeIndex(visible, folders, placements);
+  const childrenOf = (id: string) => tree.childEntries.get(id) ?? [];
+  // A large library opens with its folders closed, so it renders what is shown.
+  const foldersOpenByDefault = visible.length <= 500;
   const headings = useMemo(() => parseHeadings(body), [body]);
   const outlineBase = headings.reduce((min, item) => Math.min(min, item.level), 6);
 
@@ -1274,13 +1310,15 @@ export default function Workspace() {
 
   function renderFolder(folder: VaultFolder): ReactNode {
     const group = `notes:folder:${folder.id}`;
-    const children = folders.filter(item => item.parentId === folder.id);
-    const folderEntries = visible.filter(entry => (placements[entry.id] ?? null) === folder.id);
+    const children = tree.foldersByParent.get(folder.id) ?? [];
+    const folderEntries = tree.entriesByFolder.get(folder.id) ?? [];
+    const childFolder = new Map(children.map(child => [child.id, child]));
+    const childEntry = new Map(folderEntries.map(entry => [entry.id, entry]));
     const items = orderChildren([
       ...children.map(item => ({ id: `folder:${item.id}`, title: item.name })),
       ...folderEntries.map(item => ({ id: `entry:${item.id}`, title: item.title, updated_at: item.updated_at })),
     ], group);
-    const open = openFolders[folder.id] ?? true;
+    const open = openFolders[folder.id] ?? foldersOpenByDefault;
     return <div className="obsidian-tree-node" key={folder.id}>
       <div className="obsidian-tree-row" {...dragProps(`folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root', folder.id)} onContextMenu={event => openContextMenu(event, 'folder', `folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root')}>
         <button className="tree-toggle" type="button" onClick={() => setOpenFolders(value => ({ ...value, [folder.id]: !open }))} aria-label="展开或折叠文件夹"><ChevronRight size={13} data-open={open ? 'true' : 'false'} /></button>
@@ -1290,8 +1328,8 @@ export default function Workspace() {
         <button className="tree-more" type="button" onClick={event => openContextMenu(event, 'folder', `folder:${folder.id}`, folder.parentId ? `notes:folder:${folder.parentId}` : 'notes:root')} aria-label="文件夹操作"><MoreHorizontal size={14} /></button>
       </div>
       {open ? <div className="tree-children">{items.map(item => item.id.startsWith('folder:')
-        ? renderFolder(children.find(child => child.id === item.id.slice(7))!)
-        : <TreeItem key={item.id} entry={folderEntries.find(entry => entry.id === item.id.slice(6))!} entries={visible} group={group} selectedId={selectedId} onSelect={openEntry} onContextMenu={openContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
+        ? renderFolder(childFolder.get(item.id.slice(7))!)
+        : <TreeItem key={item.id} entry={childEntry.get(item.id.slice(6))!} childrenOf={childrenOf} group={group} selectedId={selectedId} onSelect={openEntry} onContextMenu={openContextMenu} orderChildren={orderChildren} dragProps={dragProps} />)}</div> : null}
     </div>;
   }
 
@@ -2903,7 +2941,7 @@ export default function Workspace() {
   function rootItem(item: Sortable) {
     return item.id.startsWith('folder:')
       ? renderFolder(folderRoots.find(folder => folder.id === item.id.slice(7))!)
-      : <TreeItem key={item.id} entry={roots.find(entry => entry.id === item.id.slice(6))!} entries={visible} group="notes:root" selectedId={selectedId} onSelect={openEntry} onContextMenu={openContextMenu} orderChildren={orderChildren} dragProps={dragProps} />;
+      : <TreeItem key={item.id} entry={roots.find(entry => entry.id === item.id.slice(6))!} childrenOf={childrenOf} group="notes:root" selectedId={selectedId} onSelect={openEntry} onContextMenu={openContextMenu} orderChildren={orderChildren} dragProps={dragProps} />;
   }
 
   const toolItems = orderedItems(siblings('tools'), sidebarSort.tools, sidebarOrder.tools);

@@ -1,5 +1,6 @@
 import { StateEffect } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
+import { resolveNoteFile } from '../lib/note-files';
 
 // Math renders with KaTeX as MathML: browsers draw it natively, and it needs
 // no inline styles or fonts, so it works under the client's strict CSP.
@@ -65,6 +66,9 @@ export class MathWidget extends WidgetType {
 export function loadableImage(src: string): string | null {
   const url = src.trim();
   if (/^data:image\//i.test(url)) return url;
+  // A relative path names a file in the open library.
+  const file = resolveNoteFile(url);
+  if (file) return file;
   try {
     const parsed = new URL(url, location.origin);
     if (parsed.origin === location.origin) return parsed.pathname + parsed.search;
