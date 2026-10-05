@@ -1,0 +1,77 @@
+/* CLI sign-in confirmation: one calm card, the code large and checkable. */
+.device-page {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.device-card {
+  display: grid;
+  gap: 14px;
+  width: min(440px, 100%);
+  padding: 30px 28px 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px oklch(0% 0 0 / .08);
+}
+.device-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.device-card h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.device-lead { margin: 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
+.device-form { display: grid; gap: 10px; }
+.device-form label { font-size: 12.5px; font-weight: 600; }
+.device-form input {
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font: 600 20px/1 "JetBrains Mono", "SF Mono", Menlo, monospace;
+  letter-spacing: .14em;
+  text-align: center;
+}
+.device-form input:focus { border-color: var(--ring); outline: 2px solid color-mix(in oklch, var(--ring) 28%, transparent); }
+.device-code {
+  margin: 2px 0 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--muted);
+  font: 700 28px/1.1 "JetBrains Mono", "SF Mono", Menlo, monospace;
+  letter-spacing: .16em;
+  text-align: center;
+}
+.device-facts { display: grid; gap: 0; margin: 0; border: 1px solid var(--border); border-radius: 12px; }
+.device-facts > div { display: grid; grid-template-columns: 86px 1fr; gap: 12px; padding: 10px 14px; }
+.device-facts > div + div { border-top: 1px solid var(--border); }
+.device-facts dt { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 13px; }
+.device-facts dd { margin: 0; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.device-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.device-actions button, .device-form .device-primary {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.device-card .device-primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); }
+.device-card button:disabled { opacity: .5; cursor: default; }
+.device-card button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.device-error { margin: 0; color: var(--destructive); font-size: 13px; line-height: 1.5; }
+.device-note, .device-account { margin: 0; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.5; }
+.device-account { padding-top: 8px; border-top: 1px solid var(--border); }
+.device-account a { color: var(--primary); }

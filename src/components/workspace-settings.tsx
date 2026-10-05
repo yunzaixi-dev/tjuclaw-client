@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { CliTokens } from './cli-tokens';
 import { isTauri } from '@tauri-apps/api/core';
 import { Blocks, BookOpen, Bot, ChevronLeft, ChevronRight, CircleHelp, KeyRound, LibraryBig, LogOut, Monitor, Moon, Palette, Plug, Search, Settings2, SquareStack, Sun, UserRound, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -24,7 +25,7 @@ const sections = [
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
   { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置 技能 实验报告 参考文献 复习 文献 调试 英文写作' },
   { id: 'mcp', label: 'MCP 服务', icon: Plug, keywords: 'MCP 工具 服务 扩展 市场 GitHub 高德 搜索 DeepWiki Context7' },
-  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录' },
+  { id: 'account', label: '账户', icon: UserRound, keywords: '邮箱 额度 模型调用 退出登录 命令行 CLI 登录 令牌 tjuclaw' },
   { id: 'about', label: '关于', icon: CircleHelp, keywords: '版本 帮助' },
 ] as const;
 
@@ -292,6 +293,7 @@ export function WorkspaceSettings({
                 : (window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。')}><span className="settings-value" role="status">{formatQuotaUse(window)}</span></SettingRow>)
                 : <SettingRow title="AI 额度" description="使用自己的模型不占用额度。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>}
               {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
+              <CliTokens />
               <SettingRow title="退出登录" description="退出此设备上的当前会话。"><button type="button" className="settings-action-button is-danger" onClick={onLogout}><LogOut size={15} /> 退出登录</button></SettingRow>
             </> : null}
             {active === 'about' ? <>

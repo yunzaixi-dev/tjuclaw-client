@@ -13,3 +13,17 @@
 .file-preview-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; min-height: 36vh; color: var(--muted-foreground); text-align: center; }
 .file-preview-message { padding: 12px; color: var(--muted-foreground); font-size: 13px; }
 .file-preview-pane.is-book { display: flex; height: 100%; min-height: 0; flex-direction: column; padding: 0; }
+
+/* Spreadsheet preview: tabs, a frozen header row and row numbers. */
+.sheet-view { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; }
+.sheet-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.sheet-tabs button { flex: none; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted-foreground); font: inherit; font-size: 13px; cursor: pointer; }
+.sheet-tabs button[aria-selected="true"] { border-color: var(--foreground); color: var(--foreground); font-weight: 600; }
+.sheet-tabs button:focus-visible, .sheet-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.sheet-scroll { flex: 1; min-height: 240px; max-height: 70vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.sheet-grid { border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.sheet-grid th, .sheet-grid td { max-width: 320px; padding: 5px 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: pre; }
+.sheet-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--muted); color: var(--muted-foreground); font-weight: 500; text-align: center; }
+.sheet-grid tbody th { position: sticky; left: 0; z-index: 1; min-width: 44px; background: var(--muted); color: var(--muted-foreground); font-weight: 500; text-align: right; }
+.sheet-grid thead th:first-child { left: 0; z-index: 3; }
+.sheet-note { margin: 0; color: var(--muted-foreground); font-size: 12px; }

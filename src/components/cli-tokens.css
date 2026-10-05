@@ -1,0 +1,10 @@
+/* Settings › Account › 命令行登录 */
+.cli-tokens { display: grid; gap: 8px; margin-top: 18px; }
+.cli-tokens code { padding: 1px 5px; border-radius: 5px; background: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.cli-token-list { display: grid; gap: 0; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; list-style: none; }
+.cli-token-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.cli-token-list li + li { border-top: 1px solid var(--border); }
+.cli-token-list li > svg { flex: none; color: var(--muted-foreground); }
+.cli-token-list li > div { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.cli-token-list strong { overflow: hidden; font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.cli-token-list small { color: var(--muted-foreground); font-size: 12px; }

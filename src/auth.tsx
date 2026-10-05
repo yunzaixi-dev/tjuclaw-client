@@ -10,6 +10,7 @@ import { OtpInput } from './components/ui/otp-input';
 import './product.css';
 import './auth.css';
 import { attempt } from './lib/attempt';
+import { takeReturn } from './lib/cli-auth';
 
 function Shell({ children }: { children: ReactNode }) {
   const appearance = useAppearance();
@@ -167,7 +168,7 @@ function FlowScreen() {
       if (!capToken) { setError('请先完成安全验证。'); return; }
       if (method === 'password') {
         void perform(async signal => {
-          return await attempt(async () => { await loginWithPassword(email, password, capToken, signal); location.replace('/workspace'); }, undefined, async () => { resetCaptcha(); });
+          return await attempt(async () => { await loginWithPassword(email, password, capToken, signal); location.replace(takeReturn()); }, undefined, async () => { resetCaptcha(); });
         });
         return;
       }
@@ -183,7 +184,7 @@ function FlowScreen() {
         return await attempt(async () => { acceptFlow(await sendEmailCode(email, capToken, signal)); }, undefined, async () => { resetCaptcha(); });
       });
     } else if (/^\d{6}$/.test(code)) {
-      void perform(async signal => { await verifyEmailCode(code, signal); location.replace('/workspace'); });
+      void perform(async signal => { await verifyEmailCode(code, signal); location.replace(takeReturn()); });
     } else { setError('请输入完整的 6 位数字验证码。'); input.current?.focus(); }
   }
   function restart() {

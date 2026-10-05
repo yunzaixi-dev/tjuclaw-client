@@ -113,6 +113,7 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
     const method = route.request().method();
     const path = url.pathname.replace(/\/$/, '');
     if (path === '/api/auth/session') return json(route, 200, state.session);
+    if (path === '/api/cli/tokens' && method === 'GET') return json(route, 200, { tokens: state.cliTokens ?? [] });
     if (path === '/api/vault/status') return json(route, 200, { configured: state.vaultConfigured });
     const vaultObject = path.match(/^\/api\/vault\/objects\/([0-9a-f]{32})$/);
     if (vaultObject) {
@@ -4994,4 +4995,62 @@ test('a terminal opens on a connected computer in a project directory and relays
   await dock.getByRole('button', { name: '关闭终端 tjuclaw' }).click();
   await expect(dock).toHaveCount(0);
   await expect.poll(() => closed).toBe(1);
+});
+
+test('spreadsheets preview as a grid with sheet tabs', async ({ page }) => {
+  const state = defaultState();
+  const xlsx = readFileSync(new URL('../../backend/internal/library/testdata/grades.xlsx', import.meta.url));
+  const sheet = { ...noteA, id: '99999999999999999999999999999997', kind: 'file', title: '成绩.xlsx', content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: xlsx.length, body: undefined };
+  state.entries.push(sheet);
+  state.entryById[sheet.id] = sheet;
+  await mockWorkspace(page, state);
+  await page.route(`**/api/entries/${sheet.id}/file`, route => route.fulfill({ status: 200, contentType: sheet.content_type, body: xlsx }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '成绩.xlsx' }).click();
+  const grid = page.getByRole('region', { name: '工作表 成绩' });
+  await expect(grid.getByRole('columnheader')).toHaveText(['', 'A', 'B', 'C', 'D', 'E', 'F']);
+  await expect(grid.getByRole('row').nth(2)).toContainText('3021001张三9288.5TRUE');
+  await expect(grid.getByRole('row').nth(3)).toContainText('李四, Jr.');
+  await expect(grid.getByRole('row').nth(4)).toContainText('王五');
+  await page.getByRole('tab', { name: '备注' }).click();
+  const notes = page.getByRole('region', { name: '工作表 备注' });
+  await expect(notes).toContainText('说明');
+  await expect(notes.getByRole('row').nth(3).getByRole('cell').nth(2)).toHaveText('含 "引号" 与换行\n第二行');
+});
+
+test('the CLI sign-in page shows the request and allows it', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  const decided = [];
+  await page.route('**/api/cli/device/**', async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && path === '/api/cli/device/WDJB-MJHT') return json(route, 200, { name: 'tjuclaw @ laptop', created_at: '2026-10-05T04:00:00Z', user_code: 'WDJB-MJHT' });
+    if (request.method() === 'GET') return json(route, 404, { error: { id: 'device_code_not_found' } });
+    decided.push(path);
+    return json(route, 200, { approved: path.endsWith('/approve') });
+  });
+  await page.goto('/device?code=wdjbmjht');
+  await expect(page.getByRole('heading', { name: '授权 TJUClaw CLI' })).toBeVisible();
+  await expect(page.getByLabel('验证码 WDJB-MJHT')).toBeVisible();
+  await expect(page.getByText('tjuclaw @ laptop')).toBeVisible();
+  await expect(page.getByText('查看模型密钥、MCP 设置和对话')).toBeVisible();
+  await page.getByRole('button', { name: '允许' }).click();
+  await expect(page.getByRole('heading', { name: '已授权' })).toBeVisible();
+  expect(decided).toEqual(['/api/cli/device/WDJB-MJHT/approve']);
+
+  // A code typed by hand that is unknown or expired says so.
+  await page.goto('/device');
+  await page.getByLabel('验证码').fill('BBBB-CCCC');
+  await page.getByRole('button', { name: '继续' }).click();
+  await expect(page.getByRole('alert')).toContainText('已过期');
+});
+
+test('signing in from the CLI page returns to it', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'session_required' } }));
+  await page.goto('/device?code=WDJB-MJHT');
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  expect(await page.evaluate(() => sessionStorage.getItem('tjuclaw.return.v1'))).toBe('/device?code=WDJB-MJHT');
 });
