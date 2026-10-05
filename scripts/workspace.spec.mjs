@@ -5080,3 +5080,31 @@ test('notes show Obsidian embeds and relative images from the library', async ({
   await expect(reader.locator(`img[src="/api/entries/${second.id}/file"]`)).toHaveAttribute('alt', '示意');
   await expect(reader.locator('code')).toContainText('![[图1.png]]');
 });
+
+test('the library name in the sidebar switches between libraries and remembers the choice', async ({ page }) => {
+  const state = defaultState();
+  // libB's id: the mock unlocks it on this device like libA.
+  const vault = { ...libB, name: 'vault', created_at: '2026-01-02T00:00:00.000Z' };
+  state.libraries = [libA, vault];
+  await mockWorkspace(page, state);
+  const vaultNote = { ...noteA, id: 'dddddddddddddddddddddddddddddddd', library_id: vault.id, title: '课程总览', body: undefined };
+  await page.route(`**/api/libraries/${vault.id}/entries`, route => json(route, 200, { entries: [vaultNote] }));
+  await page.route(`**/api/libraries/${vault.id}/folders`, route => json(route, 200, { folders: [] }));
+  await page.goto('/workspace');
+  const sidebar = page.locator('.obsidian-sidebar');
+  await expect(sidebar.getByRole('button', { name: 'First note for user A' })).toBeVisible();
+
+  await page.locator('.sidebar-library-button').click();
+  const menu = page.getByRole('dialog', { name: '管理知识库' });
+  await expect(menu.getByRole('menuitemradio')).toHaveText(['我的知识库', 'vault']);
+  await expect(menu.getByRole('menuitemradio', { name: '我的知识库' })).toHaveAttribute('aria-checked', 'true');
+  await menu.getByRole('menuitemradio', { name: 'vault' }).click();
+
+  // The page reopens on the chosen library, and stays there.
+  await expect(sidebar.getByRole('button', { name: '课程总览' })).toBeVisible();
+  await expect(page.locator('.sidebar-library-button')).toHaveAttribute('title', 'vault');
+  await page.reload();
+  await expect(sidebar.getByRole('button', { name: '课程总览' })).toBeVisible();
+  await page.locator('.sidebar-library-button').click();
+  await expect(page.getByRole('dialog', { name: '管理知识库' }).getByRole('menuitemradio', { name: 'vault' })).toHaveAttribute('aria-checked', 'true');
+});

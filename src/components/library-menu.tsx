@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Download, LibraryBig, Pencil, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { Check, Download, LibraryBig, Pencil, Plus, Settings2, Trash2, Upload, X } from 'lucide-react';
 import { useSheetGesture } from '../lib/use-sheet-gesture';
+import type { Library } from '../lib/library';
 import './library-menu.css';
 
-type Mode = 'menu' | 'rename' | 'delete';
+type Mode = 'menu' | 'rename' | 'delete' | 'create';
 
 /**
  * The library's own menu, opened from its name in the sidebar: rename it in
  * place, export it as a ZIP, import Markdown or a ZIP, or delete it after
  * typing its name. A popover on a computer, a bottom sheet on a phone.
  */
-export function LibraryMenu({ name, noteCount, fileCount, folderCount, anchor, onClose, onRename, onExport, onImport, onDelete, onOpenSettings }: {
+export function LibraryMenu({ name, noteCount, fileCount, folderCount, anchor, libraries, currentId, onSwitch, onCreate, onClose, onRename, onExport, onImport, onDelete, onOpenSettings }: {
   name: string;
+  /** Every library of the account; the menu switches between them. */
+  libraries: Pick<Library, 'id' | 'name' | 'role'>[];
+  currentId: string;
+  onSwitch: (id: string) => void;
+  onCreate: (name: string) => Promise<void>;
   noteCount: number;
   fileCount: number;
   folderCount: number;
@@ -78,7 +84,25 @@ export function LibraryMenu({ name, noteCount, fileCount, folderCount, anchor, o
           <button type="button" onClick={() => { setMode('menu'); setConfirm(''); }}>取消</button>
           <button type="submit" className="is-danger" disabled={Boolean(busy) || confirm !== name}>永久删除</button>
         </div>
+      </form> : mode === 'create' ? <form className="library-menu-form" onSubmit={event => {
+        event.preventDefault();
+        const next = draft.trim();
+        if (next) void run('新建', async () => { await onCreate(next); });
+      }}>
+        <label><span>新知识库名称</span><input autoFocus value={draft} maxLength={80} placeholder="例如：课程笔记" onChange={event => setDraft(event.target.value)} /></label>
+        <div className="library-menu-actions">
+          <button type="button" onClick={() => { setMode('menu'); setDraft(name); }}>取消</button>
+          <button type="submit" className="is-primary" disabled={Boolean(busy) || !draft.trim()}>新建并打开</button>
+        </div>
       </form> : <div className="library-menu-list" role="menu">
+        <p className="library-menu-section">知识库</p>
+        {libraries.map(item => <button key={item.id} type="button" role="menuitemradio" aria-checked={item.id === currentId} className={`library-menu-library${item.id === currentId ? ' is-current' : ''}`}
+          disabled={Boolean(busy)} onClick={() => { if (item.id === currentId) onClose(); else onSwitch(item.id); }}>
+          <LibraryBig size={16} /><span>{item.name}</span>{item.role && item.role !== 'owner' ? <small>订阅</small> : null}{item.id === currentId ? <Check size={15} className="library-menu-check" aria-hidden="true" /> : null}
+        </button>)}
+        <button type="button" role="menuitem" disabled={Boolean(busy)} onClick={() => { setDraft(''); setMode('create'); }}><Plus size={16} /><span>新建知识库</span></button>
+        <div className="library-menu-rule" />
+        <p className="library-menu-section">当前知识库</p>
         <button type="button" role="menuitem" disabled={Boolean(busy)} onClick={() => { setDraft(name); setMode('rename'); }}><Pencil size={16} /><span>重命名</span></button>
         <button type="button" role="menuitem" disabled={Boolean(busy)} onClick={() => void run('导出', async () => {
           const count = await onExport(progress('正在导出'));

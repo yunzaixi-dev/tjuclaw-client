@@ -99,3 +99,12 @@
   .library-menu-actions button { min-height: 44px; flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .library-menu, .library-menu-veil { animation: none; } }
+
+/* Library switcher at the top of the menu. */
+.library-menu-section { margin: 6px 10px 2px; color: var(--muted-foreground); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.library-menu-library span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-menu-library.is-current { font-weight: 600; }
+.library-menu-check { margin-left: auto; color: var(--primary); }
+.library-menu-list .library-menu-library { display: flex; align-items: center; gap: 10px; }
+.library-menu-list .library-menu-library span { flex: 1; min-width: 0; }
+.library-menu-list .library-menu-library small { flex: none; margin: 0; }

@@ -29,7 +29,7 @@ import { VaultError } from './lib/sealed-vault';
 import { attempt } from './lib/attempt';
 import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
-import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
@@ -456,12 +456,24 @@ type CachedBoot = {
   verification: WorkspaceVerification;
 };
 
+// The library the user chose to open, per account; the first one otherwise.
+const activeLibraryKey = (identity: string) => `tjuclaw.library.active.v1.${identity}`;
+function rememberedLibrary(identity: string) {
+  try { return localStorage.getItem(activeLibraryKey(identity)) ?? ''; } catch { return ''; }
+}
+function rememberLibrary(identity: string, id: string) {
+  storeItem(localStorage, activeLibraryKey(identity), id);
+}
+
 /** The last unlocked workspace this tab showed, so a return visit paints before the network. */
 function bootCachedWorkspace(): CachedBoot | null {
   const session = readSessionSnapshot();
   if (!session) return null;
   const tree = readWorkspaceTree(session.id);
   if (!tree || !isWorkspaceUnlocked(session.id, tree.library.id, tree.verification)) return null;
+  // Another library was chosen since: do not paint the old one first.
+  const chosen = rememberedLibrary(session.id);
+  if (chosen && chosen !== tree.library.id) return null;
   openEntryCache(session.id);
   const items = tree.entries.map(listedWithCache);
   const focused = tree.focus && tree.focus !== 'home'
@@ -740,6 +752,16 @@ export default function Workspace() {
     }
   }, []);
   const library = libraries[0];
+  // The account's libraries in their own order, for the switcher.
+  const [libraryOrder, setLibraryOrder] = useState<string[]>([]);
+  const switchableLibraries = [...libraries].sort((a, b) => libraryOrder.indexOf(a.id) - libraryOrder.indexOf(b.id));
+  function openLibrary(id: string) {
+    const identity = identityRef.current;
+    if (!identity) return;
+    rememberLibrary(identity, id);
+    // Tabs, the open note and caches all belong to a library: start afresh.
+    location.reload();
+  }
   const noteCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text').length;
   const fileCount = entries.filter(entry => entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file').length;
   const activeTab = tabs.find(tab => tab.key === activeTabKey);
@@ -1941,8 +1963,12 @@ export default function Workspace() {
       const [libs, verification] = await Promise.all([early?.libraries ?? listLibraries(), early?.verification ?? workspaceVerification()]);
       if (generation !== identityGeneration.current) return;
       treeVerification.current = verification;
-      setLibraries(libs);
-      const activeLibrary = libs[0];
+      // The chosen library comes first: it is the one the workspace shows.
+      const chosen = identityRef.current ? rememberedLibrary(identityRef.current) : '';
+      const ordered = [...libs.filter(item => item.id === chosen), ...libs.filter(item => item.id !== chosen)];
+      setLibraries(ordered);
+      setLibraryOrder(libs.map(item => item.id));
+      const activeLibrary = ordered[0];
       if (!activeLibrary) {
         setWorkspaceGate({ workspaceId: null, workspaceName: '', mode: 'setup', verification, firstWorkspace: true });
         return;
@@ -3118,6 +3144,8 @@ export default function Workspace() {
       </DialogContent>
     </Dialog>
     <Suspense fallback={null}>{libraryMenu && library ? <LibraryMenu name={library.name} noteCount={noteCount} fileCount={fileCount} folderCount={folders.length} anchor={libraryMenu}
+      libraries={switchableLibraries} currentId={library.id} onSwitch={openLibrary}
+      onCreate={async name => { const created = await createLibrary(name); openLibrary(created.id); }}
       onClose={() => setLibraryMenu(null)}
       onRename={async name => { const updated = await renameLibrary(library.id, name); setLibraries(current => current.map(item => item.id === updated.id ? updated : item)); }}
       onExport={async progress => (await loadLibraryTransfer()).exportLibrary(library, progress)}
