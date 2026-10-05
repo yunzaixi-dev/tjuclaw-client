@@ -373,7 +373,8 @@ export async function createLibrary(name: string, signal?: AbortSignal): Promise
 }
 
 export async function listEntries(libraryId: string, signal?: AbortSignal): Promise<Entry[]> {
-  const data = await authRequest<{ entries: unknown }>(`/api/libraries/${libraryId}/entries`, { signal });
+  // A large library's list is megabytes; give a slow connection time to fetch it.
+  const data = await authRequest<{ entries: unknown }>(`/api/libraries/${libraryId}/entries`, { signal }, 60_000);
   if (!Array.isArray(data.entries) || !data.entries.every(isEntry)) throw new AuthError(503);
   return data.entries;
 }
@@ -385,7 +386,7 @@ export async function createEntry(libraryId: string, input: { kind: EntryKind; t
 }
 
 export async function listFolders(libraryId: string, signal?: AbortSignal): Promise<Entry[]> {
-  const data = await authRequest<{ folders: unknown }>(`/api/libraries/${libraryId}/folders`, { signal });
+  const data = await authRequest<{ folders: unknown }>(`/api/libraries/${libraryId}/folders`, { signal }, 60_000);
   if (!Array.isArray(data.folders) || !data.folders.every(isEntry)) throw new AuthError(503);
   return data.folders;
 }
