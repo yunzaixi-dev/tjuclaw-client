@@ -3,7 +3,7 @@ import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, defaultHighlightStyle, HighlightStyle, indentOnInput, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { EditorState, RangeSet, StateEffect, StateField, type Range } from '@codemirror/state';
+import { EditorState, Facet, RangeSet, StateEffect, StateField, type Range } from '@codemirror/state';
 import { Decoration, dropCursor, EditorView, highlightSpecialChars, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo, undo } from '@codemirror/commands';
 import { keymap } from '@codemirror/view';
@@ -14,7 +14,14 @@ import { FootnoteWidget, HtmlBlockWidget, htmlBlockRenders, ImageWidget, INLINE_
 import { classHighlighter } from '@lezer/highlight';
 import { codeLanguages } from '../lib/code-highlight';
 import { findDisplayMath } from './display-math';
-import { isImageTarget, resolveNoteFile } from '../lib/note-files';
+import { embedWidth, isImageTarget, resolveNoteFile } from '../lib/note-files';
+import type { Entry } from '../lib/library';
+
+const sourceNote = Facet.define<string, string>({ combine: values => values[0] ?? '' });
+const noteFilesChanged = StateEffect.define<null>();
+const linkAttributes = (target: string, wiki = false) => ({
+  'data-note-target': target, 'data-note-wiki': String(wiki), role: 'link', tabindex: '0', contenteditable: 'false',
+});
 
 // Phones and tablets: CodeMirror's drawn cursor and selection hide the native
 // caret, selection handles and magnifier, so touch devices use the browser's
@@ -227,7 +234,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
       if (name === 'Link' || name === 'Image') {
         // The Markdown parser sees the inner [target] of [[target]] as a normal link
         // (an image inside a link, [![alt](src)](href), is not that).
-        if (name === 'Link' && text[from - 1] === '[' && text[to] === ']') return;
+        if (/^!?\[\[/.test(text.slice(from, to)) || name === 'Link' && text[from - 1] === '[' && text[to] === ']') return false;
         // A footnote reference [^1] is drawn by the paragraph pass.
         if (text.startsWith('[^', from)) return;
         const prefixEnd = from + (name === 'Image' ? 2 : 1);
@@ -237,13 +244,16 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
         if (name === 'Image' && !reveal && text[labelEnd + 1] === '(') {
           // Away from the caret an image shows as the image (or where it lives).
           const src = destination(text.slice(labelEnd + 2, to - 1));
-          const range = Decoration.replace({ widget: new ImageWidget(src, text.slice(prefixEnd, labelEnd)) }).range(from, to);
+          const range = Decoration.replace({ widget: new ImageWidget(src, text.slice(prefixEnd, labelEnd), view.state.facet(sourceNote)) }).range(from, to);
           decorations.push(range);
           atomic.push(range);
           return false;
         }
         syntax(from, prefixEnd, reveal);
-        add(prefixEnd, labelEnd, mark(name === 'Image' ? 'cm-md-image-label' : 'cm-md-link-label'));
+        const target = text[labelEnd + 1] === '(' ? destination(text.slice(labelEnd + 2, to - 1)) : '';
+        add(prefixEnd, labelEnd, name === 'Link' && target
+          ? Decoration.mark({ class: 'cm-md-link-label', attributes: { ...linkAttributes(target), contenteditable: String(reveal) } })
+          : mark(name === 'Image' ? 'cm-md-image-label' : 'cm-md-link-label'));
         syntax(labelEnd, to, reveal);
       }
       if (name === 'Autolink') {
@@ -366,7 +376,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
           const summary = /^\s*<summary>(.*?)<\/summary>\s*$/i.exec(lineText);
           if (!editing && image) {
             const attribute = (key: string) => new RegExp(`\\b${key}\\s*=\\s*["']([^"']*)["']`, 'i').exec(image[1])?.[1] ?? '';
-            const range = Decoration.replace({ widget: new ImageWidget(attribute('src'), attribute('alt')) }).range(current.from, current.to);
+            const range = Decoration.replace({ widget: new ImageWidget(attribute('src'), attribute('alt'), view.state.facet(sourceNote)) }).range(current.from, current.to);
             decorations.push(range);
             atomic.push(range);
           } else if (!editing && summary) {
@@ -426,9 +436,10 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
           const start = from + (match.index ?? 0);
           const end = start + match[0].length;
           // An image embed shows as the library's image away from the caret.
-          const image = match[0][0] === '!' && isImageTarget(match[1]) ? resolveNoteFile(match[1]) : null;
+          if (inCode(start)) continue;
+          const image = match[0][0] === '!' && isImageTarget(match[1]) ? resolveNoteFile(match[1], view.state.facet(sourceNote), true) : null;
           if (image && !inCode(start) && !selected(start, end)) {
-            replaceWith(start, end, new ImageWidget(image, (match[1].split('|')[0].split('/').pop() ?? '')));
+            replaceWith(start, end, new ImageWidget(image, (match[1].split('|')[0].split('/').pop() ?? ''), view.state.facet(sourceNote), embedWidth(match[1])));
             continue;
           }
           const contentStart = start + (match[0][0] === '!' ? 3 : 2);
@@ -436,7 +447,7 @@ function livePreviewDecorations(view: EditorView): PreviewRanges {
           const labelStart = separator < 0 ? contentStart : contentStart + separator + 1;
           const reveal = selected(start, end);
           syntax(start, labelStart, reveal);
-          add(labelStart, end - 2, mark('cm-md-wikilink'));
+          add(labelStart, end - 2, Decoration.mark({ class: 'cm-md-wikilink', attributes: { ...linkAttributes(match[1], true), contenteditable: String(reveal) } }));
           syntax(end - 2, end, reveal);
         }
       }
@@ -486,7 +497,11 @@ function inlineCell(target: HTMLElement, text: string) {
       element = document.createElement('span'); element.className = 'cm-md-wikilink';
       const inner = token.replace(/^!?\[\[|\]\]$/g, '');
       element.textContent = inner.slice(inner.lastIndexOf('|') + 1);
-    } else { element = document.createElement('span'); element.className = 'cm-md-link-label'; element.textContent = token.slice(1, token.indexOf('](')); }
+      for (const [name, value] of Object.entries(linkAttributes(inner, true))) element.setAttribute(name, value);
+    } else {
+      element = document.createElement('span'); element.className = 'cm-md-link-label'; element.textContent = token.slice(1, token.indexOf(']('));
+      for (const [name, value] of Object.entries(linkAttributes(destination(token.slice(token.indexOf('](') + 2, -1))))) element.setAttribute(name, value);
+    }
     target.append(element);
     last = index + token.length;
   }
@@ -586,7 +601,7 @@ function blockDecorations(state: EditorState): DecorationSet {
         const from = state.doc.lineAt(node.from).from;
         const to = state.doc.lineAt(node.to).to;
         const source = state.doc.sliceString(from, to);
-        if (htmlBlockRenders(source) && !editing(from, to)) ranges.push(Decoration.replace({ widget: new HtmlBlockWidget(source), block: true }).range(from, to));
+        if (htmlBlockRenders(source) && !editing(from, to)) ranges.push(Decoration.replace({ widget: new HtmlBlockWidget(source, state.facet(sourceNote)), block: true }).range(from, to));
         return false;
       }
       if (node.name === 'SetextHeading1' || node.name === 'SetextHeading2') {
@@ -606,7 +621,7 @@ const tablePreview = StateField.define<DecorationSet>({
   create: blockDecorations,
   update(value, tr) {
     const syntaxChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    if (tr.docChanged || tr.selection || syntaxChanged || tr.effects.some(effect => effect.is(setEditorFocus) || effect.is(mathLoaded))) return blockDecorations(tr.state);
+    if (tr.docChanged || tr.selection || syntaxChanged || tr.effects.some(effect => effect.is(setEditorFocus) || effect.is(mathLoaded) || effect.is(noteFilesChanged))) return blockDecorations(tr.state);
     return value;
   },
   provide: field => EditorView.decorations.from(field),
@@ -617,7 +632,7 @@ class LivePreviewPlugin {
   constructor(view: EditorView) { this.preview = livePreviewDecorations(view); }
   update(update: ViewUpdate) {
     if (update.docChanged || update.viewportChanged || update.selectionSet || update.focusChanged
-      || update.transactions.some(tr => tr.effects.some(effect => effect.is(mathLoaded)))) this.preview = livePreviewDecorations(update.view);
+      || update.transactions.some(tr => tr.effects.some(effect => effect.is(mathLoaded) || effect.is(noteFilesChanged)))) this.preview = livePreviewDecorations(update.view);
   }
 }
 
@@ -630,7 +645,7 @@ function whileFlagged(flag: { current: boolean }, run: () => void) {
   try { run(); } finally { flag.current = false; }
 }
 
-export function MarkdownEditor({ value, onChange, editorRef }: { value: string; onChange: (value: string) => void; editorRef?: MutableRefObject<EditorView | null> }) {
+export function MarkdownEditor({ value, onChange, editorRef, entryId = '', onOpenLink, fileEntries }: { value: string; onChange: (value: string) => void; editorRef?: MutableRefObject<EditorView | null>; entryId?: string; onOpenLink?: (target: string, wiki: boolean) => boolean; fileEntries?: Entry[] }) {
   const host = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; view: EditorView } | null>(null);
@@ -639,12 +654,14 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
   const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
   const consumedContextMenu = useRef(false);
   const onChangeRef = useRef(onChange);
+  const onOpenLinkRef = useRef(onOpenLink);
   const initialValueRef = useRef(value);
   const applyingValueRef = useRef(false);
 
   useEffect(() => {
     onChangeRef.current = onChange;
-  }, [onChange]);
+    onOpenLinkRef.current = onOpenLink;
+  }, [onChange, onOpenLink]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -652,6 +669,16 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
       state: EditorState.create({
         doc: initialValueRef.current,
         extensions: [
+          sourceNote.of(entryId),
+          EditorView.domEventHandlers({
+            mousedown(event) {
+              if (event.button !== 0 || event.altKey || event.shiftKey) return false;
+              const link = (event.target as Element).closest<HTMLElement>('[data-note-target]');
+              if (!link || !onOpenLinkRef.current?.(link.dataset.noteTarget ?? '', link.dataset.noteWiki === 'true')) return false;
+              event.preventDefault();
+              return true;
+            },
+          }),
           coarsePointer ? touchSetup : basicSetup,
           ...(coarsePointer ? [EditorView.scrollMargins.of(() => ({ bottom: TOOLBAR_HEIGHT + 16 }))] : []),
           history(),
@@ -701,13 +728,17 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
       if (editorRef?.current === view) editorRef.current = null;
       view.destroy();
     };
-  }, [editorRef]);
+  }, [editorRef, entryId]);
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view || value === view.state.doc.toString()) return;
     whileFlagged(applyingValueRef, () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } }));
   }, [value]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: noteFilesChanged.of(null) });
+  }, [fileEntries]);
 
   function cancelLongPress() {
     if (longPress.current) window.clearTimeout(longPress.current.timer);
@@ -771,7 +802,13 @@ export function MarkdownEditor({ value, onChange, editorRef }: { value: string; 
     onContextMenu, onPointerDown, onPointerMove, onPointerUp: cancelLongPress, onPointerCancel: cancelLongPress, onTouchMove: cancelLongPress,
   };
   return <><div ref={host} className={`codemirror-editor${coarsePointer ? ' is-touch' : ''}`} aria-label="Markdown 编辑器"
-    {...pointerHandlers} onKeyDown={onKeyDown} />
+    {...pointerHandlers} onKeyDown={onKeyDown} onKeyDownCapture={event => {
+      if (event.key !== 'Enter') return;
+      const link = (event.target as Element).closest<HTMLElement>('[data-note-target]');
+      if (!link || !onOpenLinkRef.current?.(link.dataset.noteTarget ?? '', link.dataset.noteWiki === 'true')) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }} />
     {coarsePointer && focusedView && !menu ? <TouchFormatBar view={focusedView} onMore={openMenuAtCursor} /> : null}
     {menu ? <MarkdownContextMenu view={menu.view} position={menu} onClose={() => setMenu(null)} /> : null}
   </>;

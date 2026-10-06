@@ -400,6 +400,7 @@
 .codemirror-editor .cm-md-code-line,
 .markdown-preview pre { font-family: var(--font-code); }
 .codemirror-editor .cm-md-image-label { color: var(--primary); }
+.codemirror-editor [data-note-target]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 /* List items hang: wrapped lines line up with the item's text. Indents and
    markers are fixed-width widgets (see LIST_STEP in markdown-editor.tsx). */
 .codemirror-editor .cm-md-list-line { padding-left: var(--md-hang) !important; text-indent: calc(-1 * var(--md-hang)); }

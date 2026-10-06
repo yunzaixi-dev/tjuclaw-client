@@ -10,7 +10,7 @@ import { useReducedMotion } from 'motion/react';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { MarkdownEditor } from './components/markdown-editor';
-import { expandEmbeds, resolveNoteFile, setNoteFiles } from './lib/note-files';
+import { embedWidth, isImageTarget, resolveNoteFile, resolveNoteLink, setNoteFiles } from './lib/note-files';
 import { openingHoldMs, openingWasVisible, WorkspaceLoading, type LoadStep } from './components/workspace-loading';
 import { OperationProgress } from './components/operation-progress';
 import { agentRuntime, sendLocalTurn } from './lib/local-sandbox';
@@ -350,9 +350,19 @@ function storedNotesPane(): 'files' | 'outline' {
 // client CSP stays img-src 'self'. Other external images are dropped.
 const PROXIED_IMAGE_HOSTS = new Set(['qnhdpic.twt.edu.cn']);
 let allowExternalImages = false;
+let renderingNoteId: string | undefined;
 function proxiedImage(node: Element) {
+  if (node.tagName === 'A' && allowExternalImages && !node.hasAttribute('data-note-target')) {
+    const href = node.getAttribute('href') ?? '';
+    if (resolveNoteLink(href, renderingNoteId) || /^(?![a-z][a-z0-9+.-]*:|\/\/).*\.md(?:#.*)?$/i.test(href)) {
+      node.setAttribute('data-note-target', href);
+    }
+  }
   if (node.tagName !== 'IMG') return;
   const src = node.getAttribute('src') ?? '';
+  if (src.startsWith('//')) { node.removeAttribute('src'); return; }
+  const localFile = allowExternalImages ? resolveNoteFile(src, renderingNoteId) : null;
+  if (localFile) { node.setAttribute('src', localFile); node.setAttribute('loading', 'lazy'); return; }
   let url: URL | null = null;
   try { url = new URL(src); } catch { url = null; }
   if (url && url.protocol === 'https:' && PROXIED_IMAGE_HOSTS.has(url.hostname)) {
@@ -369,7 +379,7 @@ function proxiedImage(node: Element) {
     node.setAttribute('referrerpolicy', 'no-referrer');
   } else if (!src.startsWith('data:') && !src.startsWith('/')) {
     // A relative image in the user's own note may name a file in the library.
-    const file = allowExternalImages && !url ? resolveNoteFile(src) : null;
+    const file = allowExternalImages && !url ? resolveNoteFile(src, renderingNoteId) : null;
     if (file) { node.setAttribute('src', file); node.setAttribute('loading', 'lazy'); } else node.removeAttribute('src');
   }
 }
@@ -390,6 +400,26 @@ marked.use({ renderer: {
 
 marked.use({ extensions: [
   {
+    name: 'wikiLink', level: 'inline',
+    start: (src: string) => src.search(/!?\[\[/),
+    tokenizer(src: string) {
+      const match = /^(!?)\[\[([^\]\n]+)\]\]/.exec(src);
+      return match ? { type: 'wikiLink', raw: match[0], embed: Boolean(match[1]), target: match[2] } : undefined;
+    },
+    renderer(token) {
+      if (!allowExternalImages) return escapeHtml(token.raw);
+      const target = token.target as string;
+      const label = target.includes('|') ? target.slice(target.indexOf('|') + 1) : target;
+      const file = resolveNoteFile(target, renderingNoteId, true);
+      if (token.embed && isImageTarget(target) && file) {
+        const width = embedWidth(target);
+        return `<img src="${file}" alt="${escapeHtml(target.split('|')[0])}"${width ? ` width="${width}"` : ''}>`;
+      }
+      if (file) return `<a href="${file}">${escapeHtml(label)}</a>`;
+      return `<a href="#" data-note-target="${escapeHtml(target)}" data-note-wiki="true">${escapeHtml(label)}</a>`;
+    },
+  },
+  {
     name: 'blockMath', level: 'block',
     start: (src: string) => src.indexOf('$$'),
     tokenizer(src: string) {
@@ -409,14 +439,17 @@ marked.use({ extensions: [
   },
 ] });
 
-function renderMarkdown(markdown: string, externalImages = false) {
-  const html = marked.parse(externalImages ? expandEmbeds(markdown) : markdown, { gfm: true, breaks: true }) as string;
+function renderMarkdown(markdown: string, externalImages = false, sourceId?: string, fileEntries?: Entry[]) {
+  if (fileEntries) setNoteFiles(fileEntries);
   DOMPurify.addHook('afterSanitizeAttributes', proxiedImage);
   allowExternalImages = externalImages;
+  renderingNoteId = sourceId;
   try {
+    const html = marked.parse(markdown, { gfm: true, breaks: true }) as string;
     return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true } });
   } finally {
     allowExternalImages = false;
+    renderingNoteId = undefined;
     DOMPurify.removeHook('afterSanitizeAttributes');
   }
 }
@@ -515,12 +548,13 @@ export default function Workspace() {
   const [libraries, setLibraries] = useState<Library[]>(boot ? [boot.library] : []);
   const [entries, setEntries] = useState<Entry[]>(boot?.items ?? []);
   // Notes show images by the library file's name or path.
-  useEffect(() => { setNoteFiles(entries); }, [entries]);
+  useMemo(() => setNoteFiles(entries), [entries]);
   const [folders, setFolders] = useState<VaultFolder[]>(boot?.folders ?? []);
   const [placements, setPlacements] = useState<VaultPlacement>(boot?.placements ?? {});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Entry | null>(boot?.selected ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(boot?.selected?.id ?? null);
+  const [pendingNoteLink, setPendingNoteLink] = useState<{ id: string; fragment: string } | null>(null);
   const [title, setTitle] = useState(boot?.selected?.title ?? '');
   const [body, setBody] = useState(boot?.selected?.body ?? '');
   const [chat, setChat] = useState<ChatSession | null>(null);
@@ -998,6 +1032,35 @@ export default function Workspace() {
   // A large library opens with its folders closed, so it renders what is shown.
   const foldersOpenByDefault = visible.length <= 500;
   const headings = useMemo(() => parseHeadings(body), [body]);
+  useEffect(() => {
+    if (!pendingNoteLink || pendingNoteLink.id !== selectedId) return;
+    const wanted = pendingNoteLink.fragment.split('#').at(-1)?.trim().normalize('NFC').toLowerCase();
+    const index = headings.findIndex(heading => heading.text.normalize('NFC').toLowerCase() === wanted);
+    // A lazy reader/editor may mount after this effect; wait for its DOM.
+    let frame = 0;
+    let attempts = 0;
+    const place = () => {
+      if (index < 0) {
+        setPendingNoteLink(null);
+        setError('笔记已打开，但没有找到链接指定的小标题。');
+        return;
+      }
+      if (editorMode === 'preview') {
+        const target = document.querySelectorAll('.note-reader :is(h1,h2,h3,h4,h5,h6)')[index];
+        if (!target) { if (++attempts < 120) frame = requestAnimationFrame(place); return; }
+        window.dispatchEvent(new CustomEvent('tjuclaw:reader-goto', { detail: target }));
+      } else {
+        const editor = bodyRef.current;
+        if (!editor) { if (++attempts < 120) frame = requestAnimationFrame(place); return; }
+        const line = editor.state.doc.line(Math.min(headings[index].line + 1, editor.state.doc.lines));
+        editor.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 72 }) });
+      }
+      setActiveHeading(headings[index].id);
+      setPendingNoteLink(null);
+    };
+    frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
+  }, [pendingNoteLink, selectedId, headings, editorMode]);
   const outlineBase = headings.reduce((min, item) => Math.min(min, item.level), 6);
 
   function siblings(group: string): Sortable[] {
@@ -1502,6 +1565,19 @@ export default function Workspace() {
         }
       }, () => { if (generation === identityGeneration.current && request === chatRequestRef.current) setChatLoading(false); });
     } else { ++chatRequestRef.current; setChat(null); setChatLoading(false); }
+  }
+
+  function openNoteLink(target: string, wiki = false) {
+    const resolved = resolveNoteLink(target, selectedId ?? undefined, wiki);
+    if (!resolved) {
+      if (wiki || /\.(md|markdown)(?:#.*)?$/i.test(target)) setError('没有找到链接指向的笔记，或存在同名笔记。请检查链接路径。');
+      return false;
+    }
+    if (!canLeaveDraft(resolved.id)) return true;
+    setError('');
+    setPendingNoteLink(resolved.fragment ? resolved : null);
+    void openEntry(resolved.id);
+    return true;
   }
 
   /** Opens an Agent on a fresh conversation, or on one from its history. */
@@ -3093,12 +3169,18 @@ export default function Workspace() {
       }} /> : view === 'anki' ? ankiRemoteReady
         ? <AnkiWorkspace key={`${session.id}:${ankiDeckId}`} ref={attachAnkiWorkspace} cards={ankiCards} identity={session.id} deckName={ankiDeckName} schedules={ankiSchedules} lastStudyAt={ankiLastStudyAt} onCreateCard={addAnkiCard} onReviewCard={reviewAnki} onImportFile={importAnki} onCardsChange={saveAnkiCards} onExport={() => void exportAnki()} onAddSampleCards={addSampleCards} openCardId={ankiOpenCardId} onOpenCardHandled={() => setAnkiOpenCardId(null)} />
         : <section className="workspace-blank anki-recovery" aria-label="闪卡服务不可用"><SquareStack size={25} /><p>{ankiLoadFailed ? '闪卡连接中断，编辑已暂停。重试会重新读取服务端卡片，未确认的修改可能被覆盖。' : '正在连接闪卡服务…'}</p>{ankiLoadFailed ? <div className="anki-recovery-actions"><button type="button" onClick={() => { ankiSyncHealthy.current = false; void loadAnkiData(identityGeneration.current); }}>重试连接</button>{ankiCards.length && ankiDeckId ? <button type="button" onClick={() => void exportAnki()}>导出当前卡片备份</button> : null}{legacyAnkiBackupAvailable ? <button type="button" onClick={exportLegacyAnkiBackup}>下载旧版浏览器备份</button> : null}</div> : null}</section>
-        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} busy={Boolean(operations.create)} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => void renameFile(selected, name)} /> : <article className="note-editor" onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
+        : view === 'sessions' ? <section className="workspace-blank" aria-label="新对话"><button type="button" className="settings-action-button" onClick={() => void startNewChat(activeTabKey ?? undefined, true)}><MessageCircle size={15} /> 开始新对话</button></section> : !selected ? <NewNoteHome entries={entries} busy={Boolean(operations.create)} onCreate={(noteTitle, initialBody) => void createNote(noteTitle, initialBody)} onCreateRich={() => void createRichText()} onUpload={() => uploadPicker()} onOpen={id => void openEntry(id)} /> : selected.kind === 'file' ? <FilePreview key={selected.id} entry={selected} renameRequest={fileRenameRequest} onRename={name => void renameFile(selected, name)} /> : <article className="note-editor" onClick={event => {
+          if (editorMode !== 'preview' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          const link = (event.target as Element).closest<HTMLAnchorElement>('a[data-note-target]');
+          if (!link) return;
+          event.preventDefault();
+          openNoteLink(link.dataset.noteTarget ?? '', link.dataset.noteWiki === 'true');
+        }} onContextMenu={selected.kind === 'note' ? event => openContextMenu(event, 'editor') : undefined}>
         {isMobile ? <div className="note-toolbar"><div className="note-history"><button type="button" onClick={() => moveTabHistory(-1)} disabled={!activeTab || activeTab.historyIndex <= 0} aria-label="上一个笔记" title="上一个笔记"><ArrowLeft size={17} /></button><button type="button" onClick={() => moveTabHistory(1)} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} aria-label="下一个笔记" title="下一个笔记"><ArrowRight size={17} /></button></div></div> : null}
         <input ref={titleRef} className="note-title" aria-label="标题" value={title} onChange={event => { setTitle(event.target.value); queueSave(event.target.value, body); }} placeholder={selected.kind === 'rich_text' ? '未命名文档' : '未命名笔记'} />
         {selected.kind === 'rich_text'
           ? <Suspense fallback={<div className="rich-text-loading" role="status">正在打开文档…</div>}><RichTextEditor key={selected.id} value={body} readOnly={editorMode === 'preview'} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} /></Suspense>
-          : editorMode === 'preview' ? <ScrollReader key={selected.id} className="note-reader" storageKey={`tjuclaw.reader.v1.${selected.id}`} html={renderMarkdown(body, true)} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
+          : editorMode === 'preview' ? <ScrollReader key={selected.id} className="note-reader" storageKey={`tjuclaw.reader.v1.${selected.id}`} html={renderMarkdown(body, true, selected.id, entries)} /> : <MarkdownEditor key={`${selected.id}:${restoreNonce}`} entryId={selected.id} fileEntries={entries} onOpenLink={openNoteLink} value={body} onChange={nextBody => { setBody(nextBody); queueSave(title, nextBody); }} editorRef={bodyRef} />}
       </article>}
       </Suspense>
       </div>

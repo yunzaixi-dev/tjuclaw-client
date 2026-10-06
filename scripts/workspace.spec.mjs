@@ -4,6 +4,123 @@ import { createHash } from 'node:crypto';
 import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
 
+function obsidianState() {
+  const state = defaultState();
+  const course = { ...createdNote, id: '12121212121212121212121212121212', kind: 'folder', title: '课程' };
+  const chapter = { ...course, id: '13131313131313131313131313131313', parent_id: course.id, title: '章节' };
+  const assets = { ...course, id: '14141414141414141414141414141414', parent_id: course.id, title: 'assets' };
+  const target = { ...noteC, parent_id: course.id, title: '复习', body: '# 开始\n\n' + '合成测试正文。\n\n'.repeat(50) + '## 重点\n\n目标正文。' };
+  const image = { ...createdNote, id: '15151515151515151515151515151515', kind: 'file', parent_id: assets.id, title: '图 #1.png', content_type: 'image/png', size: 68 };
+  const source = { ...noteA, parent_id: chapter.id, body: [
+    '[[课程/复习#重点|去复习]]',
+    '[相对链接](../复习.md)',
+    '![课程图片](../assets/%E5%9B%BE%20%231.png)',
+    '![[课程/assets/图 %231.png|80]]',
+    '`[[课程/复习|不跳转]]`',
+    '```md\n[[课程/复习|代码内不跳转]]\n```',
+  ].join('\n\n') };
+  state.entries = [guideA, source, target, course, chapter, assets, image];
+  state.entryById = Object.fromEntries(state.entries.map(entry => [entry.id, entry]));
+  return { state, source, target, image };
+}
+
+test('Obsidian live preview opens wiki and relative note links and loads original attachments', async ({ page }) => {
+  const { state, source, target, image } = obsidianState();
+  await mockWorkspace(page, state);
+  const requested = [];
+  await page.route('**/api/entries/**/file', route => {
+    requested.push(route.request().url().split('/').at(-2));
+    return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') });
+  });
+  await page.goto('/workspace');
+  const editor = page.locator('.codemirror-editor');
+  await expect(editor.locator('img.cm-md-image')).toHaveCount(2);
+  for (const img of await editor.locator('img.cm-md-image').all()) {
+    await expect(img).toHaveAttribute('src', `/api/entries/${image.id}/file`);
+    await expect.poll(() => img.evaluate(node => node.naturalWidth)).toBe(1);
+  }
+  await expect(editor.locator('img.cm-md-image[width="80"]')).toHaveCount(1);
+  await expect(editor.locator('.cm-md-wikilink')).toHaveCount(1);
+  await editor.getByRole('link', { name: '去复习' }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+  await expect(editor.locator('.cm-md-heading-line').filter({ hasText: '重点' })).toBeInViewport();
+  await expect(page).toHaveURL(/\/workspace$/);
+  await page.getByRole('button', { name: '上一个笔记', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(source.title);
+  await editor.getByRole('link', { name: '相对链接' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+  expect(requested.every(id => id === image.id)).toBe(true);
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+for (const mode of ['edit', 'preview']) {
+  test(`Obsidian ${mode} refreshes attachments when the full library replaces its cached tree`, async ({ page }) => {
+    const { state, source, image } = obsidianState();
+    await mockWorkspace(page, state);
+    await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+    await page.goto('/workspace');
+    await expect(page.locator('img.cm-md-image')).toHaveCount(2);
+    await page.evaluate(({ owner, sourceId, imageId }) => {
+      const key = `tjuclaw.workspace-tree.v1.${owner}`;
+      const tree = JSON.parse(localStorage.getItem(key));
+      tree.entries = tree.entries.filter(entry => entry.id !== imageId);
+      tree.focus = sourceId;
+      localStorage.setItem(key, JSON.stringify(tree));
+    }, { owner: syntheticSessionA.id, sourceId: source.id, imageId: image.id });
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    await page.route(`**/api/libraries/${libA.id}/entries`, async route => {
+      await ready;
+      return json(route, 200, { entries: state.entries });
+    });
+    await page.reload();
+    await expect(page.locator('.cm-md-image-card')).toHaveCount(1);
+    if (mode === 'preview') await page.getByRole('button', { name: '阅读模式' }).click();
+    release();
+    const images = page.locator(mode === 'edit' ? 'img.cm-md-image' : '.note-reader img');
+    await expect(page.locator('.obsidian-tree').getByRole('button', { name: image.title, exact: true })).toBeVisible();
+    await expect(images).toHaveCount(2);
+    for (const img of await images.all()) await expect.poll(() => img.evaluate(node => node.naturalWidth)).toBe(1);
+    expect(state.entryById[source.id].body).toBe(source.body);
+  });
+}
+
+test.describe('Obsidian touch links', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  test('a note link opens with a tap without editing its source', async ({ page }) => {
+    const { state, source, target } = obsidianState();
+    await mockWorkspace(page, state);
+    await page.goto('/workspace');
+    await page.locator('.codemirror-editor').getByRole('link', { name: '去复习' }).tap();
+    await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+    expect(state.entryById[source.id].body).toBe(source.body);
+  });
+});
+
+test('Obsidian reading links stay in the workspace, jump to headings, and leave code untouched', async ({ page }) => {
+  const { state, source, target, image } = obsidianState();
+  await mockWorkspace(page, state);
+  await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  const reader = page.getByRole('region', { name: '阅读' });
+  await expect(reader.locator('img')).toHaveCount(2);
+  for (const img of await reader.locator('img').all()) {
+    await expect(img).toHaveAttribute('src', `/api/entries/${image.id}/file`);
+    await expect.poll(() => img.evaluate(node => node.naturalWidth)).toBe(1);
+  }
+  await expect(reader.locator('code a')).toHaveCount(0);
+  await reader.getByRole('link', { name: '去复习' }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+  await expect(reader.getByRole('heading', { name: '重点' })).toBeInViewport();
+  await expect(page).toHaveURL(/\/workspace$/);
+  await page.getByRole('button', { name: '上一个笔记', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(source.title);
+  await reader.getByRole('link', { name: '相对链接' }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+});
+
 const syntheticSessionA = {
   id: 'user-identity-uuid-aaaa',
   email: 'user-a@example.com',
@@ -3066,7 +3183,7 @@ test('Agent replies show original campus images through the API proxy only', asy
     const body = route.request().postDataJSON();
     return json(route, 200, { session: { ...sessionA, messages: [
       { role: 'user', content: body.content, created_at: '2026-01-01T00:00:10.000Z' },
-      { role: 'assistant', content: '帖子原图如下：\n\n![校园卡](https://qnhdpic.twt.edu.cn/download/origin/a.jpg)\n\n![外链](https://evil.example/x.png)', tools: ['search_course_materials', 'read_image'], created_at: '2026-01-01T00:00:11.000Z' },
+      { role: 'assistant', content: '帖子原图如下：\n\n![校园卡](https://qnhdpic.twt.edu.cn/download/origin/a.jpg)\n\n![外链](https://evil.example/x.png)\n\n![协议外链](//evil.example/x.png)', tools: ['search_course_materials', 'read_image'], created_at: '2026-01-01T00:00:11.000Z' },
     ] } });
   });
   await page.goto('/workspace');
@@ -3081,6 +3198,7 @@ test('Agent replies show original campus images through the API proxy only', asy
   await expect.poll(() => image.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
   expect(proxied).toEqual(['https://qnhdpic.twt.edu.cn/download/origin/a.jpg']);
   await expect(log.locator('img[alt="外链"]')).not.toHaveAttribute('src', /evil/);
+  await expect(log.locator('img[alt="协议外链"]')).not.toHaveAttribute('src');
 });
 
 test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {

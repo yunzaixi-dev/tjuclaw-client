@@ -1,6 +1,6 @@
 import { StateEffect } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
-import { resolveNoteFile } from '../lib/note-files';
+import { noteFilesRevision, resolveNoteFile } from '../lib/note-files';
 
 // Math renders with KaTeX as MathML: browsers draw it natively, and it needs
 // no inline styles or fonts, so it works under the client's strict CSP.
@@ -63,12 +63,13 @@ export class MathWidget extends WidgetType {
 }
 
 /** The URL an image loads from: same-origin, data:, campus images through the proxy, other HTTPS images directly. */
-export function loadableImage(src: string): string | null {
+export function loadableImage(src: string, sourceId?: string): string | null {
   const url = src.trim();
   if (/^data:image\//i.test(url)) return url;
   // A relative path names a file in the open library.
-  const file = resolveNoteFile(url);
+  const file = resolveNoteFile(url, sourceId);
   if (file) return file;
+  if (!url.startsWith('/') && !/^[a-z][a-z0-9+.-]*:/i.test(url)) return null;
   try {
     const parsed = new URL(url, location.origin);
     if (parsed.origin === location.origin) return parsed.pathname + parsed.search;
@@ -79,22 +80,33 @@ export function loadableImage(src: string): string | null {
 }
 
 export class ImageWidget extends WidgetType {
-  constructor(readonly src: string, readonly alt: string) { super(); }
-  eq(other: ImageWidget) { return this.src === other.src && this.alt === other.alt; }
+  readonly loadable: string | null;
+  constructor(readonly src: string, readonly alt: string, readonly sourceId?: string, readonly width?: number) {
+    super();
+    this.loadable = loadableImage(src, sourceId);
+  }
+  eq(other: ImageWidget) { return this.src === other.src && this.alt === other.alt && this.sourceId === other.sourceId && this.width === other.width && this.loadable === other.loadable; }
   toDOM() {
-    const loadable = loadableImage(this.src);
+    // Keep the widget's root stable. Replacing it on error makes CodeMirror
+    // interpret the fallback text as an edit (especially on touch devices).
+    const root = document.createElement('span');
+    root.contentEditable = 'false';
+    const loadable = this.loadable;
     if (loadable) {
       const image = document.createElement('img');
       image.className = 'cm-md-image';
       image.src = loadable;
       image.alt = this.alt;
+      if (this.width) image.width = this.width;
       image.loading = 'lazy';
       image.referrerPolicy = 'no-referrer';
       // An image that fails to load shows as its card instead.
-      image.addEventListener('error', () => image.replaceWith(this.card()));
-      return image;
+      image.addEventListener('error', () => root.replaceChildren(this.card()), { once: true });
+      root.append(image);
+      return root;
     }
-    return this.card();
+    root.append(this.card());
+    return root;
   }
   card() {
     const card = document.createElement('span');
@@ -153,14 +165,19 @@ export class MermaidWidget extends WidgetType {
 
 /** A raw HTML block, sanitized, drawn as the HTML it describes. */
 export class HtmlBlockWidget extends WidgetType {
-  constructor(readonly html: string) { super(); }
-  eq(other: HtmlBlockWidget) { return this.html === other.html; }
+  readonly fileRevision = noteFilesRevision();
+  constructor(readonly html: string, readonly sourceId?: string) { super(); }
+  eq(other: HtmlBlockWidget) { return this.html === other.html && this.sourceId === other.sourceId && this.fileRevision === other.fileRevision; }
   toDOM() {
     const block = document.createElement('div');
     block.className = 'cm-md-html-block';
     void import('dompurify').then(({ default: DOMPurify }) => {
       block.innerHTML = DOMPurify.sanitize(this.html, { USE_PROFILES: { html: true } });
-      block.querySelectorAll('img').forEach(image => { image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; });
+      block.querySelectorAll('img').forEach(image => {
+        const src = loadableImage(image.getAttribute('src') ?? '', this.sourceId);
+        if (src) image.src = src; else image.removeAttribute('src');
+        image.referrerPolicy = 'no-referrer'; image.loading = 'lazy';
+      });
     });
     return block;
   }
