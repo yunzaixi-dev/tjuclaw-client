@@ -88,7 +88,7 @@ export function FilePreview({ entry, renameRequest, onRename }: { entry: Entry; 
     {!kind ? <div className="file-preview-placeholder"><FileText size={30} /><p>此格式暂不支持在线预览</p><small>原件已保留，可下载后用本地应用打开。</small></div>
       : error ? null : kind === 'sheet' ? sheets ? <SheetView sheets={sheets} /> : <p className="file-preview-message">正在读取表格…</p>
       : !url ? <p className="file-preview-message">{kind === 'epub' ? '正在打开图书…' : '正在加载预览…'}</p>
-        : kind === 'image' ? <img src={url} alt={entry.title} />
+        : kind === 'image' ? <img src={url} alt={entry.title} onError={() => setError('图片预览失败，可下载原件检查，或刷新后重试。')} />
           : kind === 'audio' ? <audio controls src={url} aria-label={entry.title} />
             : kind === 'video' ? <video controls src={url} aria-label={entry.title} />
               : <iframe title={`${entry.title} PDF 预览`} src={url} sandbox="" />}

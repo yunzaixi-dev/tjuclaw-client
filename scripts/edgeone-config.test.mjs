@@ -31,6 +31,18 @@ test('EdgeOne SPA fallback and sandbox connect-src use exact origins', () => {
   }
 });
 
+test('production CSP permits local image previews without granting executable blob URLs', () => {
+  const csp = createEdgeoneConfig().headers[0].headers[0].value;
+  const directives = new Map(csp.split(';').map(value => {
+    const [name, ...sources] = value.trim().split(/\s+/);
+    return [name, sources];
+  }));
+  assert.deepEqual(directives.get('img-src'), ["'self'", 'data:', 'blob:', 'https:']);
+  assert.deepEqual(directives.get('script-src'), ["'self'", "'wasm-unsafe-eval'"]);
+  assert.deepEqual(directives.get('connect-src'), ["'self'"]);
+  assert.deepEqual(directives.get('object-src'), ["'none'"]);
+});
+
 test('deployment generator writes the tested configuration', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tjuclaw-edgeone-'));
   try {

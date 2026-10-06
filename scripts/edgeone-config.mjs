@@ -17,7 +17,8 @@ export function createEdgeoneConfig(sandboxOrigin = '') {
     "script-src 'self' 'wasm-unsafe-eval'",
     "worker-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
+    // File previews use object URLs created from authenticated downloads.
+    "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     `connect-src 'self'${gateway}`,
     "object-src 'none'",

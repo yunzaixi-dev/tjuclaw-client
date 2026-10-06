@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
+import { createEdgeoneConfig } from './edgeone-config.mjs';
 
 function obsidianState() {
   const state = defaultState();
@@ -119,6 +120,46 @@ test('Obsidian reading links stay in the workspace, jump to headings, and leave 
   await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(source.title);
   await reader.getByRole('link', { name: '相对链接' }).click();
   await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`attachment image decodes under production CSP (${viewport.width}px)`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const state = defaultState();
+    const image = { ...createdNote, id: '99999999999999999999999999999991', kind: 'file', title: 'anon4_probe3.png', content_type: 'image/png', size: 68 };
+    state.entries.push(image);
+    state.entryById[image.id] = image;
+    await mockWorkspace(page, state);
+    await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+    await page.route('**/workspace', async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': createEdgeoneConfig().headers[0].headers[0].value } });
+    });
+    await page.goto('/workspace');
+    if (viewport.width < 720) await page.getByRole('button', { name: '打开侧栏' }).first().click();
+    await page.locator('.obsidian-tree').getByRole('button', { name: image.title }).click();
+    const preview = page.locator('.file-preview-pane img');
+    await expect(preview).toHaveAttribute('src', /^blob:/);
+    await expect.poll(() => preview.evaluate(node => node.naturalWidth)).toBe(1);
+  });
+}
+
+test('invalid image bytes show an actionable preview error without losing the original', async ({ page }) => {
+  const state = defaultState();
+  const image = { ...createdNote, id: '99999999999999999999999999999991', kind: 'file', title: '损坏图片.png', content_type: 'image/png', size: 12 };
+  state.entries.push(image);
+  state.entryById[image.id] = image;
+  await mockWorkspace(page, state);
+  await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: 'not PNG bytes' }));
+  await page.goto('/workspace');
+  await page.locator('.obsidian-tree').getByRole('button', { name: image.title }).click();
+  await expect(page.getByRole('alert')).toContainText('图片预览失败');
+  await expect(page.locator('.file-preview-pane img')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下载原件' })).toBeEnabled();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载原件' }).click();
+  const download = await downloading;
+  expect(await readFile(await download.path(), 'utf8')).toBe('not PNG bytes');
 });
 
 const syntheticSessionA = {
@@ -2585,6 +2626,44 @@ test('live Markdown preview reveals only the construct being edited and keeps so
   await expect(editor.locator('.cm-md-checkbox')).not.toBeChecked();
   await page.screenshot({ path: 'test-results/workspace/markdown-live-preview.png' });
   expect(errors).toEqual([]);
+});
+
+for (const colorScheme of ['light', 'dark']) test(`todo checkbox keeps its geometry when toggled (${colorScheme})`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
+  const state = defaultState();
+  const body = '- [ ] 待办任务\n- [x] 已完成任务\n  - [ ] 嵌套任务';
+  state.entries = state.entries.map(entry => entry.id === noteA.id ? { ...entry, body } : entry);
+  state.entryById[noteA.id] = { ...state.entryById[noteA.id], body };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  // Exclude CodeMirror's temporary sizing widgets outside the document.
+  const boxes = page.locator('.cm-content .cm-md-checkbox');
+  await expect(boxes).toHaveCount(3);
+  const geometry = () => boxes.evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    const line = element.closest('.cm-line').getBoundingClientRect();
+    return { x: box.x, y: box.y, height: box.height, lineHeight: line.height };
+  }));
+  const before = await geometry();
+  for (const index of [0, 1, 2, 2, 1, 0]) {
+    await boxes.nth(index).click();
+    await expect.poll(geometry).toEqual(before);
+  }
+  await expect.poll(() => state.entryById[noteA.id].body).toBe(body);
+  // Start fresh history: rapid mouse toggles can be grouped into one undo event.
+  await page.reload();
+  await expect(boxes).toHaveCount(3);
+  await boxes.first().focus();
+  await page.keyboard.press('Space');
+  await expect(boxes.first()).toBeChecked();
+  await expect.poll(geometry).toEqual(before);
+  await boxes.first().focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(boxes.first()).not.toBeChecked();
+  // Undo focuses the editor and reveals list syntax; compare preview after blur.
+  await page.getByRole('button', { name: '快速切换', exact: true }).focus();
+  await expect.poll(geometry).toEqual(before);
+  await expect.poll(() => state.entryById[noteA.id].body).toBe(body);
 });
 
 test('block Markdown markers include their separating spaces in live preview', async ({ page }) => {

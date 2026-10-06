@@ -410,6 +410,7 @@
 .codemirror-editor .cm-md-list-line .cm-md-ordered-marker { display: inline-block; width: 1.6em; padding-right: .3em; text-align: right; white-space: nowrap; }
 .codemirror-editor .cm-md-task-box { display: inline-block; width: 1.6em; }
 .codemirror-editor .cm-md-checkbox {
+  position: relative;
   width: 16px;
   height: 16px;
   margin: 0;
@@ -422,6 +423,9 @@
 }
 .codemirror-editor .cm-md-checkbox:checked { border-color: var(--primary); background: var(--primary); }
 .codemirror-editor .cm-md-checkbox:checked::after {
+  /* Keep the checkmark out of inline baseline calculation. */
+  position: absolute;
+  inset: 0;
   display: block;
   color: var(--primary-foreground);
   content: '✓';
