@@ -593,6 +593,7 @@ export default function Workspace() {
   const reduceMotion = useReducedMotion();
   const [railOpen, setRailOpen] = useState(false);
   const [activeHeading, setActiveHeading] = useState('');
+  const headingJumpGeneration = useRef(0);
   // Like Typora, the notes sidebar shows either the files or the outline.
   const [notesPane, setNotesPane] = useState<'files' | 'outline'>(storedNotesPane);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Set<string>>(() => new Set());
@@ -1574,6 +1575,7 @@ export default function Workspace() {
       return false;
     }
     if (!canLeaveDraft(resolved.id)) return true;
+    headingJumpGeneration.current++;
     setError('');
     setPendingNoteLink(resolved.fragment ? resolved : null);
     void openEntry(resolved.id);
@@ -2924,6 +2926,7 @@ export default function Workspace() {
   }
 
   function jumpToHeading(item: OutlineHeading) {
+    const jump = ++headingJumpGeneration.current;
     setActiveHeading(item.id);
     if (editorMode === 'preview' || !bodyRef.current) {
       const index = headings.findIndex(heading => heading.id === item.id);
@@ -2943,6 +2946,7 @@ export default function Workspace() {
     // Heights of lines not yet drawn are estimates; once there, settle on the real position.
     for (const delay of [450, 900]) {
       window.setTimeout(() => {
+        if (jump !== headingJumpGeneration.current || bodyRef.current !== view) return;
         const exact = target();
         if (Math.abs(scroller!.scrollTop - exact) > 4) scroller!.scrollTo({ top: exact, behavior: reduceMotion ? 'auto' : 'smooth' });
       }, delay);
@@ -2998,6 +3002,12 @@ export default function Workspace() {
         const line = editor.state.doc.lineAt(editor.lineBlockAtHeight(Math.max(0, top - editor.documentTop)).from).number - 1;
         for (const heading of headings) if (heading.line <= line) current = heading.id;
       }
+      // The last heading may be below the top even at maximum scroll. Keep
+      // the final section current there instead of reverting to its predecessor.
+      let scrollParent = scroller;
+      while (scrollParent && !/(auto|scroll)/.test(getComputedStyle(scrollParent).overflowY)) scrollParent = scrollParent.parentElement;
+      if (scrollParent && scrollParent.scrollHeight > scrollParent.clientHeight
+        && scrollParent.scrollHeight - scrollParent.clientHeight - scrollParent.scrollTop <= 2) current = headings.at(-1)!.id;
       setActiveHeading(current);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };

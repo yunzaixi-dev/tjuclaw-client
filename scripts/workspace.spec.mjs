@@ -3397,7 +3397,11 @@ test('the outline tab follows reading and jumps to the exact heading', async ({ 
   await expect(outline.locator('.outline-row').nth(1)).toHaveClass(/is-active/);
   await expect(page.locator('.cm-md-heading-line-2').first()).toBeInViewport();
   await outline.getByRole('button', { name: '结论', exact: true }).click();
+  // Let both delayed height corrections run: an older jump must not steal
+  // the scroll position/highlight from the most recent outline click.
+  await page.waitForTimeout(1000);
   await expect(outline.locator('.outline-row').nth(2)).toHaveClass(/is-active/);
+  await expect(page.locator('.cm-md-heading-line').filter({ hasText: '结论' })).toBeInViewport();
   // Collapsing a section hides its children.
   await outline.getByRole('button', { name: '折叠 概览' }).click();
   await expect(outline.locator('.outline-item')).toHaveText(['概览']);
