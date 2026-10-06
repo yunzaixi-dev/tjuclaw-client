@@ -520,6 +520,60 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
 }
 
 test.describe('Workspace mocked contract suite', () => {
+  for (const theme of ['light', 'dark']) {
+    for (const mobile of [false, true]) {
+      test(`matches loading and document backgrounds in ${theme} mode on ${mobile ? 'mobile' : 'desktop'}`, async ({ page }) => {
+        if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+        // A saved choice must win even when the device prefers the opposite theme.
+        await page.emulateMedia({ colorScheme: theme === 'light' ? 'dark' : 'light' });
+        await page.addInitScript(mode => {
+          localStorage.setItem('tjuclaw.appearance.v1', JSON.stringify({ mode, accent: 'mono' }));
+        }, theme);
+        await mockWorkspace(page, defaultState());
+        let releaseChunk;
+        const chunkReady = new Promise(resolve => { releaseChunk = resolve; });
+        await page.route(/\/assets\/workspace.*\.js/, async route => {
+          await chunkReady;
+          await route.continue();
+        });
+        let releaseSession;
+        const sessionReady = new Promise(resolve => { releaseSession = resolve; });
+        await page.route('**/api/auth/session', async route => {
+          await sessionReady;
+          await route.fallback();
+        });
+        await page.clock.install();
+        await page.clock.pauseAt(new Date());
+        await page.goto('/workspace');
+        const opening = page.locator('.workspace-opening');
+        await expect(opening).toHaveCSS('opacity', '1');
+        const card = page.locator('.workspace-opening-card');
+        await expect(card).toHaveCSS('opacity', '0');
+        await page.clock.runFor(239);
+        await expect(card).toHaveCSS('opacity', '0');
+        await page.clock.runFor(1);
+        await expect(card).toHaveCSS('opacity', '1');
+        await page.clock.resume();
+        await page.screenshot({ path: `../test-results/workspace/loading-document-${theme}-${mobile ? 'mobile' : 'desktop'}.png` });
+        const appBackground = await opening.evaluate(el => getComputedStyle(el).backgroundColor);
+        releaseChunk();
+        await expect(page.getByRole('progressbar', { name: '加载进度' })).toHaveAttribute('aria-valuetext', '阶段 2/6：验证登录状态');
+        const dataBackground = await opening.evaluate(el => getComputedStyle(el).backgroundColor);
+        const decoration = await opening.evaluate(el => ({
+          image: getComputedStyle(el).backgroundImage,
+          texture: getComputedStyle(el, '::before').display,
+          drawings: el.querySelectorAll('.bp-backdrop').length,
+        }));
+        releaseSession();
+        await expect(page.locator('.obsidian-main')).toBeVisible();
+        const documentBackground = await page.locator('.obsidian-main').evaluate(el => getComputedStyle(el).backgroundColor);
+        expect(appBackground).toBe(documentBackground);
+        expect(dataBackground).toBe(documentBackground);
+        expect(decoration).toEqual({ image: 'none', texture: 'none', drawings: 0 });
+      });
+    }
+  }
+
   test('keeps Markdown and Tiptap documents separate across saves and reloads', async ({ page }) => {
     const state = defaultState();
     await mockWorkspace(page, state);

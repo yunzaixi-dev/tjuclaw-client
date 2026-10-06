@@ -48,11 +48,12 @@ export function openingHoldMs(now = performance.now()) {
 export const openingWasVisible = () => opening.visibleAt > 0;
 
 /**
- * Opening TJUClaw on the same blueprint surface as sign-in, with the real
- * loading steps. The bar creeps within a step so a slow request never looks
+ * Open the workspace on its document surface, with the real loading steps.
+ * Other pages retain the sign-in backdrop. The bar creeps so a slow request never looks
  * frozen, and a cached load that finishes quickly shows nothing at all.
  */
 export function WorkspaceLoading({ step, title = '正在打开你的知识花园' }: { step: LoadStep; title?: string }) {
+  const documentSurface = location.pathname.startsWith('/workspace');
   const [continued] = useState(() => {
     const now = performance.now();
     if (!opening.mountedAt) opening.mountedAt = now;
@@ -72,8 +73,8 @@ export function WorkspaceLoading({ step, title = '正在打开你的知识花园
   const progress = step === 'done' ? 100 : Math.round(((current + 0.5) / STEPS.length) * 100);
   const label = STEPS[current]?.label ?? '即将完成';
   return (
-    <div className={`workspace-opening blueprint-surface${visible ? ' is-visible' : ''}${continued ? ' is-continued' : ''}`}>
-      <BlueprintBackdrop />
+    <div className={`workspace-opening blueprint-surface${documentSurface ? ' is-document' : ''}${visible ? ' is-visible' : ''}${continued ? ' is-continued' : ''}`}>
+      {!documentSurface ? <BlueprintBackdrop /> : null}
       <section className="workspace-opening-card" role="status" aria-label={`${title}：${label}`}>
         <BrandIcon size={52} />
         <h1>{title}</h1>

@@ -10,6 +10,20 @@
   transition: opacity 200ms ease-out;
 }
 .workspace-opening.is-visible { opacity: 1; }
+/* Keep the document canvas painted while only the loading card waits to
+   appear. Neither the initial delay nor the Suspense/data handoff recolors it. */
+.workspace-opening.is-document {
+  background: var(--surface);
+  opacity: 1;
+  transition: none;
+}
+.workspace-opening.is-document::before { display: none; }
+.workspace-opening.is-document .workspace-opening-card {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.workspace-opening.is-document.is-visible .workspace-opening-card { opacity: 1; }
+.workspace-opening.is-document.is-continued .workspace-opening-card { transition: none; }
 .workspace-opening:not(.is-visible) .workspace-opening-card { animation-play-state: paused; }
 .workspace-opening.is-continued { transition: none; }
 .workspace-opening.is-continued .workspace-opening-card { animation: none; }
@@ -87,6 +101,7 @@
 @keyframes opening-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-opening.is-document .workspace-opening-card { transition: none; }
   .workspace-opening-card, .workspace-opening-bar span, .workspace-opening-bar span::after { animation: none; }
   .workspace-opening-card li.is-active i { animation: none; border-right-color: var(--auth-accent); }
 }
