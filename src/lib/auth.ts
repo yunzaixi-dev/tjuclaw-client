@@ -1,3 +1,5 @@
+import { lockAllCampusCredentials } from './campus-unlock';
+
 export type IdentitySession = { id: string; email: string; email_verified: boolean; expires_at: string };
 export type FlowState = {
   stage: 'email' | 'code';
@@ -39,17 +41,22 @@ export async function authRequest<T>(path: string, init: RequestInit = {}, timeo
   }
 }
 
+let validatedIdentity: string | null = null;
 function validateSession(session: IdentitySession): IdentitySession {
   if (!session || typeof session.id !== 'string' || !session.id || typeof session.email !== 'string' || !session.email || session.email_verified !== true || !Number.isFinite(Date.parse(session.expires_at)) || Date.parse(session.expires_at) <= Date.now()) {
     throw new AuthError(503);
   }
+  if (validatedIdentity && validatedIdentity !== session.id) lockAllCampusCredentials();
+  validatedIdentity = session.id;
   return session;
 }
 
 export async function readSession(signal?: AbortSignal): Promise<IdentitySession | null> {
   try { return validateSession(await authRequest<IdentitySession>('/api/auth/session', { signal })); }
   catch (error) {
-    if (error instanceof AuthError && (error.status === 401 || error.status === 403)) return null;
+    if (error instanceof AuthError && (error.status === 401 || error.status === 403)) {
+      lockAllCampusCredentials(); validatedIdentity = null; return null;
+    }
     throw error;
   }
 }
@@ -73,6 +80,7 @@ export async function registerWithPassword(email: string, password: string, capt
 }
 export async function resetFlow(signal?: AbortSignal) { return validateFlow(await post<FlowState>('reset', {}, signal)); }
 export async function logout() {
+  lockAllCampusCredentials();
   await post('logout', {});
   if (await readSession()) throw new AuthError(503);
   location.replace('/auth/logged-out');

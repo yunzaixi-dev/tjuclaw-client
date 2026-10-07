@@ -5846,3 +5846,201 @@ test('campus note uses note sorting for nested rows instead of tool sorting', as
   await expect(page.getByRole('region', { name: '入校码小工具' })).toBeVisible();
   await expect(titles).toHaveText(['Zeta', 'Alpha']);
 });
+
+// Device trust is opt-in and independent of the workspace passphrase.
+async function openCampusAccountsForTrust(page) {
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  return page.getByRole('dialog');
+}
+
+async function prepareCampusTrust(page, { trust = true, storageFailure = false } = {}) {
+  await mockWorkspace(page, defaultState());
+  if (storageFailure) await page.addInitScript(() => {
+    Object.defineProperty(window, 'indexedDB', { get() { throw new Error('storage disabled'); } });
+  });
+  const calls = { login: 0, qr: 0 };
+  await page.route('**/api/campus/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/campus/session' && route.request().method() === 'POST') {
+      calls.login++;
+      return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: '2099-01-01T00:00:00Z' });
+    }
+    if (path === '/api/campus/entry-code') {
+      calls.qr++;
+      return json(route, 200, { content: `synthetic-live-qr-${calls.qr}`, expires_at: '2099-01-01T00:00:00Z' });
+    }
+    return json(route, 204, {});
+  });
+  await page.goto('/workspace');
+  const settings = await openCampusAccountsForTrust(page);
+  const choice = settings.getByRole('checkbox', { name: '信任此设备，7 天内免解锁' });
+  await expect(choice).not.toBeChecked();
+  await settings.getByRole('textbox', { name: /^微北洋账号/ }).fill('synthetic-campus-user');
+  await settings.getByLabel('微北洋密码').fill('synthetic-campus-password');
+  await settings.getByLabel('本地解锁口令').fill('synthetic-local-passphrase');
+  if (trust) await choice.check();
+  await settings.getByRole('button', { name: '加密保存' }).click();
+  await expect(settings.getByRole('button', { name: /锁定/ })).toBeVisible();
+  await expect(settings.getByText(storageFailure ? '已解锁，但未能启用免解锁；下次仍需输入口令。' : trust ? '已信任此设备，7 天内免解锁。' : '已加密保存在这台设备上。')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
+  return calls;
+}
+
+async function reopenTrustedEntry(page) {
+  await page.reload();
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+}
+
+for (const trust of [false, true]) {
+  test(`campus device trust survives refresh only with opt-in ${trust}`, async ({ page }) => {
+    const calls = await prepareCampusTrust(page, { trust });
+    const before = { ...calls };
+    await reopenTrustedEntry(page);
+    if (trust) {
+      await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
+      expect(calls.login).toBeGreaterThan(before.login);
+      expect(calls.qr).toBeGreaterThan(before.qr);
+      const stored = await page.evaluate(async () => {
+        const markerKey = Object.keys(localStorage).find(key => key.startsWith('tjuclaw.campus.device-trust.v1.'));
+        const marker = JSON.parse(localStorage.getItem(markerKey));
+        const record = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('tjuclaw-campus-device-trust', 1);
+          request.onsuccess = () => {
+            const db = request.result;
+            const get = db.transaction('accounts').objectStore('accounts').getAll();
+            get.onsuccess = () => { db.close(); resolve(get.result[0]); };
+            get.onerror = () => { db.close(); reject(get.error); };
+          };
+          request.onerror = () => reject(request.error);
+        });
+        return { marker, extractable: record.key.extractable, algorithm: record.key.algorithm.name,
+          serialized: JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, record }) };
+      });
+      expect(stored.extractable).toBe(false);
+      expect(stored.algorithm).toBe('AES-GCM');
+      expect(stored.marker.expires - Date.now()).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
+      expect(stored.serialized).not.toContain('synthetic-campus-password');
+      expect(stored.serialized).not.toContain('synthetic-local-passphrase');
+      expect(stored.serialized).not.toContain('synthetic-live-qr');
+    } else {
+      await expect(page.getByRole('region', { name: '校园账号' })).toContainText('请先在设置中解锁');
+      expect(calls.login).toBe(before.login);
+    }
+  });
+}
+
+for (const action of ['lock', 'delete', 'expire', 'replace', 'logout']) {
+  test(`campus device trust is revoked by ${action}`, async ({ page }) => {
+    await prepareCampusTrust(page);
+    const settings = await openCampusAccountsForTrust(page);
+    if (action === 'lock') await settings.getByRole('button', { name: '锁定并取消信任' }).click();
+    if (action === 'delete') {
+      page.once('dialog', dialog => dialog.accept());
+      await settings.getByRole('button', { name: '删除本地绑定' }).click();
+    }
+    if (action === 'expire') {
+      await page.clock.install();
+      await page.clock.setSystemTime(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000));
+    }
+    if (action === 'replace') {
+      await settings.getByRole('button', { name: '更换绑定' }).click();
+      await expect(settings.getByRole('checkbox', { name: '信任此设备，7 天内免解锁' })).not.toBeChecked();
+      await settings.getByLabel('微北洋密码').fill('changed-campus-password');
+      await settings.getByLabel('本地解锁口令').fill('changed-local-passphrase');
+      await settings.getByRole('button', { name: '加密保存' }).click();
+      await expect(settings.getByText('已加密保存在这台设备上。')).toBeVisible();
+    }
+    if (action === 'logout') {
+      await page.route('**/api/auth/logout', route => json(route, 204, {}));
+      await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'unauthorized' } }));
+      await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户', exact: true }).click();
+      await page.getByRole('button', { name: '退出登录', exact: true }).click();
+      await expect(page).toHaveURL(/\/auth\/logged-out/);
+      expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('tjuclaw.campus.device-trust.v1.')))).toHaveLength(0);
+      return;
+    }
+    await page.keyboard.press('Escape');
+    await reopenTrustedEntry(page);
+    await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: '校园账号' })).toBeVisible();
+  });
+}
+
+test('campus device trust storage failure still allows manual use', async ({ page }) => {
+  await prepareCampusTrust(page, { storageFailure: true });
+  await reopenTrustedEntry(page);
+  await expect(page.getByRole('region', { name: '校园账号' })).toContainText('请先在设置中解锁');
+  const settings = await openCampusAccountsForTrust(page);
+  await settings.getByLabel('本地解锁口令').fill('synthetic-local-passphrase');
+  await settings.getByRole('button', { name: '解锁', exact: true }).click();
+  await expect(settings.getByRole('button', { name: '锁定', exact: true })).toBeVisible();
+});
+
+test('campus device trust is isolated by identity and cancelled across tabs', async ({ page, context }) => {
+  await prepareCampusTrust(page);
+  const other = await context.newPage();
+  const state = defaultState();
+  state.session = syntheticSessionB;
+  await mockWorkspace(other, state);
+  await other.goto('/workspace');
+  const otherSettings = await openCampusAccountsForTrust(other);
+  await expect(otherSettings.getByRole('heading', { name: '绑定账号', exact: true })).toBeVisible();
+  await expect(otherSettings.getByText(/synthetic-campus-user/)).toHaveCount(0);
+  await other.close();
+  const second = await context.newPage();
+  await mockWorkspace(second, defaultState());
+  await second.goto('/workspace');
+  const settings = await openCampusAccountsForTrust(second);
+  await expect(settings.getByRole('button', { name: '锁定并取消信任' })).toBeVisible();
+  await settings.getByRole('button', { name: '锁定并取消信任' }).click();
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+  await second.close();
+});
+
+test('campus device trust cannot resurrect credentials after deletion during restore', async ({ page }) => {
+  await prepareCampusTrust(page);
+  await page.addInitScript(() => {
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    crypto.subtle.decrypt = async (...args) => {
+      const data = await decrypt(...args);
+      window.campusRestorePaused = true;
+      await new Promise(resolve => { window.resumeCampusRestore = resolve; });
+      return data;
+    };
+  });
+  await page.reload();
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+  await expect.poll(() => page.evaluate(() => window.campusRestorePaused)).toBe(true);
+  const settings = await openCampusAccountsForTrust(page);
+  page.once('dialog', dialog => dialog.accept());
+  await settings.getByRole('button', { name: '删除本地绑定' }).click();
+  await page.evaluate(() => window.resumeCampusRestore());
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: '校园账号' })).toBeVisible();
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+});
+
+test('campus device trust choice fits mobile in both themes', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.goto('/workspace');
+  const settings = await openCampusAccountsForTrust(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const choice = settings.getByRole('checkbox', { name: '信任此设备，7 天内免解锁' });
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme });
+    await choice.scrollIntoViewIfNeeded();
+    await expect(choice).toBeVisible();
+    await expect(choice).not.toBeChecked();
+    const bounds = await choice.locator('..').boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+    expect(await settings.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/tjuclaw-campus-device-trust-${colorScheme}.png` });
+  }
+});

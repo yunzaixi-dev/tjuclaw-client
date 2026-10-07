@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, KeyRound, Map, School, MessageSquareText, Pause, Play, Plus, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
 import { connectCampus, connectOffice, disconnectCampus, disconnectOffice, fetchAcademicClasses, fetchAcademicExams, fetchAcademicGPA, fetchBuildings, fetchCampuses, fetchForumPosts, fetchOfficeCaptcha, fetchRoomSchedule, fetchRooms, readOfficeSession, readSemester, type CampusClasses, type CampusCredentials, type CampusSemester, type CampusSession, type ForumPosts, type OfficeCaptcha, type StudyroomItem } from '../lib/campus-api';
 import { hasCampusCredentials } from '../lib/campus-vault';
-import { hasOfficeAccount, hasWpyAccount, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
+import { hasOfficeAccount, hasWpyAccount, restoreCampusCredentials, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { campusToolList, type CampusToolId } from './campus-tool-list';
 import './campus-tools.css';
@@ -417,6 +417,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     const initial = unlockedCampusCredentials(identity);
     if (initial) unlockRef.current(initial);
     const unsubscribe = subscribeCampusCredentials(identity, next => unlockRef.current(next));
+    void restoreCampusCredentials(identity);
     const requests = [semesterRequest, academicRequest, officeRequest, forumRequest, roomsRequest, scheduleRequest];
     return () => {
       unsubscribe();

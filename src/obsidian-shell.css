@@ -1511,6 +1511,9 @@
 .settings-action-button.is-primary:hover:not(:disabled) { background: color-mix(in oklch, var(--primary) 88%, var(--background)); }
 .settings-model-form { display: grid; max-width: 520px; gap: 14px; padding-top: 6px; }
 .settings-model-form label { display: grid; gap: 6px; }
+.settings-model-form .campus-device-trust-choice { display: flex; align-items: center; gap: 9px; min-height: 40px; cursor: pointer; }
+.settings-model-form .campus-device-trust-choice input { width: 17px; height: 17px; padding: 0; flex: 0 0 auto; accent-color: var(--primary); }
+.campus-device-trust-choice input:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .settings-model-form label > span { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 550; }
 .settings-model-form label em { color: var(--muted-foreground); font-size: 11px; font-style: normal; font-weight: 400; }
 .settings-model-form input {
