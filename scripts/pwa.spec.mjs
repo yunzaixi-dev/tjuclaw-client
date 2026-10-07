@@ -9,6 +9,50 @@ const controlled = page => page.evaluate(async () => {
   return Boolean(navigator.serviceWorker.controller);
 });
 
+test('Android adaptive icons use the brand dark ground and keep the logo inside the safe circle', async ({ page }) => {
+  await page.goto('/auth/login');
+  const manifest = await (await page.request.get('/manifest.json')).json();
+  const adaptive = manifest.icons.find(icon => icon.purpose === 'maskable');
+  // A new URL avoids retaining the old white icon in a device's icon cache.
+  expect(adaptive).toMatchObject({ src: '/icons/icon-maskable-dark-512.png', sizes: '512x512', type: 'image/png' });
+  for (const icon of manifest.icons) {
+    const pixels = await page.evaluate(async ({ src, maskable }) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let opaque = true;
+      let foreground = 0;
+      let outsideSafeCircle = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] !== 255) opaque = false;
+        if (maskable && (data[i] !== 32 || data[i + 1] !== 33 || data[i + 2] !== 31)) {
+          foreground++;
+          const pixel = i / 4;
+          if (Math.hypot(pixel % canvas.width + 0.5 - canvas.width / 2,
+            Math.floor(pixel / canvas.width) + 0.5 - canvas.height / 2) > canvas.width * 0.4) outsideSafeCircle++;
+        }
+      }
+      return { width: canvas.width, height: canvas.height, corner: [...data.slice(0, 4)], opaque, foreground, outsideSafeCircle };
+    }, { src: icon.src, maskable: icon.purpose === 'maskable' });
+    expect(`${pixels.width}x${pixels.height}`).toBe(icon.sizes);
+    if (icon.purpose === 'maskable') {
+      expect(pixels.corner).toEqual([32, 33, 31, 255]);
+      expect(pixels.opaque).toBe(true);
+      expect(pixels.foreground).toBeGreaterThan(5000);
+      expect(pixels.outsideSafeCircle).toBe(0);
+    } else {
+      expect(pixels.corner[3]).toBe(0);
+      expect(pixels.opaque).toBe(false);
+    }
+  }
+});
+
 test('the app is installable and its shell opens offline, while the API is never cached', async ({ page, context }) => {
   await page.goto('/auth/login');
   await expect(page.getByLabel('邮箱地址', { exact: true })).toBeVisible();
