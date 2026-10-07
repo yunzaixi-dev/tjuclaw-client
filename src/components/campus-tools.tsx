@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, KeyRound, Map, School, MessageSquareText, Pause, Play, Plus, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
-import { connectCampus, connectOffice, disconnectCampus, disconnectOffice, fetchAcademicClasses, fetchAcademicExams, fetchAcademicGPA, fetchBuildings, fetchCampuses, fetchEntryCode, fetchForumPosts, fetchOfficeCaptcha, fetchRoomSchedule, fetchRooms, readOfficeSession, readSemester, type CampusClasses, type CampusCredentials, type CampusSemester, type CampusSession, type ForumPosts, type OfficeCaptcha, type StudyroomItem } from '../lib/campus-api';
+import { connectCampus, connectOffice, disconnectCampus, disconnectOffice, fetchAcademicClasses, fetchAcademicExams, fetchAcademicGPA, fetchBuildings, fetchCampuses, fetchForumPosts, fetchOfficeCaptcha, fetchRoomSchedule, fetchRooms, readOfficeSession, readSemester, type CampusClasses, type CampusCredentials, type CampusSemester, type CampusSession, type ForumPosts, type OfficeCaptcha, type StudyroomItem } from '../lib/campus-api';
 import { hasCampusCredentials } from '../lib/campus-vault';
 import { hasOfficeAccount, hasWpyAccount, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -10,6 +10,7 @@ import { attempt } from '../lib/attempt';
 import { wpyLoginErrorMessage } from '../lib/campus-login-error';
 import { storeItem } from '../lib/safe-storage';
 import { CampusTimetable, type TimetableCourse } from './campus-timetable';
+import { CampusEntryCode } from './campus-entry-code';
 
 export { campusToolList, type CampusToolId } from './campus-tool-list';
 
@@ -173,7 +174,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   const [liveExams, setLiveExams] = useState<Record<string, unknown>[]>([]);
   const [academicLoading, setAcademicLoading] = useState(false);
   const academicRequest = useRef(0);
-  const [entryCode, setEntryCode] = useState<{ content: string; expires_at: string } | null>(null);
   const [rooms, setRooms] = useState<LiveRooms>({ campuses: [], buildings: [], rooms: [] });
   const [selectedCampus, setSelectedCampus] = useState<number | null>(null);
   const [selectedBuilding, setSelectedBuilding] = useState<number | null>(null);
@@ -309,7 +309,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setLiveGPA(null);
     setLiveExams([]);
     setAcademicLoading(false);
-    setEntryCode(null);
     if (hasWpyAccount(next)) {
       try {
         const session = await connectCampus(next);
@@ -396,7 +395,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setLiveGPA(null);
     setLiveExams([]);
     setAcademicLoading(false);
-    setEntryCode(null);
     setRooms({ campuses: [], buildings: [], rooms: [] });
     setSelectedRoom(null);
     setRoomSchedule([]);
@@ -426,11 +424,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       credentialsRef.current = null;
     };
   }, [identity]);
-
-  async function refreshEntryCode() {
-    setLiveError('');
-    return await attempt(async () => { setEntryCode(await fetchEntryCode()); }, async (error) => { setLiveError(campusErrorMessage(error)); });
-  }
 
   async function loadCampuses() {
     const request = ++roomsRequest.current;
@@ -574,7 +567,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       <p className="campus-footnote">{liveClasses ? teachingWeek === null ? '教学周次未确认，暂时展示全部教务课程；手动课表仍每周重复。' : '教务课程按已提供的教学周展示；缺少周次的安排暂时每周显示，手动课表每周重复。' : '手动课表按每周重复显示；绑定账号后可同步教务数据。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData} disabled={academicLoading || officeBusy}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
       {liveExams.length ? <section className="campus-exam-list"><h2>近期考试</h2>{liveExams.map((exam, index) => <div key={String(exam.id ?? index)}><strong>{firstText(exam, ['name', 'course_name', 'courseName', 'course']) || '未命名考试'}</strong><span>{[firstText(exam, ['date', 'exam_date', 'examDate']), firstText(exam, ['time', 'exam_time', 'examTime']), firstText(exam, ['location', 'place', 'room'])].filter(Boolean).join(' · ') || '考试安排待补充'}</span></div>)}</section> : null}
     </> : null}
-    {activeId === 'entry' ? <div className="campus-entry-message"><QrCode size={33} /><div><h2>入校码需要实时认证</h2><p>微北洋实时入校码由校园 CAS 签发，有效期约 3 分钟，不会写入本地存储。</p>{entryCode ? <div className="campus-entry-code">{/^data:image|^https?:\/\//.test(entryCode.content) ? <img src={entryCode.content} alt="实时入校码" /> : <code>{entryCode.content}</code>}<small>有效至 {new Date(entryCode.expires_at).toLocaleTimeString('zh-CN')}</small></div> : null}<button type="button" className="campus-action-button" onClick={() => campusSession ? void refreshEntryCode() : onOpenAccounts?.()}><QrCode size={15} /> {entryCode ? '刷新入校码' : campusSession ? '获取入校码' : '绑定账号后获取'}</button></div></div> : null}
+    {activeId === 'entry' ? <div className="campus-entry-message"><QrCode size={33} /><div><h2>入校码需要实时认证</h2><p>微北洋实时入校码由校园 CAS 签发，在本页生成二维码，不会写入本地存储。</p>{campusSession ? <CampusEntryCode key={`${identity}:${campusSession.user_number}`} /> : <button type="button" className="campus-action-button" onClick={() => onOpenAccounts?.()}><QrCode size={15} />绑定账号后获取</button>}</div></div> : null}
     {activeId === 'map' ? <><div className="campus-map-index"><div><img src="/campus/map/wjl-thumb.jpeg" alt="卫津路校区地图" /><Map size={27} /><h2>卫津路校区</h2><p>南开区卫津路 92 号</p><a className="campus-external" href="/campus/map/wjl.webp" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div><div><img src="/campus/map/byy-thumb.jpeg" alt="北洋园校区地图" /><School size={27} /><h2>北洋园校区</h2><p>津南区雅观路 135 号</p><a className="campus-external" href="/campus/map/byy.webp" target="_blank" rel="noopener noreferrer">查看高清地图<ExternalLink size={15} /></a></div></div><p className="campus-footnote">地图资源随微北洋客户端分发；校内道路和楼宇如有调整，以学校公告为准。</p></> : null}
     {activeId === 'calendar' ? <div className="campus-calendar-sheet"><CalendarDays size={27} /><h2>学校校历</h2><p>显示微北洋随包发布的校历资料。教学安排调整时，请以天津大学教务处正式通知为准。</p><div className="campus-calendar-images"><a href="/campus/calendar/first.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/first-thumb.jpg" alt="学校校历上半页" /></a><a href="/campus/calendar/second.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/second-thumb.jpg" alt="学校校历下半页" /></a></div><External href="https://oaa.tju.edu.cn/">打开天津大学教务处</External></div> : null}
     {activeId === 'gpa' ? <>

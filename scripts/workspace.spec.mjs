@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
 import { createEdgeoneConfig } from './edgeone-config.mjs';
+import jsQR from 'jsqr';
 
 function obsidianState() {
   const state = defaultState();
@@ -5625,4 +5626,145 @@ test('partially overlapping timetable courses stay separately tappable and do no
     await expect(page.getByRole('dialog').getByRole('heading', { name, exact: true })).toBeVisible();
     await page.getByRole('button', { name: '关闭课程详情' }).click();
   }
+});
+
+for (const payload of ['TJU-SYNTHETIC-ENTRY:3020999999:+/&=', 'https://campus.invalid/synthetic-entry?id=3020999999', '合成入校码：3020999999']) {
+  test(`entry QR renders the exact provider payload locally: ${payload}`, async ({ page }) => {
+    if (payload.startsWith('合成')) {
+      await page.emulateMedia({ colorScheme: 'dark' });
+    }
+    await mockWorkspace(page, defaultState());
+    const expires = new Date(Date.now() + 180000).toISOString();
+    await page.route('**/api/campus/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/campus/session' && route.request().method() === 'POST') return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: expires });
+      if (path === '/api/campus/entry-code') return json(route, 200, { content: payload, expires_at: expires });
+      return json(route, 204, {});
+    });
+    await page.goto('/workspace');
+    await openCampusTools(page);
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码', exact: true }).click();
+    await bindCampusAccounts(page, { wpy: ['synthetic-user', 'synthetic-password'] });
+    if (payload.startsWith('合成')) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.locator('.mobile-sidebar-backdrop').click({ position: { x: 380, y: 80 } });
+    }
+    // Older implementation needs an explicit click but still renders text/remote images.
+    if (await page.getByRole('button', { name: '获取入校码', exact: true }).count()) await page.getByRole('button', { name: '获取入校码', exact: true }).click();
+    const qr = page.getByRole('img', { name: '实时入校二维码', exact: true });
+    await expect(qr).toBeVisible();
+    expect(await qr.evaluate(node => node.tagName.toLowerCase())).toBe('svg');
+    const raster = await qr.evaluate(async node => {
+      const image = new Image();
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(node)], { type: 'image/svg+xml' }));
+      try {
+        image.src = url;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 400;
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, 400, 400);
+        return Array.from(context.getImageData(0, 0, 400, 400).data);
+      } finally { URL.revokeObjectURL(url); }
+    });
+    expect(jsQR(new Uint8ClampedArray(raster), 400, 400)?.data).toBe(payload);
+    await expect(page.locator('.campus-entry-code code, .campus-entry-code img')).toHaveCount(0);
+    const bounds = await qr.boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize().width);
+    await page.screenshot({ path: `test-results/workspace/entry-qr-${page.viewportSize().width}.png` });
+    const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+    expect(storage).not.toContain(payload);
+  });
+}
+
+for (const response of ['expired', 'empty', 'oversized', 'failure']) {
+  test(`entry QR rejects ${response} provider results without exposing the payload`, async ({ page }) => {
+    await mockWorkspace(page, defaultState());
+    await page.route('**/api/campus/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/campus/session' && route.request().method() === 'POST') return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: '2099-01-01T00:00:00Z' });
+      if (path === '/api/campus/entry-code') return response === 'failure'
+        ? json(route, 502, { error: { id: 'campus_upstream_unavailable' } })
+        : json(route, 200, { content: response === 'empty' ? '' : response === 'oversized' ? 'x'.repeat(2301) : 'SYNTHETIC-EXPIRED', expires_at: new Date(Date.now() + (response === 'expired' ? -1000 : 180000)).toISOString() });
+      return json(route, 204, {});
+    });
+    await page.goto('/workspace');
+    await openCampusTools(page);
+    await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码', exact: true }).click();
+    await bindCampusAccounts(page, { wpy: ['synthetic-user', 'synthetic-password'] });
+    await expect(page.getByText('暂时无法获取有效入校码，请刷新重试；也可使用微北洋官方 App。')).toBeVisible();
+    await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '刷新入校码', exact: true })).toBeEnabled();
+  });
+}
+
+test('entry QR refreshes, hides expired codes, and drops requests when leaving the page', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.clock.install();
+  const initialTime = await page.evaluate(() => Date.now());
+  let count = 0;
+  let pending;
+  await page.route('**/api/campus/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/campus/session' && route.request().method() === 'POST') return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: '2099-01-01T00:00:00Z' });
+    if (path === '/api/campus/entry-code') {
+      count++;
+      if (count === 1) return json(route, 200, { content: 'SYNTHETIC-FIRST', expires_at: new Date(initialTime + 180000).toISOString() });
+      if (count === 2) return json(route, 502, { error: { id: 'campus_upstream_unavailable' } });
+      pending = route;
+      return;
+    }
+    return json(route, 204, {});
+  });
+  await page.goto('/workspace');
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码', exact: true }).click();
+  await bindCampusAccounts(page, { wpy: ['synthetic-user', 'synthetic-password'] });
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
+  await page.clock.fastForward(150000);
+  await expect(page.getByText('暂时无法获取有效入校码，请刷新重试；也可使用微北洋官方 App。')).toBeVisible();
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+  await page.getByRole('button', { name: '刷新入校码', exact: true }).click();
+  await expect.poll(() => count).toBe(3);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '校园地图', exact: true }).click();
+  await pending.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: 'SYNTHETIC-LATE', expires_at: new Date(initialTime + 360000).toISOString() }) }).catch(() => undefined);
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+  await page.clock.fastForward(300000);
+  expect(count).toBe(3);
+});
+
+test('entry QR expires before refresh and aborts a late response after account locking', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  await page.clock.install();
+  let count = 0;
+  let pending;
+  await page.route('**/api/campus/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/campus/session' && route.request().method() === 'POST') return json(route, 200, { user_number: '3020999999', nickname: '同学', expires_at: '2099-01-01T00:00:00Z' });
+    if (path === '/api/campus/entry-code') {
+      count++;
+      if (count === 1) return json(route, 200, { content: 'SYNTHETIC-SHORT-TTL', expires_at: new Date(Date.now() + 10000).toISOString() });
+      pending = route;
+      return;
+    }
+    return json(route, 204, {});
+  });
+  await page.goto('/workspace');
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码', exact: true }).click();
+  await bindCampusAccounts(page, { wpy: ['synthetic-user', 'synthetic-password'] });
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
+  await page.clock.fastForward(15000);
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+  await expect(page.getByText('入校码已过期，请刷新后使用。')).toBeVisible();
+  await page.getByRole('button', { name: '刷新入校码', exact: true }).click();
+  await expect.poll(() => count).toBe(2);
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '锁定', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await pending.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: 'SYNTHETIC-LOCKED', expires_at: '2099-01-01T00:00:00Z' }) }).catch(() => undefined);
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去解锁' })).toBeVisible();
 });

@@ -70,8 +70,8 @@
 .campus-entry-message { display: flex; gap: 23px; padding: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--shell-panel); }
 .campus-entry-message > svg { color: var(--muted-foreground); }
 .campus-entry-code { display: grid; max-width: 360px; gap: 8px; margin-top: 18px; padding: 12px; border: 1px solid var(--border); background: var(--shell-editor); }
-.campus-entry-code img { width: min(220px, 100%); aspect-ratio: 1; object-fit: contain; background: white; }
-.campus-entry-code code { overflow-wrap: anywhere; color: var(--foreground); font-size: 11px; line-height: 1.6; }
+.campus-entry-message > div { min-width: 0; flex: 1; }
+.campus-entry-qr { display: block; width: min(300px, 100%); height: auto; aspect-ratio: 1; background: #fff; }
 .campus-entry-code small { color: var(--muted-foreground); font-size: 11px; }
 .campus-entry-message p, .campus-service-sheet p, .campus-forum-sheet p, .campus-calendar-sheet p, .campus-vault p { max-width: 65ch; margin-top: 9px; color: var(--muted-foreground); font-size: 12px; line-height: 1.8; }
 .campus-map-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 32px; }
