@@ -13,6 +13,7 @@ import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../
 import { versionLabel } from '../lib/version';
 import { chooseProductModel, clearModel, describeLibraryError, getModel, formatQuotaReset, formatQuotaUse, modelDisplayName, putModel, quotaWindowName, type ModelStatus } from '../lib/library';
 import { attempt } from '../lib/attempt';
+import { campusNotes, useCampusNotes, type CampusNoteId } from '../lib/campus-notes';
 
 export type SettingsSection = 'appearance' | 'editor' | 'library' | 'flashcards' | 'model' | 'campus' | 'plugins' | 'mcp' | 'account' | 'about';
 
@@ -82,9 +83,11 @@ const SYSTEM_WORKSPACES_LISTED = false;
 
 export function WorkspaceSettings({
   open, onOpenChange, section, onSectionChange, libraryName, fileCount, noteCount, folderCount, cardCount, email, editorMode, onEditorModeChange,
-  onShowNotes, onShowCards, onExportCards, legacyAnkiBackupAvailable, onExportLegacyAnkiBackup, onLogout, identity, onOpenPlugin,
+  onShowNotes, onShowCards, onExportCards, legacyAnkiBackupAvailable, onExportLegacyAnkiBackup, onLogout, identity, libraryId, onOpenCampusNote, onOpenPlugin,
 }: {
   identity: string;
+  libraryId: string;
+  onOpenCampusNote: (id: CampusNoteId) => void;
   onOpenPlugin: (id: BuiltInPluginId) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -106,6 +109,8 @@ export function WorkspaceSettings({
   onLogout: () => void;
 }) {
   const appearance = useAppearance();
+  const campusNoteState = useCampusNotes(identity, libraryId);
+  const [campusNoteNotice, setCampusNoteNotice] = useState('');
   const [search, setSearch] = useState('');
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelError, setModelError] = useState('');
@@ -277,7 +282,18 @@ export function WorkspaceSettings({
                 </div>
               </form>
             </> : null}
-            {active === 'campus' ? <CampusAccounts identity={identity} /> : null}
+            {active === 'campus' ? <>
+              <h3>校园笔记</h3>
+              <p className="settings-model-hint">课程表与入校码显示在当前资料库的笔记分区。移除入口不会删除账号或手动课表；入口状态仅保存在当前设备。</p>
+              {campusNotes.map(note => <SettingRow key={note.id} title={note.name} description={campusNoteState.hidden.includes(note.id) ? '已从笔记分区移除，可随时恢复。' : '已在笔记分区显示。'}>
+                {campusNoteState.hidden.includes(note.id) ? <button type="button" className="settings-action-button" onClick={() => {
+                  const persisted = campusNoteState.setVisible(note.id, true);
+                  setCampusNoteNotice(persisted ? `已恢复${note.name}。` : '本次页面内已恢复；浏览器无法保存入口状态。');
+                }}>恢复{note.name}</button> : <button type="button" className="settings-action-button" onClick={() => onOpenCampusNote(note.id)}>打开{note.name}</button>}
+              </SettingRow>)}
+              {campusNoteNotice ? <p className="settings-model-hint" role="status">{campusNoteNotice}</p> : null}
+              <CampusAccounts identity={identity} />
+            </> : null}
             {active === 'mcp' ? <McpSettings /> : null}
             {active === 'plugins' ? <>
               <h3>内置插件</h3>

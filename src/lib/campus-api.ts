@@ -31,10 +31,16 @@ export type OfficeCaptcha = {
   data: string;
   expires_at: string;
 };
+export type OfficeChallenge = OfficeCaptcha | {
+  captcha_required: false;
+  captcha_id: string;
+  expires_at: string;
+};
 
 export type OfficeSession = {
   username: string;
   expires_at: string;
+  protocol?: 'learning' | 'captcha';
 };
 
 export type StudyroomItem = Record<string, unknown> & { id?: number; name?: string; free?: boolean };
@@ -46,7 +52,7 @@ export function verifyWpyAccount(account: string, password: string, signal?: Abo
 }
 
 export function fetchOfficeVerificationCaptcha(signal?: AbortSignal) {
-  return authRequest<OfficeCaptcha>('/api/campus/accounts/office/captcha', { signal });
+  return authRequest<OfficeChallenge>('/api/campus/accounts/office/captcha', { signal });
 }
 
 export function verifyOfficeAccount(username: string, password: string, captchaId: string, captcha: string, signal?: AbortSignal) {
@@ -88,7 +94,7 @@ export function readSemester(signal?: AbortSignal) {
 }
 
 export function fetchOfficeCaptcha(signal?: AbortSignal) {
-  return authRequest<OfficeCaptcha>('/api/campus/office/captcha', { signal });
+  return authRequest<OfficeChallenge>('/api/campus/office/captcha', { signal });
 }
 
 export function connectOffice(credentials: Pick<CampusCredentials, 'officeUsername' | 'officePassword'>, captchaId: string, captcha: string, signal?: AbortSignal) {

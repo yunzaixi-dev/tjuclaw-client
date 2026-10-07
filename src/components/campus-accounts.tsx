@@ -80,7 +80,7 @@ function IdentityCampusAccounts({ identity }: { identity: string }) {
   return <section className="campus-accounts" aria-label="校园账号">
     <h3>账号</h3>
     <div className="settings-entry"><div className="settings-entry-copy"><strong>微北洋</strong><span>入校码、空教室与论坛使用。{unlocked && hasWpyAccount(unlocked) ? ` 账号 ${unlocked.wpyUsername}` : ''}</span></div><div className="settings-entry-action"><span className="settings-value">{status(hasWpyAccount(unlocked))}</span></div></div>
-    <div className="settings-entry"><div className="settings-entry-copy"><strong>办公网</strong><span>课程表与 GPA 使用，连接时需要图片验证码。{unlocked && hasOfficeAccount(unlocked) ? ` 账号 ${unlocked.officeUsername}` : ''}</span></div><div className="settings-entry-action"><span className="settings-value">{status(hasOfficeAccount(unlocked))}</span></div></div>
+    <div className="settings-entry"><div className="settings-entry-copy"><strong>办公网</strong><span>课程表与 GPA 使用，经本站 API 转发至微北洋教务服务；兼容服务要求时才输入验证码。{unlocked && hasOfficeAccount(unlocked) ? ` 账号 ${unlocked.officeUsername}` : ''}</span></div><div className="settings-entry-action"><span className="settings-value">{status(hasOfficeAccount(unlocked))}</span></div></div>
     <p className="settings-model-hint">两个账号相互独立，只绑定需要的那个即可。账号只保存在这台设备上，用独立口令加密（AES-GCM），解锁后才在内存中使用。</p>
 
     {editing || !exists ? <form className="settings-model-form" onSubmit={event => void save(event)}>

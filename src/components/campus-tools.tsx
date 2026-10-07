@@ -8,10 +8,11 @@ import { campusToolList, type CampusToolId } from './campus-tool-list';
 import './campus-tools.css';
 import { attempt } from '../lib/attempt';
 import { storeItem } from '../lib/safe-storage';
+import { CampusTimetable, type TimetableCourse } from './campus-timetable';
 
 export { campusToolList, type CampusToolId } from './campus-tool-list';
 
-type Course = { id: string; name: string; place: string; day: number; start: number; end: number; color: number };
+type Course = TimetableCourse;
 type Grade = { id: string; name: string; credits: number; points: number };
 type CampusData = { courses: Course[]; grades: Grade[] };
 type FocusState = { duration: number; remaining: number; endsAt: number | null; sessions: number };
@@ -104,11 +105,12 @@ function liveCourses(classes: CampusClasses | null, teachingWeek: number | null)
         !item.weekList.includes(teachingWeek)) return [];
       const unitList = rawArray(item.unitList).map(value => numberValue(value, 1));
       const start = Math.max(1, Math.round(unitList[0] ?? 1));
-      const end = Math.max(start, Math.round(unitList[1] ?? start));
+      const end = Math.min(12, Math.max(start, ...unitList.map(unit => Math.round(unit))));
       return [{
         id: `live-${rowIndex}-${arrangementIndex}`,
         name: String(item.name || row.name || '未命名课程'),
         place: String(item.location || row.campus || ''),
+        teacher: firstText(item, ['teacher', 'teacherName']) || firstText(row, ['teacher', 'teacherName']),
         day: Math.max(0, Math.min(6, numberValue(item.weekday, 1) - 1)),
         start,
         end,
@@ -157,6 +159,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   const semesterRequest = useRef(0);
   const credentialsRef = useRef<CampusCredentials | null>(null);
   const [officeConnected, setOfficeConnected] = useState(false);
+  const [officeProtocol, setOfficeProtocol] = useState<'captcha' | 'learning'>('captcha');
   const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
   const [officeCaptcha, setOfficeCaptcha] = useState<OfficeCaptcha | null>(null);
   const [officeCode, setOfficeCode] = useState('');
@@ -225,6 +228,19 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     return await attempt(async () => {
       const captcha = await fetchOfficeCaptcha();
       if (request !== officeRequest.current) return;
+      if ('captcha_required' in captcha && captcha.captcha_required === false) {
+        const credentials = credentialsRef.current;
+        if (!credentials || !hasOfficeAccount(credentials)) return;
+        setOfficeProtocol('learning');
+        await connectOffice(credentials, captcha.captcha_id, '');
+        if (request !== officeRequest.current) return;
+        setOfficeConnected(true);
+        setOfficeDialogOpen(false); setOfficePending(false);
+        void loadAcademicData();
+        return;
+      }
+      if (!('content_type' in captcha)) throw new Error('invalid captcha image');
+      setOfficeProtocol('captcha');
       const contentType = (captcha.content_type ?? '').split(';')[0].trim();
       if (!/^image\/(?:png|jpeg|gif|webp)$/i.test(contentType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(captcha.data) || !captcha.captcha_id) {
         throw new Error('invalid captcha image');
@@ -233,6 +249,13 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     }, async (error) => {
       if (request === officeRequest.current) setOfficeError(error instanceof Error && error.message === 'invalid captcha image' ? '办公网验证码图片无效，请刷新重试。' : campusErrorMessage(error));
     }, async () => { if (request === officeRequest.current) setOfficeBusy(false); });
+  }
+
+  function refreshAcademicData() {
+    // The teaching provider needs credentials for a new fetch; the server
+    // deliberately retains only the snapshot, never the campus password.
+    if (officeProtocol === 'learning') void loadOfficeCaptcha();
+    else void loadAcademicData();
   }
 
   async function loadAcademicData() {
@@ -304,6 +327,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       const office = await attempt(() => readOfficeSession(), () => null);
       if (office && semesterGeneration !== semesterRequest.current) return;
       if (office && office.username === next.officeUsername.trim() && Date.parse(office.expires_at) > Date.now()) {
+        setOfficeProtocol(office.protocol === 'learning' ? 'learning' : 'captcha');
         setOfficeConnected(true);
         void loadAcademicData();
         return;
@@ -392,7 +416,13 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   useEffect(() => {
     const initial = unlockedCampusCredentials(identity);
     if (initial) unlockRef.current(initial);
-    return subscribeCampusCredentials(identity, next => unlockRef.current(next));
+    const unsubscribe = subscribeCampusCredentials(identity, next => unlockRef.current(next));
+    const requests = [semesterRequest, academicRequest, officeRequest, forumRequest, roomsRequest, scheduleRequest];
+    return () => {
+      unsubscribe();
+      for (const request of requests) request.current++;
+      credentialsRef.current = null;
+    };
   }, [identity]);
 
   async function refreshEntryCode() {
@@ -536,15 +566,10 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     {liveError ? <p className="campus-live-error" role="alert">{liveError}</p> : null}
     {activeId === 'schedule' ? <>
       <div className="campus-schedule-nav"><button type="button" onClick={() => setWeekOffset(value => value - 1)} aria-label="上一周"><ChevronLeft size={17} /></button><strong>{monday.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} 起 · {teachingWeek !== null ? `${semester?.semesterName} · ${teachingWeek > 0 ? `第 ${teachingWeek} 教学周` : '学期开始前'}` : weekOffset === 0 ? '本周' : weekOffset > 0 ? `${weekOffset} 周后` : `${-weekOffset} 周前`}</strong><button type="button" onClick={() => setWeekOffset(value => value + 1)} aria-label="下一周"><ChevronRight size={17} /></button><button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>今天</button></div>
-      <div className="campus-schedule-scroll"><div className="campus-week"><div className="campus-week-corner">节次</div>{weekDays.map((day, index) => <div className={`campus-week-day${index === todayIndex ? ' is-today' : ''}`} key={day}>{day}<small>{new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index).getDate()}</small></div>)}
-        {Array.from({ length: 12 }, (_, index) => <div className="campus-week-row" key={index}><span>{index + 1}</span>{weekDays.map((day, dayIndex) => {
-          const item = visibleCourses.find(candidate => candidate.day === dayIndex && candidate.start === index + 1);
-          const occupied = visibleCourses.some(candidate => candidate.day === dayIndex && candidate.start < index + 1 && candidate.end >= index + 1);
-          return <div className={`campus-week-cell${dayIndex === todayIndex ? ' is-today' : ''}`} key={day}>{item ? <div className={`campus-class color-${item.color}`} style={{ minHeight: `${Math.max(1, item.end - item.start + 1) * 45 - 3}px` }} title={`${item.name} · ${item.place}`}><strong>{item.name}</strong><small>{item.place || `${item.start}–${item.end} 节`}</small></div> : occupied ? null : null}</div>;
-        })}</div>)}</div></div>
+      <CampusTimetable courses={visibleCourses} monday={monday} todayIndex={todayIndex} />
       <form className="campus-form campus-inline-form" onSubmit={addCourse}><h2>添加课程</h2><div className="campus-form-grid"><label>课程名<input value={course.name} onChange={event => setCourse({ ...course, name: event.target.value })} placeholder="例如：高等数学" required /></label><label>地点<input value={course.place} onChange={event => setCourse({ ...course, place: event.target.value })} placeholder="教室（可选）" /></label><label>星期<select value={course.day} onChange={event => setCourse({ ...course, day: Number(event.target.value) })}>{weekDays.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label><label>开始节次<input type="number" min="1" max="12" value={course.start} onChange={event => setCourse({ ...course, start: Number(event.target.value) })} /></label><label>结束节次<input type="number" min={course.start} max="12" value={course.end} onChange={event => setCourse({ ...course, end: Number(event.target.value) })} /></label></div><button type="submit"><Plus size={15} /> 添加到课表</button></form>
       {data.courses.length ? <div className="campus-course-list">{data.courses.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{weekDays[item.day]} · {item.start}–{item.end} 节 · {item.place || '未填写教室'}</small></span><button type="button" aria-label={`删除课程 ${item.name}`} onClick={() => setData(current => ({ ...current, courses: current.courses.filter(courseItem => courseItem.id !== item.id) }))}><Trash2 size={15} /></button></div>)}</div> : null}
-      <p className="campus-footnote">{liveClasses ? teachingWeek === null ? '教学周次未确认，暂时展示全部教务课程；手动课表仍每周重复。' : '教务课程按已提供的教学周展示；缺少周次的安排暂时每周显示，手动课表每周重复。' : '手动课表按每周重复显示；绑定账号后可同步教务数据。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={() => void loadAcademicData()} disabled={academicLoading}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
+      <p className="campus-footnote">{liveClasses ? teachingWeek === null ? '教学周次未确认，暂时展示全部教务课程；手动课表仍每周重复。' : '教务课程按已提供的教学周展示；缺少周次的安排暂时每周显示，手动课表每周重复。' : '手动课表按每周重复显示；绑定账号后可同步教务数据。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData} disabled={academicLoading || officeBusy}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
       {liveExams.length ? <section className="campus-exam-list"><h2>近期考试</h2>{liveExams.map((exam, index) => <div key={String(exam.id ?? index)}><strong>{firstText(exam, ['name', 'course_name', 'courseName', 'course']) || '未命名考试'}</strong><span>{[firstText(exam, ['date', 'exam_date', 'examDate']), firstText(exam, ['time', 'exam_time', 'examTime']), firstText(exam, ['location', 'place', 'room'])].filter(Boolean).join(' · ') || '考试安排待补充'}</span></div>)}</section> : null}
     </> : null}
     {activeId === 'entry' ? <div className="campus-entry-message"><QrCode size={33} /><div><h2>入校码需要实时认证</h2><p>微北洋实时入校码由校园 CAS 签发，有效期约 3 分钟，不会写入本地存储。</p>{entryCode ? <div className="campus-entry-code">{/^data:image|^https?:\/\//.test(entryCode.content) ? <img src={entryCode.content} alt="实时入校码" /> : <code>{entryCode.content}</code>}<small>有效至 {new Date(entryCode.expires_at).toLocaleTimeString('zh-CN')}</small></div> : null}<button type="button" className="campus-action-button" onClick={() => campusSession ? void refreshEntryCode() : onOpenAccounts?.()}><QrCode size={15} /> {entryCode ? '刷新入校码' : campusSession ? '获取入校码' : '绑定账号后获取'}</button></div></div> : null}
@@ -552,7 +577,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     {activeId === 'calendar' ? <div className="campus-calendar-sheet"><CalendarDays size={27} /><h2>学校校历</h2><p>显示微北洋随包发布的校历资料。教学安排调整时，请以天津大学教务处正式通知为准。</p><div className="campus-calendar-images"><a href="/campus/calendar/first.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/first-thumb.jpg" alt="学校校历上半页" /></a><a href="/campus/calendar/second.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/second-thumb.jpg" alt="学校校历下半页" /></a></div><External href="https://oaa.tju.edu.cn/">打开天津大学教务处</External></div> : null}
     {activeId === 'gpa' ? <>
       <div className="campus-gpa-result"><span>{schoolGrades.length ? '办公网教务 GPA' : '本地学分加权平均绩点'}</span><strong>{totalCredits ? average.toFixed(3) : '—'}</strong><small>{totalCredits ? `${totalCredits.toFixed(1)} 学分 · ${visibleGrades.length} 门课程` : '添加课程或绑定账号后开始计算'}</small></div>
-      <p className="campus-footnote">{schoolGrades.length ? '数据来自办公网教务接口。' : '本地估算：Σ(课程绩点 × 学分) ÷ Σ学分。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={() => void loadAcademicData()} disabled={academicLoading}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
+      <p className="campus-footnote">{schoolGrades.length ? '数据来自办公网教务接口。' : '本地估算：Σ(课程绩点 × 学分) ÷ Σ学分。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData} disabled={academicLoading || officeBusy}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
       <form className="campus-form campus-inline-form" onSubmit={addGrade}><h2>录入课程绩点</h2><div className="campus-form-grid"><label>课程名<input value={grade.name} onChange={event => setGrade({ ...grade, name: event.target.value })} placeholder="课程名" required /></label><label>学分<input type="number" min=".1" step=".1" value={grade.credits} onChange={event => setGrade({ ...grade, credits: event.target.value })} required /></label><label>绩点（0–4）<input type="number" min="0" max="4" step=".01" value={grade.points} onChange={event => setGrade({ ...grade, points: event.target.value })} required /></label></div><button type="submit"><Plus size={15} /> 计入平均</button></form>
       <div className="campus-grade-list">{data.grades.map(item => <div key={item.id}><span>{item.name}</span><span>{item.credits} 学分</span><strong>{item.points.toFixed(2)}</strong><button type="button" aria-label={`删除成绩 ${item.name}`} onClick={() => setData(current => ({ ...current, grades: current.grades.filter(gradeItem => gradeItem.id !== item.id) }))}><Trash2 size={15} /></button></div>)}</div>
     </> : null}

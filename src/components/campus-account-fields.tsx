@@ -7,6 +7,8 @@ function verificationError(error: unknown) {
   if (id === 'campus_office_credentials_invalid') return '办公网账号、密码或验证码有误，请检查后重新验证。';
   if (id === 'campus_office_captcha_expired') return '验证码已过期或已使用，请重新验证获取新图片。';
   if (id === 'campus_not_configured' || id === 'campus_office_not_configured') return '校园验证服务尚未配置，暂时无法检查账号。';
+  if (id === 'campus_office_captcha_unavailable') return '办公网验证码接口不可用，无法检查账号；这不表示账号或密码错误。';
+  if (id === 'campus_academic_unavailable' || id === 'campus_invalid_response') return '微北洋教务服务暂时未返回可确认的账号数据；请稍后重试，不代表密码错误。';
   return '校园验证服务暂时不可用，无法判断账号是否正确，请稍后重试。';
 }
 
@@ -46,7 +48,14 @@ export function CampusAccountFields({ provider, username, password, disabled, on
       if (provider === 'office' && !submit) {
         const next = await fetchOfficeVerificationCaptcha(request.signal);
         if (request.signal.aborted) return;
-        setCaptcha(next); setCode('');
+        if ('captcha_required' in next && next.captcha_required === false) {
+          const result = await verifyOfficeAccount(username.trim(), password, next.captcha_id, '', request.signal);
+          if (request.signal.aborted) return;
+          if (result.valid !== true) throw new Error('Verification not confirmed');
+          setValid(true); setMessage(`${name}验证通过，尚未保存。`);
+        } else if ('content_type' in next) {
+          setCaptcha(next); setCode('');
+        } else throw new Error('Invalid office challenge');
       } else {
         const result = provider === 'wpy'
           ? await verifyWpyAccount(username.trim(), password, request.signal)
@@ -74,6 +83,7 @@ export function CampusAccountFields({ provider, username, password, disabled, on
       </button>
     </div>
     <label><span>{name}密码</span><input type="password" autoComplete="new-password" disabled={disabled} value={password} onChange={event => { cancel(); onPassword(event.target.value); }} /></label>
+    {provider === 'office' ? <p className="settings-model-hint">网页端经本站 API 转发至微北洋教务服务验证，不是设备直连办公网；验证成功不自动保存。</p> : null}
     {captcha ? <div className="campus-account-captcha" role="group" aria-label="办公网账号验证">
       <p className="settings-model-hint">输入图片验证码，仅检查账号，不会连接校园工具。</p>
       <img src={`data:${/^image\/(png|jpeg|gif|webp)$/.test(captcha.content_type) ? captcha.content_type : 'image/png'};base64,${captcha.data}`} alt="办公网验证图片" />

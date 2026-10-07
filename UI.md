@@ -143,13 +143,22 @@ and the shared appearance state.
   classroom status, read-only official forum feeds, and a resumable Pomodoro timer. Tools have their
   own tabs; selecting a different tool replaces the active tool tab, while +
   opens another. Side items follow the shared reorder/sort behavior. Campus
-credentials use a user-supplied 6-64 character passphrase, PBKDF2-SHA256 and
+  Credentials use a user-supplied passphrase of at least 12 characters, PBKDF2-SHA256 and
   AES-256-GCM with a random salt and nonce; the key and passphrase are never
   stored. Encrypted data is scoped to the signed-in identity and this device,
-  not synced. The BFF keeps only a short-lived WePeiYang token in memory and
-  never persists office-network passwords. Live results are labelled separately
+  not synced. The BFF keeps a short-lived WePeiYang token and office teaching
+  result snapshot in memory, never persists office-network passwords, and uses
+  the official client's multipart teaching query protocol by default (explicit
+  legacy adapters can still request a captcha). Web requests go through the API,
+  not directly from the device to campus sites. Live results are labelled separately
   from local fallback data; forum actions remain read-only until their write
   contract is explicitly implemented.
+- The timetable and entry code also have dedicated campus-note tabs in the
+  document tree. Removing these virtual entries hides only their shortcuts,
+  never credentials or manual courses; Settings → 校园账号 restores them.
+  Visibility is device-local and scoped to identity and library. Seven timetable
+  columns fit phone widths without horizontal scrolling; course buttons open
+  full details, and overlapping courses retain separately reachable targets.
 - Settings use a compact category list and independent content scrolling on
   desktop; mobile categories scroll horizontally above the content. Preferences
   shown there must be wired to real state, not decorative plugin/sync switches.

@@ -1007,14 +1007,14 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect(page.locator('.campus-schedule-nav')).toContainText('第 1 教学周');
-    await expect(page.locator('.campus-class')).toContainText('第一周课程');
-    await expect(page.locator('.campus-class')).not.toContainText('手动课程');
+    await expect(page.getByRole('button', { name: /^第一周课程，/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^手动课程，/ })).toBeVisible();
     await expect(page.getByRole('button', { name: '删除课程 手动课程' })).toBeVisible();
-    await expect(page.locator('.campus-class')).not.toContainText('第二周课程');
+    await expect(page.getByRole('button', { name: /^第二周课程，/ })).toHaveCount(0);
     await page.getByRole('button', { name: '下一周' }).click();
     await expect(page.locator('.campus-schedule-nav')).toContainText('第 2 教学周');
-    await expect(page.locator('.campus-class')).toContainText('第二周课程');
-    await expect(page.locator('.campus-class')).not.toContainText('第一周课程');
+    await expect(page.getByRole('button', { name: /^第二周课程，/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^第一周课程，/ })).toHaveCount(0);
   });
 
   test('keeps office authentication open when academic validation fails', async ({ page }) => {
@@ -1223,7 +1223,7 @@ test.describe('Workspace mocked contract suite', () => {
     await mockWorkspace(page, state);
     await page.goto('/workspace');
     const tree = page.locator('.obsidian-tree');
-    const noteNames = () => tree.locator('.obsidian-tree-row .tree-item span').allTextContents();
+    const noteNames = () => tree.locator('.obsidian-tree-row:not(.campus-note-row) .tree-item span').allTextContents();
     await expect.poll(noteNames).toEqual(['First note for user A', 'Second note for user A']);
     await page.getByRole('button', { name: '侧栏排序' }).click();
     await page.getByRole('menuitemradio', { name: '名称 Z → A' }).click();
@@ -1260,7 +1260,7 @@ test.describe('Workspace mocked contract suite', () => {
     const first = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: 'First note for user A', exact: true }) });
     const second = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: 'Second note for user A', exact: true }) });
     await second.dragTo(first, { targetPosition: { x: 24, y: 2 } });
-    await expect.poll(() => tree.locator('.obsidian-tree-row .tree-item span').allTextContents()).toEqual(['Second note for user A', 'First note for user A']);
+    await expect.poll(() => tree.locator('.obsidian-tree-row:not(.campus-note-row) .tree-item span').allTextContents()).toEqual(['Second note for user A', 'First note for user A']);
     await page.getByRole('button', { name: '新建文件夹' }).click();
     await page.locator('.tree-inline-input').fill('资料');
     await page.locator('.tree-inline-input').press('Enter');
@@ -5454,4 +5454,140 @@ test('campus draft verification discards late responses, captcha and identity dr
   await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
   await expect(page.getByRole('dialog').getByRole('textbox', { name: /^微北洋账号/ })).toHaveValue('');
   await expect(page.getByRole('dialog').getByLabel('微北洋密码')).toHaveValue('');
+});
+
+for (const width of [320, 360, 390, 1440]) {
+  test(`campus notebook timetable fits seven days without sideways scrolling (${width})`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 360 ? 800 : 844 });
+    await mockWorkspace(page, defaultState());
+    await page.addInitScript(owner => localStorage.setItem(`tjuclaw.campus.data.v1.${owner}`, JSON.stringify({
+      courses: [
+        { id: 'fixture-mon', name: '概率论与数理统计', place: '45-B201', teacher: '合成教师', day: 0, start: 1, end: 4, color: 0 },
+        { id: 'fixture-thu', name: '软件工程1（双语）', place: '46-A408', day: 3, start: 5, end: 6, color: 1 },
+        { id: 'fixture-sun', name: '编译原理与技术', place: '46-A212', day: 6, start: 9, end: 12, color: 2 },
+        { id: 'fixture-bridge', name: '跨午间课程', place: '33-140', day: 2, start: 4, end: 5, color: 3 },
+      ], grades: [],
+    })), syntheticSessionA.id);
+    await page.goto('/workspace');
+    if (width < 720) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+    await page.getByRole('treeitem', { name: '课程表校园笔记', exact: true }).getByRole('button', { name: '课程表', exact: true }).click();
+    const tool = page.getByRole('region', { name: '课程表小工具' });
+    await expect(tool.getByRole('heading', { name: '课程表', exact: true })).toBeVisible();
+    if (width < 720) await expect(page.getByRole('button', { name: /^标签页：课程表，/ })).toBeVisible();
+    else await expect(page.getByRole('tab', { name: '笔记 课程表', exact: true })).toBeVisible();
+    await expect(tool.locator('.campus-week-day')).toHaveCount(7);
+    const widths = await tool.evaluate(node => {
+      const week = node.querySelector('.campus-week');
+      const last = week.querySelector('.campus-week-day:last-child').getBoundingClientRect();
+      return { body: document.documentElement.scrollWidth, window: window.innerWidth, scroll: node.scrollWidth,
+        client: node.clientWidth, grid: week.scrollWidth, gridClient: week.clientWidth, right: last.right };
+    });
+    expect(widths.body).toBeLessThanOrEqual(widths.window);
+    expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+    expect(widths.grid).toBeLessThanOrEqual(widths.gridClient + 1);
+    expect(widths.right).toBeLessThanOrEqual(width);
+    const course = tool.getByRole('button', { name: /^概率论与数理统计，/ });
+    await course.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: '概率论与数理统计' })).toBeVisible();
+    await expect(dialog.getByText('45-B201', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('合成教师', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: '关闭课程详情' }).click();
+    await expect(tool.getByRole('button', { name: /^跨午间课程，/ })).toHaveCount(2);
+    await tool.getByRole('button', { name: /^跨午间课程，/ }).first().click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: '跨午间课程' })).toBeVisible();
+    await page.getByRole('button', { name: '关闭课程详情' }).click();
+    await page.screenshot({ path: `test-results/workspace/campus-notebook-${width}-light.png` });
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await page.screenshot({ path: `test-results/workspace/campus-notebook-${width}-dark.png` });
+    await tool.getByRole('button', { name: '下一周' }).click();
+    await expect(tool.getByRole('button', { name: /^软件工程1（双语），/ })).toBeVisible();
+    await tool.getByRole('button', { name: '今天', exact: true }).click();
+    expect(await page.evaluate(owner => JSON.parse(localStorage.getItem(`tjuclaw.campus.data.v1.${owner}`)).courses.length, syntheticSessionA.id)).toBe(4);
+  });
+}
+
+test('campus notebook entries can be removed, restored and remain account/library scoped', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const snapshot = structuredClone(state.entries);
+  page.on('dialog', dialog => dialog.accept());
+  for (const name of ['课程表', '入校码']) {
+    const row = page.getByRole('treeitem', { name: `${name}校园笔记`, exact: true });
+    await row.getByRole('button', { name, exact: true }).click();
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    await row.getByRole('button', { name: `${name}笔记操作` }).click();
+    await page.getByRole('menuitem', { name: '删除', exact: true }).click();
+    await expect(row).toHaveCount(0);
+  }
+  await page.reload();
+  await expect(page.getByRole('treeitem', { name: '课程表校园笔记' })).toHaveCount(0);
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  await page.getByRole('button', { name: '恢复课程表', exact: true }).click();
+  await expect(page.getByRole('button', { name: '打开课程表', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: '课程表校园笔记' })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: '入校码校园笔记' })).toHaveCount(0);
+  expect(state.entries).toEqual(snapshot);
+  const visibility = await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('tjuclaw.campus.notes.v1.')));
+  expect(visibility).toEqual([[`tjuclaw.campus.notes.v1.${syntheticSessionA.id}.${libA.id}`, '["entry"]']]);
+  state.session = syntheticSessionB; state.libraries = [libB]; state.entries = [{ ...guideB }];
+  await page.reload();
+  await expect(page.getByRole('treeitem', { name: '入校码校园笔记' })).toBeVisible();
+});
+
+test('office-only draft checks use the teaching protocol without saving credentials or asking for an invented captcha', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  const posts = [];
+  await page.route('**/api/campus/**', route => {
+    const request = route.request(); const path = new URL(request.url()).pathname;
+    if (path === '/api/campus/accounts/office/captcha') return json(route, 200, { captcha_required: false, captcha_id: 'fixture-teaching-check', expires_at: '2099-01-01T00:00:00Z' });
+    if (path === '/api/campus/accounts/office/verify') { posts.push(request.postDataJSON()); return json(route, 200, { valid: true }); }
+    return json(route, 401, { error: { id: 'campus_office_session_required' } });
+  });
+  await page.goto('/workspace');
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  await page.getByRole('textbox', { name: /^办公网账号/ }).fill('fixture-office');
+  await page.getByLabel('办公网密码').fill('fixture-password');
+  await page.getByRole('button', { name: '验证办公网账号', exact: true }).click();
+  await expect(page.getByText('办公网验证通过，尚未保存。')).toBeVisible();
+  await expect(page.getByRole('img', { name: '办公网验证图片' })).toHaveCount(0);
+  expect(posts).toEqual([{ username: 'fixture-office', password: 'fixture-password', captcha_id: 'fixture-teaching-check', captcha: '' }]);
+  expect(await page.evaluate(owner => localStorage.getItem(`tjuclaw.campus.credentials.v1.${owner}`), syntheticSessionA.id)).toBeNull();
+});
+
+test('partially overlapping timetable courses stay separately tappable and do not cover the next section', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await mockWorkspace(page, defaultState());
+  await page.addInitScript(owner => localStorage.setItem(`tjuclaw.campus.data.v1.${owner}`, JSON.stringify({
+    courses: [
+      { id: 'a', name: '短课', place: '', day: 0, start: 1, end: 2, color: 0 },
+      { id: 'b', name: '长课', place: '', day: 0, start: 1, end: 4, color: 1 },
+      { id: 'c', name: '中课', place: '', day: 0, start: 2, end: 3, color: 2 },
+      { id: 'd', name: '后课', place: '', day: 0, start: 3, end: 4, color: 3 },
+    ], grades: [],
+  })), syntheticSessionA.id);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+  await page.getByRole('treeitem', { name: '课程表校园笔记' }).getByRole('button', { name: '课程表', exact: true }).click();
+  const courses = page.locator('.campus-class');
+  await expect(courses).toHaveCount(4);
+  const geometry = await courses.evaluateAll(nodes => nodes.map(node => {
+    const rect = node.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height };
+  }));
+  for (let i = 0; i < geometry.length; i++) {
+    expect(geometry[i].height).toBeGreaterThanOrEqual(44);
+    for (let j = i + 1; j < geometry.length; j++) {
+      expect(geometry[i].bottom <= geometry[j].top || geometry[j].bottom <= geometry[i].top).toBe(true);
+    }
+  }
+  for (const name of ['短课', '长课', '中课', '后课']) {
+    await page.getByRole('button', { name: new RegExp(`^${name}，`) }).click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name, exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '关闭课程详情' }).click();
+  }
 });

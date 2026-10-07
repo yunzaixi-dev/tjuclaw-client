@@ -261,3 +261,58 @@
   background: var(--surface); color: var(--foreground); font: inherit; font-size: 13px; cursor: pointer;
 }
 .obsidian-app .campus-account-hint button:hover { background: var(--hover-wash); }
+
+/* The whole week fits the document, including on a 320px phone. */
+.campus-tool-schedule { min-width: 0; }
+.campus-schedule-nav { flex-wrap: wrap; gap: 8px; }
+.campus-schedule-nav strong { flex: 1; min-width: 0; line-height: 1.6; }
+.campus-schedule-nav button { min-width: 44px; min-height: 44px; }
+.campus-schedule-scroll { overflow: visible; border: 0; background: transparent; }
+.campus-week { min-width: 0; width: 100%; }
+.campus-week-dates, .campus-period-grid {
+  display: grid; grid-template-columns: 24px repeat(7, minmax(0, 1fr)); column-gap: 4px;
+}
+.campus-week-dates { align-items: stretch; }
+.campus-week-corner, .campus-week-day { width: auto; min-width: 0; }
+.campus-week-day { display: flex; flex-direction: column; gap: 2px; padding: 6px 1px; border-radius: 6px; font-size: 12px; }
+.campus-week-day small { height: auto; width: 100%; min-width: 0; border-radius: 4px; padding: 3px 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.campus-week-day.is-today { background: var(--selected); }
+.campus-week-day.is-today small { background: transparent; color: var(--foreground); font-weight: 700; }
+.campus-tool .campus-day-break { margin: 12px 0 6px 28px; font-size: 11px; font-weight: 500; color: var(--muted-foreground); }
+.campus-period-grid { grid-template-rows: repeat(4, minmax(var(--period-height, 64px), auto)); row-gap: 4px; }
+.campus-period-label { grid-column: 1; color: var(--muted-foreground); font-size: 10px; text-align: center; padding-top: 12px; }
+.campus-day-lane { grid-row: 1 / 5; border-radius: 5px; background: color-mix(in oklch, var(--foreground) 2%, transparent); }
+.campus-day-lane.is-today { background: color-mix(in oklch, var(--foreground) 5%, transparent); }
+.campus-class {
+  position: relative; inset: auto; min-width: 0; min-height: 44px; width: 100%; z-index: 1;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 8px;
+  padding: 8px 4px; border: 0; border-radius: 5px; text-align: center; font-size: 12px; line-height: 1.5;
+  color: var(--foreground); background: color-mix(in oklch, var(--blue) 14%, var(--surface));
+}
+.campus-class strong, .campus-class small { overflow-wrap: anywhere; text-overflow: clip; }
+.campus-class strong { font-weight: 600; }
+.campus-class small { font-size: 11px; opacity: 1; }
+.campus-class.color-1 { background: color-mix(in oklch, oklch(69% .12 145) 15%, var(--surface)); color: var(--foreground); }
+.campus-class.color-2 { background: color-mix(in oklch, oklch(72% .12 65) 15%, var(--surface)); color: var(--foreground); }
+.campus-class.color-3 { background: color-mix(in oklch, oklch(66% .1 330) 15%, var(--surface)); color: var(--foreground); }
+.campus-class:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; z-index: 2; }
+.campus-class:hover { filter: brightness(.97); }
+.campus-course-conflict { font-size: 10px; font-weight: 500; }
+.campus-class.is-conflicting { gap: 1px; justify-content: start; padding-block: 2px; }
+.campus-class.is-conflicting strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 11px; line-height: 1.2; }
+.campus-class.is-conflicting small { display: none; }
+.campus-course-details { display: grid; gap: 16px; padding: 24px; }
+.campus-course-details > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; }
+.campus-course-details dt { color: var(--muted-foreground); }
+.campus-course-details dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .campus-tool-schedule { padding-inline: 8px; }
+  .campus-tool-schedule .campus-tool-header, .campus-tool-schedule .campus-schedule-nav { margin-inline: 8px; }
+  .campus-week-dates, .campus-period-grid { grid-template-columns: 18px repeat(7, minmax(0, 1fr)); column-gap: 3px; }
+  .campus-class { padding-inline: 3px; }
+  .campus-week-day { font-size: 11px; }
+  .campus-week-day small { font-size: 10px; }
+  .campus-tool .campus-day-break { margin-left: 21px; }
+  .obsidian-app .campus-account-hint { flex-wrap: wrap; font-size: 12px; }
+  .obsidian-app .campus-account-hint button { min-height: 44px; }
+}
