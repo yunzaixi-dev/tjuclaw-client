@@ -9,6 +9,7 @@ type Listener = (credentials: CampusCredentials | null) => void;
 let current: { identity: string; credentials: CampusCredentials } | null = null;
 const listeners = new Set<{ identity: string; listener: Listener }>();
 let generation = 0;
+let verifiedIdentity: string | null = null;
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 const restoring = new Map<string, Promise<void>>();
 export const campusUnlockVersion = () => generation;
@@ -25,17 +26,25 @@ export function publishCampusCredentials(identity: string, credentials: CampusCr
 
 export function lockAllCampusCredentials() {
   generation++;
+  verifiedIdentity = null;
   revokeAllCampusTrust();
   if (current) publishCampusCredentials(current.identity, null);
 }
 
+/** A cached workspace snapshot is not authority to restore campus secrets. */
+export function confirmCampusIdentity(identity: string) {
+  verifiedIdentity = identity;
+  if (Array.from(listeners).some(entry => entry.identity === identity)) void restoreCampusCredentials(identity);
+}
+
 export function restoreCampusCredentials(identity: string): Promise<void> {
+  if (verifiedIdentity !== identity) return Promise.resolve();
   if (unlockedCampusCredentials(identity)) return Promise.resolve();
   const pending = restoring.get(identity);
   if (pending) return pending;
   const started = generation;
   const request = restoreCampusDevice(identity).then(credentials => {
-    if (credentials && started === generation && campusTrustExpires(identity)
+    if (credentials && verifiedIdentity === identity && started === generation && campusTrustExpires(identity)
       && Array.from(listeners).some(entry => entry.identity === identity)) publishCampusCredentials(identity, credentials);
   }).finally(() => { restoring.delete(identity); });
   restoring.set(identity, request);

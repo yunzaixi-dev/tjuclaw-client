@@ -6044,3 +6044,22 @@ test('campus device trust choice fits mobile in both themes', async ({ page }) =
     await page.screenshot({ path: `/tmp/tjuclaw-campus-device-trust-${colorScheme}.png` });
   }
 });
+
+test('campus device trust waits for real session validation instead of a cached workspace', async ({ page }) => {
+  const calls = await prepareCampusTrust(page);
+  const before = calls.login;
+  let confirmSession;
+  const pendingSession = new Promise(resolve => { confirmSession = resolve; });
+  await page.route('**/api/auth/session', async route => {
+    await pendingSession;
+    return json(route, 200, syntheticSessionA);
+  });
+  await page.reload();
+  await openCampusTools(page);
+  await page.locator('.campus-sidebar-list').getByRole('button', { name: '入校码' }).click();
+  await expect(page.getByRole('region', { name: '校园账号' })).toContainText('请先在设置中解锁');
+  expect(calls.login).toBe(before);
+  confirmSession();
+  await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
+  expect(calls.login).toBeGreaterThan(before);
+});

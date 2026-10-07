@@ -1,4 +1,4 @@
-import { lockAllCampusCredentials } from './campus-unlock';
+import { confirmCampusIdentity, lockAllCampusCredentials } from './campus-unlock';
 
 export type IdentitySession = { id: string; email: string; email_verified: boolean; expires_at: string };
 export type FlowState = {
@@ -48,6 +48,7 @@ function validateSession(session: IdentitySession): IdentitySession {
   }
   if (validatedIdentity && validatedIdentity !== session.id) lockAllCampusCredentials();
   validatedIdentity = session.id;
+  confirmCampusIdentity(session.id);
   return session;
 }
 
