@@ -1026,7 +1026,9 @@ export default function Workspace() {
     window.addEventListener('pointerup', stop, { once: true });
   }
 
-  const visible = useMemo(() => entries.filter(entry => (view === 'notes' || view === 'anki' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : view === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, view]);
+  // Campus-note pages keep the notes sidebar: its contents and sorting follow
+  // the sidebar section, not the type of page currently open in the editor.
+  const visible = useMemo(() => entries.filter(entry => (sideView === 'notes' ? entry.kind === 'note' || entry.kind === 'rich_text' || entry.kind === 'file' : sideView === 'sessions' && entry.kind === 'agent') && (!query || entry.title.toLowerCase().includes(query.toLowerCase()))), [entries, query, sideView]);
   const roots = visible.filter(entry => !entry.parent_id && !placements[entry.id]);
   const folderRoots = folders.filter(folder => !folder.parentId);
   // Children by parent, built once a render: each tree row then looks up its
@@ -1086,7 +1088,7 @@ export default function Workspace() {
   }
 
   function orderChildren<T extends Sortable>(items: T[], group: string): T[] {
-    return orderedItems(items, sidebarSort[view], sidebarOrder[group]);
+    return orderedItems(items, sidebarSort[sideView], sidebarOrder[group]);
   }
 
   function persistSidebarOrder(next: Record<string, string[]>) {
@@ -1104,7 +1106,7 @@ export default function Workspace() {
   }
 
   function reorder(id: string, target: string, group: string, after: boolean) {
-    const current = orderedItems(siblings(group), sidebarSort[view], sidebarOrder[group]).map(item => item.id);
+    const current = orderedItems(siblings(group), sidebarSort[sideView], sidebarOrder[group]).map(item => item.id);
     if (id === target || !current.includes(id) || !current.includes(target)) return;
     const next = current.filter(item => item !== id);
     next.splice(next.indexOf(target) + (after ? 1 : 0), 0, id);
@@ -1121,7 +1123,7 @@ export default function Workspace() {
   }
 
   function moveInSidebar(id: string, group: string, direction: -1 | 1) {
-    const current = orderedItems(siblings(group), sidebarSort[view], sidebarOrder[group]).map(item => item.id);
+    const current = orderedItems(siblings(group), sidebarSort[sideView], sidebarOrder[group]).map(item => item.id);
     const index = current.indexOf(id);
     const target = current[index + direction];
     if (target) reorder(id, target, group, direction > 0);

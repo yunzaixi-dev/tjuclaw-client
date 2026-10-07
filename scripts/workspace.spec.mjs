@@ -5768,3 +5768,81 @@ test('entry QR expires before refresh and aborts a late response after account l
   await expect(page.getByRole('img', { name: '实时入校二维码' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '校园账号' }).getByRole('button', { name: '去解锁' })).toBeVisible();
 });
+
+
+for (const width of [390, 1440]) {
+  for (const tool of ['课程表', '入校码']) {
+    test(`campus note keeps imported vault notes, attachments and folder expansion (${tool}, ${width})`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      const { state, source, target, image } = obsidianState();
+      const mutations = [];
+      page.on('request', request => {
+        if (/\/api\/(entries|folders|libraries)(\/|$)/.test(request.url()) && request.method() !== 'GET') mutations.push(request.method());
+      });
+      await mockWorkspace(page, state);
+      await page.goto('/workspace');
+      const tree = page.locator('.obsidian-tree');
+      if (width < 720) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+      await expect(tree.getByRole('button', { name: target.title, exact: true })).toBeVisible();
+      await expect(tree.getByRole('button', { name: image.title, exact: true })).toBeVisible();
+      // Explicitly fold a folder before switching; campus notes must not reset it.
+      await tree.getByRole('button', { name: 'assets', exact: true }).click();
+      await page.getByRole('treeitem', { name: `${tool}校园笔记`, exact: true }).getByRole('button', { name: tool, exact: true }).click();
+      await expect(page.getByRole('region', { name: `${tool}小工具` })).toBeVisible();
+      if (width < 720) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+      await expect(tree.getByRole('button', { name: target.title, exact: true })).toBeVisible();
+      await expect(tree.getByRole('button', { name: source.title, exact: true })).toBeVisible();
+      await expect(tree.getByRole('button', { name: image.title, exact: true })).toHaveCount(0);
+      await tree.getByRole('button', { name: 'assets', exact: true }).click();
+      await expect(tree.getByRole('button', { name: image.title, exact: true })).toBeVisible();
+      expect(mutations).toEqual([]);
+      expect(state.entries.length).toBe(7);
+      await tree.getByRole('button', { name: target.title, exact: true }).click();
+      await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+    });
+  }
+}
+
+for (const width of [390, 1440]) {
+ test(`campus note does not expand every folder in a large imported vault (${width})`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  const state = defaultState();
+  const folder = { ...createdNote, id: '11111111111111111111111111111111', kind: 'folder', title: 'Large vault folder' };
+  const root = { ...noteA };
+  const notes = Array.from({ length: 501 }, (_, i) => ({ ...noteC, id: (i + 1).toString(16).padStart(32, '0'), parent_id: folder.id, title: `Imported note ${i}` }));
+  state.entries = [guideA, folder, root, ...notes];
+  state.entryById = Object.fromEntries(state.entries.map(entry => [entry.id, entry]));
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  const tree = page.locator('.obsidian-tree');
+  if (width < 720) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+  const row = tree.locator('.obsidian-tree-row').filter({ has: page.getByRole('button', { name: folder.title, exact: true }) });
+  await expect(row.locator('.tree-toggle [data-open]')).toHaveAttribute('data-open', 'false');
+  await page.getByRole('treeitem', { name: '入校码校园笔记', exact: true }).getByRole('button', { name: '入校码', exact: true }).click();
+  await expect(page.getByRole('region', { name: '入校码小工具' })).toBeVisible();
+  if (width < 720) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+  await expect(row.locator('.tree-toggle [data-open]')).toHaveAttribute('data-open', 'false');
+  await expect(tree.getByRole('button', { name: root.title, exact: true })).toBeVisible();
+  await row.getByRole('button', { name: folder.title, exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'Imported note 500', exact: true })).toBeVisible();
+  await expect(tree.locator('[role="treeitem"]')).toHaveCount(504); // 502 real notes + 2 campus notes.
+});
+}
+
+test('campus note uses note sorting for nested rows instead of tool sorting', async ({ page }) => {
+  const state = defaultState();
+  const folder = { ...createdNote, id: '11111111111111111111111111111111', kind: 'folder', title: 'Sorted vault folder' };
+  const first = { ...noteA, parent_id: folder.id, title: 'Alpha' };
+  const last = { ...noteC, parent_id: folder.id, title: 'Zeta' };
+  state.entries = [guideA, folder, first, last];
+  state.entryById = Object.fromEntries(state.entries.map(entry => [entry.id, entry]));
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '侧栏排序', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '名称 Z → A', exact: true }).click();
+  const titles = page.locator('.obsidian-tree .tree-children .tree-item span');
+  await expect(titles).toHaveText(['Zeta', 'Alpha']);
+  await page.getByRole('treeitem', { name: '入校码校园笔记', exact: true }).getByRole('button', { name: '入校码', exact: true }).click();
+  await expect(page.getByRole('region', { name: '入校码小工具' })).toBeVisible();
+  await expect(titles).toHaveText(['Zeta', 'Alpha']);
+});
