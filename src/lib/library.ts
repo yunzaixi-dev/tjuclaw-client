@@ -208,7 +208,7 @@ export interface ModelStatus {
   choices?: string[];
   /** What the Agent can actually do on this server right now. */
   agent?: AgentCapabilities;
-  quota: { limit: number; used: number; remaining: number };
+  quota: { limit: number; used: number; remaining: number; unlimited?: boolean };
   /** Rolling product-model limits; empty when unlimited or broker-managed. */
   windows?: QuotaWindow[];
   /** How heavily each product model's tokens count against the windows. */
@@ -244,8 +244,8 @@ export function formatQuotaReset(iso: string | undefined, now = new Date()): str
 }
 
 /** The first exhausted window, which is what blocks the next turn. */
-export const exhaustedQuotaWindow = (status: Pick<ModelStatus, 'windows'> | null) =>
-  status?.windows?.find(window => window.remaining <= 0) ?? null;
+export const exhaustedQuotaWindow = (status: (Pick<ModelStatus, 'windows'> & Partial<Pick<ModelStatus, 'quota'>>) | null) =>
+  status?.quota?.unlimited ? null : status?.windows?.find(window => window.remaining <= 0) ?? null;
 
 function isQuotaWindow(value: unknown): value is QuotaWindow {
   if (!value || typeof value !== 'object') return false;
@@ -260,15 +260,9 @@ export interface AgentCapabilities {
   tools: string[];
 }
 
-// Product models are presented under their TJUClaw names, not upstream IDs.
-const productModelNames: Record<string, string> = {
-  'deepseek-flash': '蓝色大肥鱼',
-  'gpt-6-sol-lite': '太阳',
-};
-
 export function modelDisplayName(status: Pick<ModelStatus, 'source' | 'name'>): string {
   const name = status.name?.trim() ?? '';
-  if (status.source === 'product') return productModelNames[name] ?? (name || 'TJUClaw 模型');
+  if (status.source === 'product') return name || 'TJUClaw 模型';
   if (status.source === 'custom') return name || '自定义模型';
   return '未配置';
 }
@@ -357,7 +351,8 @@ function isModel(value: unknown): value is ModelStatus {
     && (r.agent === undefined || isAgentCapabilities(r.agent))
     && (r.windows === undefined || (Array.isArray(r.windows) && r.windows.every(isQuotaWindow)))
     && (r.rates === undefined || (Boolean(r.rates) && typeof r.rates === 'object' && Object.values(r.rates as object).every(rate => typeof rate === 'number')))
-    && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number';
+    && typeof q.limit === 'number' && typeof q.used === 'number' && typeof q.remaining === 'number'
+    && (q.unlimited === undefined || typeof q.unlimited === 'boolean');
 }
 
 export async function listLibraries(signal?: AbortSignal): Promise<Library[]> {

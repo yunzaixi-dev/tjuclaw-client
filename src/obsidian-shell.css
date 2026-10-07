@@ -1541,6 +1541,13 @@
   background: var(--background); color: var(--foreground); font: inherit; font-size: 13px;
 }
 .settings-model-form select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.settings-product-model {
+  width: min(280px, 72vw); max-width: 100%; min-height: 44px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--background);
+  color: var(--foreground); font: inherit; font-size: 13px;
+}
+.settings-product-model:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.settings-product-model:disabled { opacity: .6; cursor: progress; }
 .mcp-server { border-bottom: 1px solid var(--border); }
 .mcp-server .settings-entry { border-bottom: 0; }
 .mcp-server-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }

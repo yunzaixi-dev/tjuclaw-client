@@ -3178,7 +3178,7 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   const state = defaultState();
   const resetsAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
   state.model = {
-    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gpt-6-sol-lite'],
+    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gemini-3.8-flash-tiered'],
     agent: { sandbox: false, tools: [] }, quota: { limit: 30, used: 30, remaining: 0 },
     windows: [
       { id: '5h', limit: 30, used: 30, remaining: 0, resets_at: resetsAt },
@@ -3191,7 +3191,7 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await page.getByRole('button', { name: '工作', exact: true }).click();
   // The line under the composer says which allowance ran out and when it returns.
   await expect(page.getByRole('button', { name: /^5 小时额度已用完，.+ 恢复$/ })).toBeVisible();
-  const chip = page.getByRole('button', { name: '模型：蓝色大肥鱼' });
+  const chip = page.getByRole('button', { name: '模型：deepseek-flash' });
   await expect(chip).toBeVisible();
   // Quota lives in Settings, not in the model menu.
   await chip.click();
@@ -3337,7 +3337,7 @@ test('Agent replies show original campus images through the API proxy only', asy
 
 test('model settings save a custom OpenAI-compatible upstream and switch back', async ({ page }) => {
   const state = defaultState();
-  const choices = ['deepseek-flash', 'gpt-6-sol-lite'];
+  const choices = ['deepseek-flash', 'gemini-3.8-flash-tiered'];
   state.model = { configured: false, source: 'product', name: 'deepseek-flash', choices, quota: { limit: 20, used: 2, remaining: 18 } };
   await mockWorkspace(page, state);
   const puts = [];
@@ -3361,11 +3361,11 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '模型' }).click();
   const dialog = page.getByRole('dialog');
-  const picker = dialog.getByRole('group', { name: 'TJUClaw 模型' });
-  await expect(picker.getByRole('button', { name: '蓝色大肥鱼' })).toHaveAttribute('aria-pressed', 'true');
-  await picker.getByRole('button', { name: '太阳' }).click();
-  await expect(picker.getByRole('button', { name: '太阳' })).toHaveAttribute('aria-pressed', 'true');
-  expect(puts).toEqual([{ product_model: 'gpt-6-sol-lite' }]);
+  const picker = dialog.getByRole('combobox', { name: 'TJUClaw 模型' });
+  await expect(picker).toHaveValue('deepseek-flash');
+  await picker.selectOption('gemini-3.8-flash-tiered');
+  await expect(picker).toHaveValue('gemini-3.8-flash-tiered');
+  expect(puts).toEqual([{ product_model: 'gemini-3.8-flash-tiered' }]);
   puts.length = 0;
   const save = dialog.getByRole('button', { name: '保存并使用' });
   await expect(save).toBeDisabled();
@@ -3379,9 +3379,99 @@ test('model settings save a custom OpenAI-compatible upstream and switch back', 
   await expect(dialog.getByText('deepseek-chat', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: '改回 TJUClaw 模型' }).click();
   await expect(dialog.getByText('已改回 TJUClaw 提供的模型。')).toBeVisible();
-  await expect(picker.getByRole('button', { name: '蓝色大肥鱼' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(picker).toHaveValue('deepseek-flash');
   expect(deletes).toBe(1);
 });
+
+test('ordinary model choices stay canonical and do not derive privileges from the displayed email', async ({ page }) => {
+  const state = defaultState();
+  state.session = { ...state.session, email: 'x@zaixi.dev' };
+  state.model = {
+    configured: false, source: 'product', name: 'deepseek-flash',
+    choices: ['deepseek-flash', 'gemini-3.8-flash-tiered'],
+    quota: { limit: 20, used: 2, remaining: 18 },
+  };
+  await mockWorkspace(page, state);
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '工作', exact: true }).click();
+  await page.getByRole('button', { name: '模型：deepseek-flash' }).click();
+  const menu = page.getByRole('menu', { name: '选择模型' });
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(2);
+  await expect(menu.getByRole('menuitemradio').first()).toContainText('deepseek-flash');
+  await expect(menu.getByRole('menuitemradio').last()).toContainText('gemini-3.8-flash-tiered');
+  await expect(page.getByRole('button', { name: '无限 AI 额度' })).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 360, height: 800 }]) {
+  test(`site owner model catalog and unlimited quota stay usable (${viewport.width}px)`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const state = defaultState();
+    const choices = [
+      'deepseek-flash', 'gemini-3.8-flash-tiered', 'deepseek-v4-pro',
+      'gpt-6.1-sol', 'gpt-6', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol',
+      'claude-opus-4-7', 'claude-opus-4-7-thinking',
+      'claude-sonnet-4-6', 'claude-sonnet-4-6-thinking',
+      'gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'grok-4.7', 'composer-2.5',
+    ];
+    // Authority comes from the server status, not from matching a client-side
+    // email string. The synthetic session still has its ordinary test email.
+    state.model = {
+      configured: false, source: 'product', name: 'claude-sonnet-4-6-thinking', choices,
+      quota: { limit: 0, used: 0, remaining: 0, unlimited: true },
+      windows: [], rates: { 'gpt-6.1-sol': 10 },
+      agent: { sandbox: true, tools: [] },
+    };
+    await mockWorkspace(page, state);
+    const puts = [];
+    await page.route('**/api/account/model', async route => {
+      if (route.request().method() === 'PUT') {
+        const input = route.request().postDataJSON();
+        puts.push(input);
+        state.model = { ...state.model, name: input.product_model };
+      }
+      return json(route, 200, { model: state.model });
+    });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/workspace');
+    if (viewport.width < 720) await page.getByRole('button', { name: '打开侧栏' }).first().click();
+    await page.getByRole('button', { name: '工作', exact: true }).click();
+    if (viewport.width < 720) await page.getByRole('button', { name: '收起侧栏' }).first().click();
+    const chip = page.getByRole('button', { name: '模型：claude-sonnet-4-6-thinking' });
+    await expect(chip).toHaveAttribute('title', 'claude-sonnet-4-6-thinking');
+    await expect(page.getByRole('button', { name: '无限 AI 额度' })).toBeVisible();
+    await chip.click();
+    const menu = page.getByRole('menu', { name: '选择模型' });
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(choices.length);
+    await expect(menu.getByRole('menuitemradio', { name: /gpt-6\.1-sol/ })).toContainText('无限额度');
+    await expect(menu).not.toContainText('倍额度');
+    const box = await menu.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(await menu.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
+    await page.screenshot({ path: `test-results/workspace/product-model-owner-${viewport.width}.png` });
+    await menu.getByRole('menuitemradio', { name: /composer-2\.5/ }).click();
+    await expect(page.getByRole('button', { name: '模型：composer-2.5' })).toBeVisible();
+    expect(puts).toEqual([{ product_model: 'composer-2.5' }]);
+    await page.getByRole('button', { name: '无限 AI 额度' }).click();
+    const dialog = page.getByRole('dialog');
+    const select = dialog.getByRole('combobox', { name: 'TJUClaw 模型' });
+    await expect(select).toHaveValue('composer-2.5');
+    await expect(select.locator('option')).toHaveCount(choices.length);
+    await select.selectOption('gpt-6.1-sol');
+    await expect(select).toHaveValue('gpt-6.1-sol');
+    expect(puts.at(-1)).toEqual({ product_model: 'gpt-6.1-sol' });
+    expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    if (viewport.width < 720) await dialog.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户' }).click();
+    await expect(dialog.getByRole('status')).toHaveText('无限额度');
+    await expect(dialog).not.toContainText('0 / 0');
+    await expect(dialog).toContainText('沙箱仍保留隔离、超时和资源限制');
+    await page.screenshot({ path: `test-results/workspace/product-quota-owner-${viewport.width}.png` });
+    expect(errors).toEqual([]);
+  });
+}
 
 test('note history lists Git commits of the mirrored note and restores an older version', async ({ page }) => {
   const state = defaultState();
@@ -4305,10 +4395,10 @@ for (const action of ['create', 'study']) {
 test('the composer holds only the text and one button; allowance, model and thinking sit under it as text', async ({ page }) => {
   const state = defaultState();
   state.model = {
-    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gpt-6-sol-lite'],
+    configured: false, source: 'product', name: 'deepseek-flash', choices: ['deepseek-flash', 'gemini-3.8-flash-tiered'],
     agent: { sandbox: true, tools: [] }, quota: { limit: 20_000_000, used: 3_400_000, remaining: 16_600_000 },
     windows: [{ id: '7d', limit: 20_000_000, used: 3_400_000, remaining: 16_600_000, unit: 'tokens', resets_at: new Date(Date.now() + 3 * 86400000).toISOString() }],
-    rates: { 'deepseek-flash': 1, 'gpt-6-sol-lite': 2.5 },
+    rates: { 'deepseek-flash': 1, 'gemini-3.8-flash-tiered': 2.5 },
   };
   await mockWorkspace(page, state);
   await page.goto('/workspace');
@@ -4322,13 +4412,13 @@ test('the composer holds only the text and one button; allowance, model and thin
   await expect(meta.locator('svg')).toHaveCount(0);
   await expect(meta.getByRole('button', { name: '7 天额度剩余 83%' })).toBeVisible();
   const pair = meta.getByRole('group', { name: '模型与思考强度' });
-  await expect(pair.getByRole('button', { name: '模型：蓝色大肥鱼' })).toHaveText('蓝色大肥鱼');
+  await expect(pair.getByRole('button', { name: '模型：deepseek-flash' })).toHaveText('deepseek-flash');
   await expect(pair.getByRole('button', { name: '思考强度：自动' })).toHaveText('自动');
   // The menu says how much faster a dearer model spends the allowance.
-  await pair.getByRole('button', { name: '模型：蓝色大肥鱼' }).click();
+  await pair.getByRole('button', { name: '模型：deepseek-flash' }).click();
   const menu = page.getByRole('menu', { name: '选择模型' });
-  await expect(menu.getByRole('menuitemradio', { name: /太阳/ })).toContainText('2.5 倍额度');
-  await expect(menu.getByRole('menuitemradio', { name: /蓝色大肥鱼/ })).not.toContainText('倍额度');
+  await expect(menu.getByRole('menuitemradio', { name: /gemini-3.8-flash-tiered/ })).toContainText('2.5 倍额度');
+  await expect(menu.getByRole('menuitemradio', { name: /deepseek-flash/ })).not.toContainText('倍额度');
   // The menu opens inside the viewport although the pair sits at the right edge.
   const box = await menu.boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);

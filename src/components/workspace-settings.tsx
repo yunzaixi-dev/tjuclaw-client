@@ -22,7 +22,7 @@ const sections = [
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
   { id: 'flashcards', label: '记忆闪卡', icon: SquareStack, keywords: 'Anki 导出 TSV' },
-  { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 蓝色大肥鱼 太阳' },
+  { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 DeepSeek Gemini GPT Claude Grok' },
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
   { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置 技能 实验报告 参考文献 复习 文献 调试 英文写作' },
   { id: 'mcp', label: 'MCP 服务', icon: Plug, keywords: 'MCP 工具 服务 扩展 市场 GitHub 高德 搜索 DeepWiki Context7' },
@@ -244,20 +244,20 @@ export function WorkspaceSettings({
               <h3>当前模型</h3>
               <SettingRow
                 title={modelStatus ? modelDisplayName(modelStatus) : modelError ? '暂不可用' : '读取中…'}
-                description={modelStatus?.source === 'custom' ? '你自己的模型服务，使用你自己的额度。' : modelStatus?.source === 'product' ? '由 TJUClaw 提供，按 5 小时和 7 天滚动计算额度。' : modelStatus ? '还没有可用的模型，请在下方配置。' : undefined}
+                description={modelStatus?.source === 'custom' ? '你自己的模型服务，使用你自己的额度。' : modelStatus?.source === 'product' ? (modelStatus.quota.unlimited ? '由 TJUClaw 提供，产品 AI 额度不限量。' : '由 TJUClaw 提供，按账户额度限制计算用量。') : modelStatus ? '还没有可用的模型，请在下方配置。' : undefined}
               >
                 {modelStatus?.source === 'custom'
                   ? <button type="button" className="settings-action-button" disabled={modelBusy} onClick={() => void switchToProductModel()}>改回 TJUClaw 模型</button>
                   : <span className="settings-badge">{modelStatus?.source === 'product' ? 'TJUClaw' : '—'}</span>}
               </SettingRow>
               {modelStatus?.choices && modelStatus.choices.length > 1 ? (
-                <SettingRow title="TJUClaw 模型" description="在 TJUClaw 提供的模型之间切换，共用每日调用额度。">
-                  <SettingChoices<string>
-                    label="TJUClaw 模型"
+                <SettingRow title="TJUClaw 模型" description={modelStatus.quota.unlimited ? '可选择以下产品模型，不受产品 AI 额度限制。' : '在以下产品模型之间切换，共用账户的 AI 额度。'}>
+                  <select className="settings-product-model" aria-label="TJUClaw 模型" disabled={modelBusy}
                     value={modelStatus.source === 'product' ? modelStatus.name ?? '' : ''}
-                    onChange={name => void pickProductModel(name)}
-                    options={modelStatus.choices.map(name => ({ value: name, label: modelDisplayName({ source: 'product', name }) }))}
-                  />
+                    onChange={event => void pickProductModel(event.target.value)}>
+                    {modelStatus.source !== 'product' ? <option value="" disabled>选择产品模型</option> : null}
+                    {modelStatus.choices.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
                 </SettingRow>
               ) : null}
               {modelError ? <p className="settings-notice" role="alert">{modelError}</p> : null}
@@ -304,7 +304,7 @@ export function WorkspaceSettings({
               <h3>当前会话</h3>
               <SettingRow title="登录邮箱"><span className="settings-value settings-email">{email}</span></SettingRow>
 {SYSTEM_WORKSPACES_LISTED ? <SettingRow title="系统工作空间连接" description="管理同账号的完整系统环境与远程能力，不是当前知识资料库。"><a className="settings-action-button" style={{ minHeight: 44 }} href="/workspace/connections">管理系统连接 <ChevronRight size={14} aria-hidden="true" /></a></SettingRow> : null}
-              {!modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.unit === 'tokens'
+              {!modelError && modelStatus?.quota.unlimited ? <SettingRow title="AI 额度" description="产品 AI 额度不限量；沙箱仍保留隔离、超时和资源限制。"><span className="settings-value" role="status">无限额度</span></SettingRow> : !modelError && modelStatus?.windows?.length ? modelStatus.windows.map(window => <SettingRow key={window.id} title={`${quotaWindowName(window.id)}内 AI 额度`} description={window.unit === 'tokens'
                 ? (window.used && window.resets_at ? `滚动统计，按模型实际消耗的 token 计，不同模型倍率不同；最早的用量将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，按模型实际消耗的 token 计，不同模型倍率不同。使用自己的模型不占用额度。')
                 : (window.used && window.resets_at ? `滚动统计，每轮对话计一次；最早的一次将于${formatQuotaReset(window.resets_at)}恢复。` : '滚动统计，每轮对话计一次。使用自己的模型不占用额度。')}><span className="settings-value" role="status">{formatQuotaUse(window)}</span></SettingRow>)
                 : <SettingRow title="AI 额度" description="使用自己的模型不占用额度。"><span className="settings-value" role="status">{modelError ? '暂不可用' : modelStatus ? `${modelStatus.quota.used} / ${modelStatus.quota.limit}` : '读取中…'}</span></SettingRow>}

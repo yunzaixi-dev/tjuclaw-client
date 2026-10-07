@@ -92,14 +92,14 @@ function ModelPicker({ status, onStatus, onManage }: { status: ModelStatus | nul
   const label = missing ? '未配置模型' : modelDisplayName(status);
   return (
     <div className="agent-model" ref={ref}>
-      <button type="button" className="agent-pill-part" aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>{busy ? '切换中…' : label}</button>
+      <button type="button" className="agent-pill-part" title={label} aria-haspopup="menu" aria-expanded={open} aria-label={`模型：${label}`} disabled={busy} onClick={() => setOpen(value => !value)}>{busy ? '切换中…' : label}</button>
       {open ? <div className="agent-model-menu" role="menu" aria-label="选择模型">
         <p className="agent-menu-title">模型</p>
         {missing ? <p>服务器还没有接入产品模型。你可以先填写自己的 OpenAI 兼容上游。</p> : null}
         {choices.map(name => {
           const selected = name === status.name;
           const rate = formatModelRate(status.rates?.[name]);
-          return <MenuOption key={name} selected={selected} label={modelDisplayName({ source: 'product', name })} hint={rate ? `TJUClaw 提供 · ${rate}` : 'TJUClaw 提供'} onSelect={() => {
+          return <MenuOption key={name} selected={selected} label={modelDisplayName({ source: 'product', name })} hint={status.quota.unlimited ? 'TJUClaw 提供 · 无限额度' : rate ? `TJUClaw 提供 · ${rate}` : 'TJUClaw 提供'} onSelect={() => {
             setOpen(false);
             if (selected) return;
             setBusy(true);
@@ -119,6 +119,7 @@ function allowanceText(status: ModelStatus | null): { text: string; warning: boo
   if (!status) return { text: '', warning: false };
   if (status.source === 'custom') return { text: '使用自己的模型，不占用额度', warning: false };
   if (status.source === 'none') return { text: '还没有可用的模型', warning: true };
+  if (status.quota.unlimited) return { text: '无限 AI 额度', warning: false };
   const windows = status.windows ?? [];
   const exhausted = exhaustedQuotaWindow({ windows });
   if (exhausted) {
