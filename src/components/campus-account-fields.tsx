@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchOfficeVerificationCaptcha, verifyOfficeAccount, verifyWpyAccount, type OfficeCaptcha } from '../lib/campus-api';
+import { wpyLoginErrorMessage } from '../lib/campus-login-error';
 
-function verificationError(error: unknown) {
+function verificationError(error: unknown, provider: 'wpy' | 'office') {
+  const wpy = provider === 'wpy' ? wpyLoginErrorMessage(error, true) : null;
+  if (wpy) return wpy;
   const id = (error as { body?: { error?: { id?: string } } } | null)?.body?.error?.id;
-  if (id === 'campus_invalid_credentials') return '微北洋账号或密码不正确，请检查后重试。';
   if (id === 'campus_office_credentials_invalid') return '办公网账号、密码或验证码有误，请检查后重新验证。';
   if (id === 'campus_office_captcha_expired') return '验证码已过期或已使用，请重新验证获取新图片。';
   if (id === 'campus_not_configured' || id === 'campus_office_not_configured') return '校园验证服务尚未配置，暂时无法检查账号。';
@@ -69,7 +71,7 @@ export function CampusAccountFields({ provider, username, password, disabled, on
     } catch (error) {
       if (request.signal.aborted) return;
       setCaptcha(null); setCode('');
-      setMessage(verificationError(error));
+      setMessage(verificationError(error, provider));
     } finally {
       if (!request.signal.aborted) { controller.current = null; setPending(false); }
     }

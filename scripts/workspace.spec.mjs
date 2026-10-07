@@ -5424,6 +5424,41 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   });
 }
 
+for (const fixture of [
+  { id: 'campus_auth_rejected', code: 50003, status: 502, text: '微北洋认证服务未接受请求（服务码 50003）；无法据此判断密码是否正确，请反馈此服务码。' },
+  { id: 'campus_invalid_response', code: 0, status: 502, text: '微北洋未返回可确认的登录结果（服务码 0）；不代表密码错误，请稍后重试或反馈此提示。' },
+  { id: 'campus_invalid_response', status: 502, text: '微北洋未返回可确认的登录结果；不代表密码错误，请稍后重试或反馈此提示。' },
+  { id: 'campus_invalid_credentials', code: 40002, status: 401, text: '微北洋服务未找到该账号（服务码 40002）。若官方 App 可登录，可尝试用学号验证，或反馈此服务码。' },
+  { id: 'campus_invalid_credentials', code: 40004, status: 401, text: '微北洋服务拒绝了这次登录（服务码 40004）。若官方 App 可登录，请反馈此服务码，不必反复修改密码。' },
+  { id: 'campus_auth_rejected', code: '<untrusted-provider-message>', status: 502, text: '微北洋认证服务未接受请求；无法据此判断密码是否正确，请反馈此提示。' },
+]) {
+  test(`campus Wpy login diagnostics do not mislabel service failures (${fixture.id}, ${fixture.code})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockWorkspace(page, defaultState());
+    const requests = [];
+    const account = 'fixture+user@example.com';
+    const password = ' 合成 +&%= / 密码 ';
+    await page.route('**/api/campus/accounts/wpy/verify', async route => {
+      requests.push(route.request().postDataJSON());
+      await json(route, fixture.status, { error: { id: fixture.id, upstream_code: fixture.code } });
+    });
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+    const settings = page.getByRole('dialog');
+    await settings.getByRole('textbox', { name: /^微北洋账号/ }).fill(account);
+    await settings.getByLabel('微北洋密码').fill(password);
+    await settings.getByRole('button', { name: '验证微北洋账号' }).click();
+    await expect(settings.getByText(fixture.text, { exact: true })).toBeVisible();
+    await expect(settings.getByText('微北洋账号或密码不正确，请检查后重试。')).toHaveCount(0);
+    expect(requests).toEqual([{ account, password }]);
+    expect(await page.evaluate(owner => localStorage.getItem(`tjuclaw.campus.credentials.v1.${owner}`), syntheticSessionA.id)).toBeNull();
+    expect(await settings.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (fixture.code === 50003) await page.screenshot({ path: 'test-results/workspace/wpy-login-diagnostic-390.png' });
+  });
+}
+
 test('campus draft verification discards late responses, captcha and identity drafts', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);

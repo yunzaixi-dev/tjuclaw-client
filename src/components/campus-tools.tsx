@@ -7,6 +7,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { campusToolList, type CampusToolId } from './campus-tool-list';
 import './campus-tools.css';
 import { attempt } from '../lib/attempt';
+import { wpyLoginErrorMessage } from '../lib/campus-login-error';
 import { storeItem } from '../lib/safe-storage';
 import { CampusTimetable, type TimetableCourse } from './campus-timetable';
 
@@ -131,10 +132,11 @@ function liveGrades(gpaData: Record<string, unknown> | null): Grade[] {
   })).filter(item => item.credits > 0);
 }
 
-function campusErrorMessage(error: unknown): string {
+function campusErrorMessage(error: unknown, loginContext = false): string {
+  const wpy = wpyLoginErrorMessage(error, loginContext);
+  if (wpy) return wpy;
   if (error && typeof error === 'object' && 'body' in error) {
     const id = ((error as { body?: { error?: { id?: string } } }).body?.error?.id) ?? '';
-    if (id === 'campus_invalid_credentials') return '微北洋账号或密码不正确。';
     if (id === 'campus_not_configured') return '服务端尚未配置微北洋上游凭据。';
     if (id === 'campus_session_required' || id === 'campus_session_expired') return '微北洋连接已过期，请重新解锁账号。';
     if (id === 'campus_office_captcha_expired') return '办公网验证码已过期，请刷新图片后重试。';
@@ -318,7 +320,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
         }).catch(() => undefined);
       } catch (error) {
         if (semesterGeneration !== semesterRequest.current) return;
-        setLiveError(campusErrorMessage(error));
+        setLiveError(campusErrorMessage(error, true));
       }
     }
     if (!hasOfficeAccount(next)) return;
