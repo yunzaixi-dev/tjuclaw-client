@@ -2462,6 +2462,14 @@
 .obsidian-app .conversation-row .session-tree-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-settings .campus-accounts form h3 { margin-top: 20px; }
 .workspace-settings .campus-accounts-forget { margin-top: 20px; }
+.workspace-settings .campus-account-fields { display: grid; gap: 12px; min-width: 0; }
+.workspace-settings .campus-account-input-row { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.workspace-settings .campus-account-input-row label { flex: 1 1 180px; min-width: 0; }
+.workspace-settings .campus-account-captcha { display: grid; gap: 10px; }
+.workspace-settings .campus-account-captcha img { max-width: 100%; height: 56px; object-fit: contain; object-position: left; }
+@media (max-width: 560px) {
+  .workspace-settings .campus-account-fields .settings-action-button { min-height: 44px; }
+}
 
 /* Live preview, what-you-see: rules, nested quotes, inline HTML, images,
    footnotes, math and folded HTML structure. */

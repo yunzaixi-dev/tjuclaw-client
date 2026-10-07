@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LockKeyhole, Trash2, UnlockKeyhole } from 'lucide-react';
 import type { CampusCredentials } from '../lib/campus-api';
 import { forgetCampusCredentials, hasCampusCredentials, storeCampusCredentials, unlockCampusCredentials } from '../lib/campus-vault';
 import { hasOfficeAccount, hasWpyAccount, publishCampusCredentials, subscribeCampusCredentials, unlockedCampusCredentials } from '../lib/campus-unlock';
 import { attempt } from '../lib/attempt';
+import { CampusAccountFields } from './campus-account-fields';
 
 const empty: CampusCredentials = { wpyUsername: '', wpyPassword: '', officeUsername: '', officePassword: '' };
 
@@ -13,6 +14,10 @@ const empty: CampusCredentials = { wpyUsername: '', wpyPassword: '', officeUsern
  * local passphrase and only decrypted into memory while unlocked.
  */
 export function CampusAccounts({ identity }: { identity: string }) {
+  return <IdentityCampusAccounts key={identity} identity={identity} />;
+}
+
+function IdentityCampusAccounts({ identity }: { identity: string }) {
   const [exists, setExists] = useState(() => hasCampusCredentials(identity));
   const [unlocked, setUnlocked] = useState<CampusCredentials | null>(() => unlockedCampusCredentials(identity));
   const [editing, setEditing] = useState(false);
@@ -20,13 +25,17 @@ export function CampusAccounts({ identity }: { identity: string }) {
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const active = useRef(true);
 
-  useEffect(() => subscribeCampusCredentials(identity, setUnlocked), [identity]);
+  useEffect(() => {
+    active.current = true;
+    const unsubscribe = subscribeCampusCredentials(identity, setUnlocked);
+    return () => { active.current = false; unsubscribe(); };
+  }, [identity]);
 
-  const field = (key: keyof CampusCredentials) => ({
-    value: form[key],
-    onChange: (event: { target: { value: string } }) => { setForm(current => ({ ...current, [key]: event.target.value })); setMessage(''); },
-  });
+  const field = (key: keyof CampusCredentials) => (value: string) => {
+    setForm(current => ({ ...current, [key]: value })); setMessage('');
+  };
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -34,19 +43,22 @@ export function CampusAccounts({ identity }: { identity: string }) {
     const credentials = { ...form, wpyUsername: form.wpyUsername.trim(), officeUsername: form.officeUsername.trim() };
     return await attempt(async () => {
       await storeCampusCredentials(identity, passphrase, credentials);
+      if (!active.current) return;
       setExists(true); setEditing(false); setPassphrase(''); setForm(empty);
       publishCampusCredentials(identity, credentials);
       setMessage('已加密保存在这台设备上。');
-    }, async (error) => { setMessage(error instanceof Error ? error.message : '保存失败。'); }, async () => { setBusy(false); });
+    }, async (error) => { if (active.current) setMessage(error instanceof Error ? error.message : '保存失败。'); }, async () => { if (active.current) setBusy(false); });
   }
 
   async function unlock(event: FormEvent) {
     event.preventDefault();
     setBusy(true); setMessage('');
     return await attempt(async () => {
-      publishCampusCredentials(identity, await unlockCampusCredentials(identity, passphrase));
+      const credentials = await unlockCampusCredentials(identity, passphrase);
+      if (!active.current) return;
+      publishCampusCredentials(identity, credentials);
       setPassphrase('');
-    }, async () => { setMessage('解锁失败：口令错误或本地数据已损坏。'); }, async () => { setBusy(false); });
+    }, async () => { if (active.current) setMessage('解锁失败：口令错误或本地数据已损坏。'); }, async () => { if (active.current) setBusy(false); });
   }
 
   function edit() {
@@ -73,10 +85,9 @@ export function CampusAccounts({ identity }: { identity: string }) {
 
     {editing || !exists ? <form className="settings-model-form" onSubmit={event => void save(event)}>
       <h3>{exists ? '更换绑定' : '绑定账号'}</h3>
-      <label><span>微北洋账号<em>可选</em></span><input autoComplete="off" {...field('wpyUsername')} /></label>
-      <label><span>微北洋密码</span><input type="password" autoComplete="new-password" {...field('wpyPassword')} /></label>
-      <label><span>办公网账号<em>可选</em></span><input autoComplete="off" {...field('officeUsername')} /></label>
-      <label><span>办公网密码</span><input type="password" autoComplete="new-password" {...field('officePassword')} /></label>
+      <p className="settings-model-hint">可先分别验证账号再保存。验证经本站服务端请求校园服务，不会自动保存，也不改变工具当前连接。</p>
+      <CampusAccountFields provider="wpy" username={form.wpyUsername} password={form.wpyPassword} disabled={busy} onUsername={field('wpyUsername')} onPassword={field('wpyPassword')} />
+      <CampusAccountFields provider="office" username={form.officeUsername} password={form.officePassword} disabled={busy} onUsername={field('officeUsername')} onPassword={field('officePassword')} />
       <label><span>本地解锁口令</span><input type="password" autoComplete="new-password" minLength={12} placeholder="至少 12 位" value={passphrase} onChange={event => setPassphrase(event.target.value)} required /></label>
       {message ? <p className="settings-notice" role="status">{message}</p> : null}
       <div className="settings-model-actions">
@@ -95,6 +106,6 @@ export function CampusAccounts({ identity }: { identity: string }) {
       </div>
     </form>}
     {!editing && message && (unlocked || !exists) ? <p className="settings-model-saved" role="status">{message}</p> : null}
-    {exists ? <button type="button" className="settings-action-button is-danger campus-accounts-forget" onClick={forget}><Trash2 size={14} /> 删除本地绑定</button> : null}
+    {exists ? <button type="button" className="settings-action-button is-danger campus-accounts-forget" disabled={busy} onClick={forget}><Trash2 size={14} /> 删除本地绑定</button> : null}
   </section>;
 }

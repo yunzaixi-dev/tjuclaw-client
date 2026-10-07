@@ -5363,3 +5363,95 @@ test('the library name in the sidebar switches between libraries and remembers t
   await page.locator('.sidebar-library-button').click();
   await expect(page.getByRole('dialog', { name: '管理知识库' }).getByRole('menuitemradio', { name: 'vault' })).toHaveAttribute('aria-checked', 'true');
 });
+
+// Draft account checks use isolated verification routes, never the live session.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`campus draft verification is independent and never saves ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await mockWorkspace(page, defaultState());
+    const requests = [];
+    let captchaCount = 0;
+    let officeAttempts = 0;
+    await page.route('**/api/campus/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      requests.push(path);
+      if (path.endsWith('/wpy/verify')) {
+        expect(route.request().postDataJSON()).toEqual({ account: 'draft-wpy', password: 'fixture-wpy' });
+        return json(route, 200, { valid: true });
+      }
+      if (path.endsWith('/accounts/office/captcha')) return json(route, 200, {
+        captcha_id: `draft-${++captchaCount}`, content_type: 'image/png',
+        data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', expires_at: '2099-01-01T00:00:00Z',
+      });
+      if (path.endsWith('/office/verify')) {
+        expect(route.request().postDataJSON()).toEqual({ username: 'draft-office', password: 'fixture-office', captcha_id: `draft-${captchaCount}`, captcha: officeAttempts ? '5678' : '1234' });
+        return ++officeAttempts === 1 ? json(route, 401, { error: { id: 'campus_office_credentials_invalid' } }) : json(route, 200, { valid: true });
+      }
+      return json(route, 500, { error: { id: 'unexpected_live_login' } });
+    });
+    await page.goto('/workspace');
+    if (viewport.width < 600) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+    const settings = page.getByRole('dialog');
+    await expect(settings.getByRole('button', { name: '验证微北洋账号' })).toBeDisabled();
+    await settings.getByRole('textbox', { name: /^微北洋账号/ }).fill(' draft-wpy ');
+    await expect(settings.getByRole('button', { name: '验证微北洋账号' })).toBeDisabled();
+    await settings.getByLabel('微北洋密码').fill('fixture-wpy');
+    await settings.getByRole('button', { name: '验证微北洋账号' }).click();
+    await expect(settings.getByText('微北洋验证通过，尚未保存。')).toBeVisible();
+    await settings.getByRole('textbox', { name: /^办公网账号/ }).fill('draft-office');
+    await settings.getByLabel('办公网密码').fill('fixture-office');
+    await settings.getByRole('button', { name: '验证办公网账号' }).click();
+    await expect(settings.getByRole('img', { name: '办公网验证图片' })).toBeVisible();
+    await settings.getByLabel('验证办公网验证码').fill('1234');
+    await settings.getByLabel('验证办公网验证码').press('Enter');
+    await expect(settings.getByText('办公网账号、密码或验证码有误，请检查后重新验证。')).toBeVisible();
+    await expect(settings.getByRole('img', { name: '办公网验证图片' })).toHaveCount(0);
+    await settings.getByRole('button', { name: '验证办公网账号' }).click();
+    await settings.getByRole('button', { name: '刷新验证图片' }).click();
+    await settings.getByLabel('验证办公网验证码').fill('5678');
+    await settings.getByRole('button', { name: '提交办公网验证' }).click();
+    await expect(settings.getByText('办公网验证通过，尚未保存。')).toBeVisible();
+    await expect(settings.getByText('微北洋验证通过，尚未保存。')).toBeVisible();
+    await settings.getByLabel('微北洋密码').fill('changed');
+    await expect(settings.getByText('微北洋验证通过，尚未保存。')).toHaveCount(0);
+    await expect(settings.getByText('办公网验证通过，尚未保存。')).toBeVisible();
+    expect(await page.evaluate(owner => localStorage.getItem(`tjuclaw.campus.credentials.v1.${owner}`), syntheticSessionA.id)).toBeNull();
+    expect(requests.every(path => path.includes('/accounts/'))).toBe(true);
+    expect(await settings.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/workspace/campus-verification-${viewport.width}.png` });
+  });
+}
+
+test('campus draft verification discards late responses, captcha and identity drafts', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let release;
+  let started;
+  const waiting = new Promise(resolve => { started = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/campus/accounts/wpy/verify', async route => {
+    started(); await blocked;
+    await json(route, 200, { valid: true }).catch(() => {});
+  });
+  await page.goto('/workspace');
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  const settings = page.getByRole('dialog');
+  await settings.getByRole('textbox', { name: /^微北洋账号/ }).fill('old-draft');
+  await settings.getByLabel('微北洋密码').fill('fixture');
+  await settings.getByRole('button', { name: '验证微北洋账号' }).click();
+  await waiting;
+  await settings.getByLabel('微北洋密码').fill('new-fixture');
+  release();
+  await expect(settings.getByRole('button', { name: '验证微北洋账号' })).toBeEnabled();
+  await expect(settings.getByText('微北洋验证通过，尚未保存。')).toHaveCount(0);
+  state.session = syntheticSessionB; state.libraries = [libB]; state.entries = [{ ...guideB }];
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(() => page.evaluate(() => JSON.stringify(localStorage))).toContain(syntheticSessionB.id);
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toBeVisible();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '校园账号' }).click();
+  await expect(page.getByRole('dialog').getByRole('textbox', { name: /^微北洋账号/ })).toHaveValue('');
+  await expect(page.getByRole('dialog').getByLabel('微北洋密码')).toHaveValue('');
+});

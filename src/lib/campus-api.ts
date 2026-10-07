@@ -39,6 +39,22 @@ export type OfficeSession = {
 
 export type StudyroomItem = Record<string, unknown> & { id?: number; name?: string; free?: boolean };
 
+export function verifyWpyAccount(account: string, password: string, signal?: AbortSignal) {
+  return authRequest<{ valid: boolean }>('/api/campus/accounts/wpy/verify', {
+    method: 'POST', body: JSON.stringify({ account, password }), signal,
+  });
+}
+
+export function fetchOfficeVerificationCaptcha(signal?: AbortSignal) {
+  return authRequest<OfficeCaptcha>('/api/campus/accounts/office/captcha', { signal });
+}
+
+export function verifyOfficeAccount(username: string, password: string, captchaId: string, captcha: string, signal?: AbortSignal) {
+  return authRequest<{ valid: boolean }>('/api/campus/accounts/office/verify', {
+    method: 'POST', body: JSON.stringify({ username, password, captcha_id: captchaId, captcha }), signal,
+  });
+}
+
 export type ForumPost = {
   id: number | string;
   title: string;
