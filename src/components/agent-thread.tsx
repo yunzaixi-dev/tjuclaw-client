@@ -149,7 +149,7 @@ const ReplyText = memo(function ReplyText({ content, renderMarkdown }: { content
   return <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
 });
 
-export function AgentThread({ title, chat, loading, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
+export function AgentThread({ title, chat, loading, error, draft, sending, stopping, pending, requestId, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   loading: boolean;
@@ -160,6 +160,7 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
   stopping?: boolean;
   /** The message being sent, shown at once before the server confirms it. */
   pending?: string;
+  requestId?: string;
   /** Changes when model settings may have changed, to re-read the model. */
   modelVersion: number;
   onDraftChange: (value: string) => void;
@@ -416,7 +417,7 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working name={title} sessionId={chat?.id} stopping={stopping} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
+      {sending ? <Working key={requestId ?? 'preparing'} name={title} sessionId={chat?.id} requestId={requestId} stopping={stopping} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

@@ -3785,9 +3785,12 @@ test('a running turn shows thinking, words and every tool call in order, and the
     const query = new URL(route.request().url()).searchParams;
     // A client that already has this moment waits, as the long poll does.
     for (let waited = 0; Number(query.get('version')) === moment + 1 && waited < 100; waited++) await new Promise(resolve => setTimeout(resolve, 50));
-    seen.push(query.toString());
+    expect(query.get('client_request_id')).toMatch(/^[0-9a-f]{32}$/);
+    const cursor = new URLSearchParams(query);
+    cursor.delete('client_request_id');
+    seen.push(cursor.toString());
     const now = moments[moment];
-    return json(route, 200, { version: moment + 1, count: now.items.length, stage: { id: now.stage, ms: 0 }, rate: { tokens: 120, ms: 2000 },
+    return json(route, 200, { client_request_id: query.get('client_request_id'), version: moment + 1, count: now.items.length, stage: { id: now.stage, ms: 0 }, rate: { tokens: 120, ms: 2000 },
       items: now.items.map((item, i) => ({ i, next: new TextEncoder().encode(item.text ?? '').length, ...item })) });
   });
   const steps = [
@@ -4026,13 +4029,14 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   await page.route('**/api/sessions/*/live*', async route => {
     const query = new URL(route.request().url()).searchParams;
     cursors.push(query.toString());
-    if (!query.has('version')) return json(route, 200, frame(1, 1, 'thinking', { i: 0, kind: 'thinking', text: '先分析', next: 9 }));
-    if (query.get('version') === '1') return json(route, 200, frame(2, 1, 'thinking', { i: 0, kind: 'thinking', text: '题目', from: 9, next: 15 }));
-    if (query.get('version') === '2') return json(route, 200, frame(3, 2, 'writing', { i: 1, kind: 'text', text: '**基尔霍夫**', next: 16 }));
-    if (query.get('version') === '3') return json(route, 200, frame(4, 2, 'writing', { i: 1, kind: 'text', text: '定律', from: 16, next: 22 }));
+    const reply = data => json(route, 200, { client_request_id: query.get('client_request_id'), ...data });
+    if (!query.has('version')) return reply(frame(1, 1, 'thinking', { i: 0, kind: 'thinking', text: '先分析', next: 9 }));
+    if (query.get('version') === '1') return reply(frame(2, 1, 'thinking', { i: 0, kind: 'thinking', text: '题目', from: 9, next: 15 }));
+    if (query.get('version') === '2') return reply(frame(3, 2, 'writing', { i: 1, kind: 'text', text: '**基尔霍夫**', next: 16 }));
+    if (query.get('version') === '3') return reply(frame(4, 2, 'writing', { i: 1, kind: 'text', text: '定律', from: 16, next: 22 }));
     // Nothing new: the server holds the request until the turn changes.
     await finished;
-    return json(route, 200, { version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } });
+    return reply({ version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } });
   });
   let release;
   const held = new Promise(resolve => { release = resolve; });
@@ -4055,7 +4059,7 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   await expect(working.getByLabel('思考过程')).toHaveCount(0);
   await working.getByRole('button', { name: /思考过程/ }).click();
   await expect(working.locator('.agent-step-thought')).toHaveText('先分析题目');
-  expect(cursors.slice(0, 4)).toEqual(['', 'version=1&tail=0&at=9', 'version=2&tail=0&at=15', 'version=3&tail=1&at=16']);
+  expect(cursors.slice(0, 4).map(value => { const params = new URLSearchParams(value); expect(params.get('client_request_id')).toMatch(/^[0-9a-f]{32}$/); params.delete('client_request_id'); return params.toString(); })).toEqual(['', 'version=1&tail=0&at=9', 'version=2&tail=0&at=15', 'version=3&tail=1&at=16']);
 
   finish();
   // The turn ending clears the live snapshot. The reply already on screen stays
@@ -4074,9 +4078,11 @@ test('a running turn shows the thinking alone until the reply begins', async ({ 
   let finish;
   const finished = new Promise(resolve => { finish = resolve; });
   await page.route('**/api/sessions/*/live*', async route => {
-    const versioned = new URL(route.request().url()).searchParams.has('version');
+    const query = new URL(route.request().url()).searchParams;
+    const versioned = query.has('version');
+    const reply = data => json(route, 200, { client_request_id: query.get('client_request_id'), ...data });
     if (versioned) await finished;
-    return json(route, 200, versioned ? { version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } }
+    return reply(versioned ? { version: 0, count: 0, items: [], stage: { id: '', ms: 0 }, rate: { tokens: 0, ms: 0 } }
       : { version: 1, count: 2, stage: { id: 'thinking', ms: 0 }, rate: { tokens: 12, ms: 300 }, items: [
         { i: 0, kind: 'tool', name: 'campus_timetable', status: 'done' },
         { i: 1, kind: 'thinking', text: '先看看课表里今天有什么课', next: 36 }] });
@@ -4097,6 +4103,56 @@ test('a running turn shows the thinking alone until the reply begins', async ({ 
   finish();
   release();
   await expect(working).toHaveCount(0);
+});
+
+test('a second question never shows the first reply while its checkpoint is still finishing', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let activeRequest;
+  let firstRequest;
+  let secondReady = false;
+  let staleReads = 0;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/sessions/*/messages', async route => {
+    activeRequest = route.request().postDataJSON().client_request_id;
+    if (!firstRequest) firstRequest = activeRequest;
+    else await held;
+    return route.fallback();
+  });
+  await page.route('**/api/sessions/*/live*', route => {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get('client_request_id')).toBe(activeRequest);
+    if (activeRequest !== firstRequest && !secondReady) staleReads++;
+    // Deliberately emulate a stale replica/old response, not the new server's
+    // filtering: the browser must independently refuse the previous request.
+    const stale = activeRequest !== firstRequest && !secondReady;
+    return json(route, 200, {
+      client_request_id: stale ? firstRequest : activeRequest,
+      version: secondReady ? 20 : 10, count: 1,
+      items: [{ i: 0, kind: 'text', text: stale ? '第一轮残留回复' : '第二轮真正结果', next: 21 }],
+      stage: { id: 'writing', ms: 0 },
+    });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '工作', exact: true }).click();
+  const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+  await composer.fill('第一个问题');
+  await composer.press('Enter');
+  await expect(composer).toBeEnabled();
+  await expect(page.locator('.chat-message.assistant').last()).toContainText('已收到');
+  await composer.fill('完全不同的第二个问题');
+  await composer.press('Enter');
+  const working = page.getByRole('status', { name: /正在处理/ });
+  await expect.poll(() => staleReads).toBeGreaterThanOrEqual(2);
+  await expect(working).not.toContainText('第一轮残留回复');
+  await expect(working.locator('.agent-live-text')).toHaveCount(0);
+  secondReady = true;
+  await expect(working.locator('.agent-live-text')).toHaveText('第二轮真正结果');
+  release();
+  await expect(working).toHaveCount(0);
+  expect(state.sentRequests).toHaveLength(2);
+  expect(state.sentRequests[1].client_request_id).not.toBe(firstRequest);
 });
 
 test('replies highlight code, offer a copy button and draw no external images', async ({ page }) => {

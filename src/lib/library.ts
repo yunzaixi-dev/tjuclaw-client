@@ -132,10 +132,17 @@ const liveStatuses = ['writing', 'running', 'done', 'failed'];
  * Reads the running turn. With a cursor the server answers when the turn has
  * changed (or after about 15 seconds) and sends only what is new.
  */
-export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal): Promise<LiveTurn> {
-  const query = cursor ? `?${new URLSearchParams({ version: String(cursor.version), tail: String(cursor.tail), at: String(cursor.at) })}` : '';
-  const data = await authRequest<{ version?: unknown; items?: unknown; count?: unknown; stage?: { id?: unknown; ms?: unknown }; rate?: { tokens?: unknown; ms?: unknown } }>(
+export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal, requestId?: string): Promise<LiveTurn> {
+  const params = new URLSearchParams(cursor ? { version: String(cursor.version), tail: String(cursor.tail), at: String(cursor.at) } : {});
+  if (requestId) params.set('client_request_id', requestId);
+  const query = params.size ? `?${params}` : '';
+  const data = await authRequest<{ client_request_id?: unknown; version?: unknown; items?: unknown; count?: unknown; stage?: { id?: unknown; ms?: unknown }; rate?: { tokens?: unknown; ms?: unknown } }>(
     `/api/sessions/${sessionId}/live${query}`, { signal }, 25000);
+  // Fail closed during a rolling deployment too: an old server cannot prove
+  // that its session-wide output belongs to this request.
+  if (requestId && data.client_request_id !== requestId) {
+    return { version: 0, items: [], count: 0, stage: '', stageMs: 0, rateTokens: 0, rateMs: 0 };
+  }
   const whole = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
   const words = (value: unknown) => typeof value === 'string' ? value : '';
   const items: LiveItem[] = [];

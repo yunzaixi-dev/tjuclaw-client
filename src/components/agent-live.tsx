@@ -175,7 +175,7 @@ function WorkingHead({ name, since, stage, stageAt, hasTools, toolLabel, tailKin
  * when the turn changes. `onFrame` receives every poll, with the timeline to
  * show when the poll carried one. Returns the function that stops following.
  */
-function followTimeline(sessionId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void): () => void {
+function followTimeline(sessionId: string, requestId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void): () => void {
   const controller = new AbortController();
   let timer = 0;
   let cursor: LiveCursor | undefined;
@@ -185,7 +185,7 @@ function followTimeline(sessionId: string, onFrame: (shown: TimelineItem[] | nul
     await pause(300);
     while (!controller.signal.aborted) {
       try {
-        const live = await getLive(sessionId, cursor, controller.signal);
+        const live = await getLive(sessionId, cursor, controller.signal, requestId);
         if (controller.signal.aborted) return;
         // Without a cursor the answer is the whole timeline.
         const merged = mergeTimeline(cursor ? shown : [], live);
@@ -215,9 +215,10 @@ const WRITING_STAGES = ['thinking', 'writing', 'preparing'];
  * they happen. Nothing shown is taken back; when the turn ends the saved
  * reply takes this place with the same rows.
  */
-export function Working({ name, sessionId, stopping, renderMarkdown, onProgress }: {
+export function Working({ name, sessionId, requestId, stopping, renderMarkdown, onProgress }: {
   name: string;
   sessionId?: string;
+  requestId?: string;
   /** The user stopped the turn; it ends once the current step is done. */
   stopping?: boolean;
   renderMarkdown: (markdown: string) => string;
@@ -232,8 +233,8 @@ export function Working({ name, sessionId, stopping, renderMarkdown, onProgress 
   const [rate, setRate] = useState({ tokens: 0, ms: 0 });
   // One long poll at a time: the server answers when the turn changes.
   useEffect(() => {
-    if (!sessionId) return;
-    return followTimeline(sessionId, (shown, live) => {
+    if (!sessionId || !requestId) return;
+    return followTimeline(sessionId, requestId, (shown, live) => {
       if (shown) {
         setItems(shown);
         setRate({ tokens: live.rateTokens, ms: live.rateMs });
@@ -244,7 +245,7 @@ export function Working({ name, sessionId, stopping, renderMarkdown, onProgress 
         setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
       }
     });
-  }, [sessionId]);
+  }, [sessionId, requestId]);
 
   const last = items.length - 1;
   const tail = last >= 0 ? items[last] : null;
