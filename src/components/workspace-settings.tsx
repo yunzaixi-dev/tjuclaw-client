@@ -7,6 +7,7 @@ import { AgentRuntimeSetting } from './agent-runtime-setting';
 import { CampusAccounts } from './campus-accounts';
 import { McpSettings } from './mcp-settings';
 import { SkillSettings } from './skill-settings';
+import { AgentPromptSettings } from './agent-prompt-settings';
 import { builtInPlugins, type BuiltInPluginId } from './workspace-plugins';
 import { setAppearance, useAppearance, type Accent, type Mode, type PageFont } from '../lib/appearance';
 import { applyUpdate, checkForUpdate, subscribeUpdate, updateWaiting } from '../lib/pwa';
@@ -22,7 +23,7 @@ const sections = [
   { id: 'editor', label: '编辑器', icon: BookOpen, keywords: 'Markdown 阅读 编辑 即时预览' },
   { id: 'library', label: '资料夹与链接', icon: LibraryBig, keywords: '知识库 笔记 文件夹 目录' },
   { id: 'flashcards', label: '记忆闪卡', icon: SquareStack, keywords: 'Anki 导出 TSV' },
-  { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 OpenAI 密钥 DeepSeek Gemini GPT Claude Grok' },
+  { id: 'model', label: '模型', icon: Bot, keywords: '模型 API 自定义 提示词 预置 指令 OpenAI 密钥 DeepSeek Gemini GPT Claude Grok' },
   { id: 'campus', label: '校园账号', icon: KeyRound, keywords: '微北洋 办公网 绑定 课表 GPA 入校码' },
   { id: 'plugins', label: '插件', icon: Blocks, keywords: '插件 知识图谱 编辑器 闪卡 内置 技能 实验报告 参考文献 复习 文献 调试 英文写作' },
   { id: 'mcp', label: 'MCP 服务', icon: Plug, keywords: 'MCP 工具 服务 扩展 市场 GitHub 高德 搜索 DeepWiki Context7' },
@@ -240,6 +241,7 @@ export function WorkspaceSettings({
               {legacyAnkiBackupAvailable ? <SettingRow title="旧版浏览器数据" description="旧版卡片没有账号归属，不会自动合并到当前账号。请确认数据属于你后自行备份。"><button type="button" className="settings-action-button" onClick={onExportLegacyAnkiBackup}>下载原始备份</button></SettingRow> : null}
             </> : null}
             {active === 'model' ? <>
+              <AgentPromptSettings key={identity} identity={identity} />
               <AgentRuntimeSetting />
               <h3>当前模型</h3>
               <SettingRow

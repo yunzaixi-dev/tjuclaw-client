@@ -6210,3 +6210,68 @@ test('campus device trust waits for real session validation instead of a cached 
   await expect(page.getByRole('img', { name: '实时入校二维码' })).toBeVisible();
   expect(calls.login).toBeGreaterThan(before);
 });
+
+test('account preset prompt saves, persists, rejects oversized UTF-8 and restores default', async ({ page }) => {
+  await mockWorkspace(page, defaultState());
+  let saved = '';
+  let failSave = false;
+  const writes = [];
+  await page.route('**/api/account/agent-prompt', route => {
+    if (route.request().method() === 'PUT') {
+      const { prompt } = route.request().postDataJSON();
+      writes.push(prompt);
+      if (failSave) return json(route, 503, { error: { id: 'library_storage_unavailable' } });
+      saved = prompt;
+    }
+    return json(route, 200, { prompt: saved, max_bytes: 4096 });
+  });
+  const open = async () => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '模型', exact: true }).click();
+  };
+  await page.goto('/workspace');
+  await open();
+  const prompt = page.getByRole('textbox', { name: '自定义指令' });
+  await expect(prompt).toBeEnabled();
+  await prompt.fill('先给结论，再解释推导。');
+  await page.getByRole('button', { name: '保存提示词', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '已保存，下一轮对话生效。' })).toBeVisible();
+  expect(saved).toBe('先给结论，再解释推导。');
+  await page.screenshot({ path: 'test-results/agent-prompt-desktop.png' });
+  await page.getByRole('button', { name: '关闭设置', exact: true }).click();
+  await open();
+  await expect(prompt).toHaveValue(saved);
+  await prompt.fill('中'.repeat(1366));
+  await expect(page.getByRole('button', { name: '保存提示词', exact: true })).toBeDisabled();
+  await expect(page.getByRole('alert').filter({ hasText: '4098 / 4096' })).toBeVisible();
+  await prompt.fill('保留未保存的输入');
+  failSave = true;
+  await page.getByRole('button', { name: '保存提示词', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '输入内容已保留' })).toBeVisible();
+  await expect(prompt).toHaveValue('保留未保存的输入');
+  failSave = false;
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await expect(prompt).toHaveValue('');
+  expect(saved).toBe('');
+  expect(writes).toEqual(['先给结论，再解释推导。', '保留未保存的输入', '']);
+});
+
+
+test('preset prompt settings remain usable on a narrow phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockWorkspace(page, defaultState());
+  await page.route('**/api/account/agent-prompt', route => json(route, 200, { prompt: '先给结论，再解释。', max_bytes: 4096 }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '模型', exact: true }).click();
+  const input = page.getByRole('textbox', { name: '自定义指令' });
+  await expect(input).toHaveValue('先给结论，再解释。');
+  await input.fill('先问我需要什么，再回答。');
+  await expect(page.getByRole('button', { name: '保存提示词', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '保存提示词', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/agent-prompt-mobile.png' });
+  const box = await input.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+});
