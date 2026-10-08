@@ -4760,8 +4760,9 @@ test('with motion on, the newest characters of a streamed reply fade in and sett
   let finish;
   const finished = new Promise(resolve => { finish = resolve; });
   await page.route('**/api/sessions/*/live*', async route => {
-    if (new URL(route.request().url()).searchParams.has('version')) await finished;
-    return json(route, 200, { version: 1, count: 2, stage: { id: 'writing', ms: 0 }, rate: { tokens: 40, ms: 1000 }, items: [
+    const query = new URL(route.request().url()).searchParams;
+    if (query.has('version')) await finished;
+    return json(route, 200, { client_request_id: query.get('client_request_id'), version: 1, count: 2, stage: { id: 'writing', ms: 0 }, rate: { tokens: 40, ms: 1000 }, items: [
       { i: 0, kind: 'thinking', text: '想一下', next: 9 },
       { i: 1, kind: 'text', text, next: new TextEncoder().encode(text).length }] });
   });
