@@ -133,6 +133,33 @@ function liveGrades(gpaData: Record<string, unknown> | null): Grade[] {
   })).filter(item => item.credits > 0);
 }
 
+type AcademicCache = {
+  officeUsername: string;
+  classes: CampusClasses | null;
+  exams: Record<string, unknown>[];
+  gpa: Record<string, unknown> | null;
+  semester: CampusSemester | null;
+};
+
+function academicCacheKey(identity: string) {
+  return `tjuclaw.campus.academic.v1.${identity}`;
+}
+
+function loadAcademicCache(identity: string): AcademicCache {
+  const empty: AcademicCache = { officeUsername: '', classes: null, exams: [], gpa: null, semester: null };
+  const raw = load<Partial<AcademicCache>>(academicCacheKey(identity), empty);
+  if (!raw || typeof raw !== 'object') return empty;
+  const classes = asRecord(raw.classes);
+  const semester = asRecord(raw.semester);
+  return {
+    officeUsername: typeof raw.officeUsername === 'string' ? raw.officeUsername : '',
+    classes: Object.keys(classes).length && asRecord(classes.courses) ? raw.classes as CampusClasses : null,
+    exams: Array.isArray(raw.exams) ? asArray(raw.exams) : [],
+    gpa: raw.gpa && typeof raw.gpa === 'object' && !Array.isArray(raw.gpa) ? raw.gpa : null,
+    semester: typeof semester.semesterName === 'string' && typeof semester.semesterStartAt === 'string' ? raw.semester as CampusSemester : null,
+  };
+}
+
 function campusErrorMessage(error: unknown, loginContext = false): string {
   const wpy = wpyLoginErrorMessage(error, loginContext);
   if (wpy) return wpy;
@@ -158,7 +185,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   const [course, setCourse] = useState({ name: '', place: '', day: 0, start: 1, end: 2 });
   const [grade, setGrade] = useState({ name: '', credits: '', points: '' });
   const [campusSession, setCampusSession] = useState<CampusSession | null>(null);
-  const [semester, setSemester] = useState<CampusSemester | null>(null);
+  const [semester, setSemester] = useState<CampusSemester | null>(() => loadAcademicCache(identity).semester);
   const semesterRequest = useRef(0);
   const credentialsRef = useRef<CampusCredentials | null>(null);
   const [officeConnected, setOfficeConnected] = useState(false);
@@ -169,9 +196,9 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   const [officeBusy, setOfficeBusy] = useState(false);
   const [officeError, setOfficeError] = useState('');
   const officeRequest = useRef(0);
-  const [liveClasses, setLiveClasses] = useState<CampusClasses | null>(null);
-  const [liveGPA, setLiveGPA] = useState<Record<string, unknown> | null>(null);
-  const [liveExams, setLiveExams] = useState<Record<string, unknown>[]>([]);
+  const [liveClasses, setLiveClasses] = useState<CampusClasses | null>(() => loadAcademicCache(identity).classes);
+  const [liveGPA, setLiveGPA] = useState<Record<string, unknown> | null>(() => loadAcademicCache(identity).gpa);
+  const [liveExams, setLiveExams] = useState<Record<string, unknown>[]>(() => loadAcademicCache(identity).exams);
   const [academicLoading, setAcademicLoading] = useState(false);
   const academicRequest = useRef(0);
   const [rooms, setRooms] = useState<LiveRooms>({ campuses: [], buildings: [], rooms: [] });
@@ -190,7 +217,6 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
   const forumRequest = useRef(0);
   const [liveError, setLiveError] = useState('');
   const [accounts, setAccounts] = useState<CampusCredentials | null>(() => unlockedCampusCredentials(identity));
-  const [officePending, setOfficePending] = useState(false);
   const tool = campusToolList.find(item => item.id === activeId) ?? campusToolList[0];
   const Icon = tool.Icon;
   // Each tool needs only its own account: 微北洋 for the entry code, rooms and
@@ -199,9 +225,9 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     : activeId === 'schedule' || activeId === 'gpa' ? 'office' : null;
   const accountMissing = needsAccount === 'wpy' ? !hasWpyAccount(accounts) : needsAccount === 'office' ? !hasOfficeAccount(accounts) : false;
   const unlockRef = useRef<(next: CampusCredentials | null) => void>(() => undefined);
-  // The 办公网 captcha is asked for once a tool that needs it is open.
-  // Held back while Settings (where accounts are unlocked) is still open.
-  const officeDialogShown = !suspended && (officeDialogOpen || (officePending && needsAccount === 'office'));
+  // A captcha dialog only appears after a real image is ready. The teaching
+  // service does not use one, and a missing image must not cover the timetable.
+  const officeDialogShown = !suspended && needsAccount === 'office' && officeDialogOpen && (officeCaptcha !== null || officeBusy);
   const monday = new Date();
   monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7 + weekOffset * 7);
   const termStart = semester?.semesterStartAt.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -237,7 +263,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
         await connectOffice(credentials, captcha.captcha_id, '');
         if (request !== officeRequest.current) return;
         setOfficeConnected(true);
-        setOfficeDialogOpen(false); setOfficePending(false);
+        setOfficeDialogOpen(false);
         void loadAcademicData();
         return;
       }
@@ -248,8 +274,12 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
         throw new Error('invalid captcha image');
       }
       setOfficeCaptcha({ ...captcha, content_type: contentType });
+      setOfficeDialogOpen(true);
     }, async (error) => {
-      if (request === officeRequest.current) setOfficeError(error instanceof Error && error.message === 'invalid captcha image' ? '办公网验证码图片无效，请刷新重试。' : campusErrorMessage(error));
+      if (request === officeRequest.current) {
+        setOfficeDialogOpen(false);
+        setOfficeError(error instanceof Error && error.message === 'invalid captcha image' ? '办公网验证码图片无效，请刷新重试。' : campusErrorMessage(error));
+      }
     }, async () => { if (request === officeRequest.current) setOfficeBusy(false); });
   }
 
@@ -277,16 +307,14 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       if (gpa && request === academicRequest.current && gpa.gpa && typeof gpa.gpa === 'object' && !Array.isArray(gpa.gpa)) setLiveGPA(gpa.gpa);
     }, async (error) => {
       if (request !== academicRequest.current) return;
-      setLiveClasses(null);
-      setLiveGPA(null);
-      setLiveExams([]);
-      setLiveError(campusErrorMessage(error));
       const id = (error as { body?: { error?: { id?: string } } })?.body?.error?.id;
       if (id === 'campus_office_session_required' || id === 'campus_office_session_expired') {
         setOfficeConnected(false);
-        setOfficeDialogOpen(true);
+        setLiveError('');
         void loadOfficeCaptcha();
+        return;
       }
+      setLiveError(campusErrorMessage(error));
     }, async () => { if (request === academicRequest.current) setAcademicLoading(false); });
   }
 
@@ -300,48 +328,54 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     setForumLoading(false);
     credentialsRef.current = next;
     setCampusSession(null);
-    setSemester(null);
     setOfficeConnected(false);
-    setOfficeBusy(false);
     setOfficeError('');
     setOfficeCaptcha(null);
-    setLiveClasses(null);
-    setLiveGPA(null);
-    setLiveExams([]);
-    setAcademicLoading(false);
-    if (hasWpyAccount(next)) {
+    setOfficeDialogOpen(false);
+    const officeUser = next.officeUsername.trim();
+    const cached = loadAcademicCache(identity);
+    if (officeUser && cached.officeUsername && cached.officeUsername !== officeUser) {
+      setLiveClasses(null);
+      setLiveGPA(null);
+      setLiveExams([]);
+      setSemester(null);
+      storeItem(localStorage, academicCacheKey(identity), JSON.stringify({ officeUsername: officeUser, classes: null, exams: [], gpa: null, semester: null }));
+    }
+    const wpyTask = (async () => {
+      if (!hasWpyAccount(next)) return;
       try {
         const session = await connectCampus(next);
         if (semesterGeneration !== semesterRequest.current) return;
         setCampusSession(session);
-        void readSemester().then(result => {
-          if (semesterGeneration === semesterRequest.current) setSemester(result.semester);
-        }).catch(() => undefined);
+        const result = await readSemester().catch(() => null);
+        if (result && semesterGeneration === semesterRequest.current) setSemester(result.semester);
       } catch (error) {
         if (semesterGeneration !== semesterRequest.current) return;
         setLiveError(campusErrorMessage(error, true));
       }
-    }
-    if (!hasOfficeAccount(next)) return;
-    return await attempt(async () => {
-      // A missing or expired session needs a fresh captcha.
-      const office = await attempt(() => readOfficeSession(), () => null);
-      if (office && semesterGeneration !== semesterRequest.current) return;
-      if (office && office.username === next.officeUsername.trim() && Date.parse(office.expires_at) > Date.now()) {
-        setOfficeProtocol(office.protocol === 'learning' ? 'learning' : 'captcha');
-        setOfficeConnected(true);
-        void loadAcademicData();
-        return;
-      }
-      if (semesterGeneration !== semesterRequest.current) return;
-      // The captcha is asked for when a tool that needs 办公网 is open.
-      setOfficePending(true);
-      await loadOfficeCaptcha();
-    }, async (error) => {
-      if (semesterGeneration !== semesterRequest.current) return;
-      credentialsRef.current = null;
-      setLiveError(campusErrorMessage(error));
-    });
+    })();
+    const officeTask = (async () => {
+      if (!hasOfficeAccount(next)) return;
+      setOfficeBusy(true);
+      return await attempt(async () => {
+        const office = await attempt(() => readOfficeSession(), () => null);
+        if (semesterGeneration !== semesterRequest.current) return;
+        if (office && office.username === officeUser && Date.parse(office.expires_at) > Date.now()) {
+          setOfficeProtocol(office.protocol === 'learning' ? 'learning' : 'captcha');
+          setOfficeConnected(true);
+          setOfficeBusy(false);
+          void loadAcademicData();
+          return;
+        }
+        if (semesterGeneration !== semesterRequest.current) return;
+        await loadOfficeCaptcha();
+      }, async (error) => {
+        if (semesterGeneration !== semesterRequest.current) return;
+        setOfficeBusy(false);
+        setLiveError(campusErrorMessage(error));
+      });
+    })();
+    await Promise.all([wpyTask, officeTask]);
   }
 
 
@@ -358,7 +392,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       await connectOffice(credentials, officeCaptcha.captcha_id, officeCode.trim());
       if (generation !== semesterRequest.current || request !== officeRequest.current) return;
       setOfficeConnected(true);
-      setOfficeDialogOpen(false); setOfficePending(false);
+      setOfficeDialogOpen(false);
       setOfficeCaptcha(null);
       setOfficeCode('');
       void loadAcademicData();
@@ -379,21 +413,16 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     semesterRequest.current++;
     officeRequest.current++;
     credentialsRef.current = null;
-    setOfficePending(false);
     setCampusSession(null);
-    setSemester(null);
     setOfficeConnected(false);
     setOfficeBusy(false);
     setOfficeError('');
-    setOfficeDialogOpen(false); setOfficePending(false);
+    setOfficeDialogOpen(false);
     setOfficeCaptcha(null);
     setOfficeCode('');
     setLiveError('');
     setForum(null);
     setForumLoading(false);
-    setLiveClasses(null);
-    setLiveGPA(null);
-    setLiveExams([]);
     setAcademicLoading(false);
     setRooms({ campuses: [], buildings: [], rooms: [] });
     setSelectedRoom(null);
@@ -514,6 +543,13 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
 
   // Device-local tools stay usable without persistence.
   useEffect(() => { storeItem(localStorage, dataKey, JSON.stringify(data)); }, [dataKey, data]);
+  useEffect(() => {
+    const username = credentialsRef.current?.officeUsername.trim() || loadAcademicCache(identity).officeUsername;
+    if (!liveClasses && !semester && !liveGPA && !liveExams.length) return;
+    storeItem(localStorage, academicCacheKey(identity), JSON.stringify({
+      officeUsername: username, classes: liveClasses, exams: liveExams, gpa: liveGPA, semester,
+    }));
+  }, [identity, liveClasses, liveExams, liveGPA, semester]);
   useEffect(() => { storeItem(localStorage, focusKey, JSON.stringify(focus)); }, [focusKey, focus]);
   useEffect(() => {
     if (!focus.endsAt) return;
@@ -560,12 +596,14 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       {onOpenAccounts ? <button type="button" onClick={onOpenAccounts}>{hasCampusCredentials(identity) && !accounts ? '去解锁' : '去绑定'}</button> : null}
     </section> : null}
     {liveError ? <p className="campus-live-error" role="alert">{liveError}</p> : null}
+    {officeError && !officeDialogShown ? <p className="campus-live-error" role="alert">{officeError}</p> : null}
     {activeId === 'schedule' ? <>
+      {(academicLoading || officeBusy) ? <p className="campus-footnote" role="status">{liveClasses ? '正在更新教务课表，先显示已保存的课程。' : '正在同步教务课表…'}</p> : null}
       <div className="campus-schedule-nav"><button type="button" onClick={() => setWeekOffset(value => value - 1)} aria-label="上一周"><ChevronLeft size={17} /></button><strong>{monday.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} 起 · {teachingWeek !== null ? `${semester?.semesterName} · ${teachingWeek > 0 ? `第 ${teachingWeek} 教学周` : '学期开始前'}` : weekOffset === 0 ? '本周' : weekOffset > 0 ? `${weekOffset} 周后` : `${-weekOffset} 周前`}</strong><button type="button" onClick={() => setWeekOffset(value => value + 1)} aria-label="下一周"><ChevronRight size={17} /></button><button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>今天</button></div>
       <CampusTimetable courses={visibleCourses} monday={monday} todayIndex={todayIndex} />
       <form className="campus-form campus-inline-form" onSubmit={addCourse}><h2>添加课程</h2><div className="campus-form-grid"><label>课程名<input value={course.name} onChange={event => setCourse({ ...course, name: event.target.value })} placeholder="例如：高等数学" required /></label><label>地点<input value={course.place} onChange={event => setCourse({ ...course, place: event.target.value })} placeholder="教室（可选）" /></label><label>星期<select value={course.day} onChange={event => setCourse({ ...course, day: Number(event.target.value) })}>{weekDays.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label><label>开始节次<input type="number" min="1" max="12" value={course.start} onChange={event => setCourse({ ...course, start: Number(event.target.value) })} /></label><label>结束节次<input type="number" min={course.start} max="12" value={course.end} onChange={event => setCourse({ ...course, end: Number(event.target.value) })} /></label></div><button type="submit"><Plus size={15} /> 添加到课表</button></form>
       {data.courses.length ? <div className="campus-course-list">{data.courses.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{weekDays[item.day]} · {item.start}–{item.end} 节 · {item.place || '未填写教室'}</small></span><button type="button" aria-label={`删除课程 ${item.name}`} onClick={() => setData(current => ({ ...current, courses: current.courses.filter(courseItem => courseItem.id !== item.id) }))}><Trash2 size={15} /></button></div>)}</div> : null}
-      <p className="campus-footnote">{liveClasses ? teachingWeek === null ? '教学周次未确认，暂时展示全部教务课程；手动课表仍每周重复。' : '教务课程按已提供的教学周展示；缺少周次的安排暂时每周显示，手动课表每周重复。' : '手动课表按每周重复显示；绑定账号后可同步教务数据。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData} disabled={academicLoading || officeBusy}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
+      <p className="campus-footnote">{liveClasses ? teachingWeek === null ? '教学周次未确认，暂时展示全部教务课程；手动课表仍每周重复。' : '教务课程按已提供的教学周展示；缺少周次的安排暂时每周显示，手动课表每周重复。' : '手动课表按每周重复显示；绑定账号后可同步教务数据。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : academicLoading || officeBusy ? <span>正在同步教务数据…</span> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => void loadOfficeCaptcha()}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData}>刷新教务数据</button>}</p>
       {liveExams.length ? <section className="campus-exam-list"><h2>近期考试</h2>{liveExams.map((exam, index) => <div key={String(exam.id ?? index)}><strong>{firstText(exam, ['name', 'course_name', 'courseName', 'course']) || '未命名考试'}</strong><span>{[firstText(exam, ['date', 'exam_date', 'examDate']), firstText(exam, ['time', 'exam_time', 'examTime']), firstText(exam, ['location', 'place', 'room'])].filter(Boolean).join(' · ') || '考试安排待补充'}</span></div>)}</section> : null}
     </> : null}
     {activeId === 'entry' ? <div className="campus-entry-message"><QrCode size={33} /><div><h2>入校码需要实时认证</h2><p>微北洋实时入校码由校园 CAS 签发，在本页生成二维码，不会写入本地存储。</p>{campusSession ? <CampusEntryCode key={`${identity}:${campusSession.user_number}`} /> : <button type="button" className="campus-action-button" onClick={() => onOpenAccounts?.()}><QrCode size={15} />绑定账号后获取</button>}</div></div> : null}
@@ -573,7 +611,7 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
     {activeId === 'calendar' ? <div className="campus-calendar-sheet"><CalendarDays size={27} /><h2>学校校历</h2><p>显示微北洋随包发布的校历资料。教学安排调整时，请以天津大学教务处正式通知为准。</p><div className="campus-calendar-images"><a href="/campus/calendar/first.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/first-thumb.jpg" alt="学校校历上半页" /></a><a href="/campus/calendar/second.jpg" target="_blank" rel="noopener noreferrer"><img src="/campus/calendar/second-thumb.jpg" alt="学校校历下半页" /></a></div><External href="https://oaa.tju.edu.cn/">打开天津大学教务处</External></div> : null}
     {activeId === 'gpa' ? <>
       <div className="campus-gpa-result"><span>{schoolGrades.length ? '办公网教务 GPA' : '本地学分加权平均绩点'}</span><strong>{totalCredits ? average.toFixed(3) : '—'}</strong><small>{totalCredits ? `${totalCredits.toFixed(1)} 学分 · ${visibleGrades.length} 门课程` : '添加课程或绑定账号后开始计算'}</small></div>
-      <p className="campus-footnote">{schoolGrades.length ? '数据来自办公网教务接口。' : '本地估算：Σ(课程绩点 × 学分) ÷ Σ学分。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => { setOfficeDialogOpen(true); void loadOfficeCaptcha(); }}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData} disabled={academicLoading || officeBusy}>{academicLoading ? '正在同步教务数据…' : '刷新教务数据'}</button>}</p>
+      <p className="campus-footnote">{schoolGrades.length ? '数据来自办公网教务接口。' : '本地估算：Σ(课程绩点 × 学分) ÷ Σ学分。'}{!hasOfficeAccount(accounts) ? <button type="button" className="campus-inline-action" onClick={() => onOpenAccounts?.()}>绑定办公网账号</button> : academicLoading || officeBusy ? <span>正在同步教务数据…</span> : !officeConnected ? <button type="button" className="campus-inline-action" onClick={() => void loadOfficeCaptcha()}>连接办公网</button> : <button type="button" className="campus-inline-action" onClick={refreshAcademicData}>刷新教务数据</button>}</p>
       <form className="campus-form campus-inline-form" onSubmit={addGrade}><h2>录入课程绩点</h2><div className="campus-form-grid"><label>课程名<input value={grade.name} onChange={event => setGrade({ ...grade, name: event.target.value })} placeholder="课程名" required /></label><label>学分<input type="number" min=".1" step=".1" value={grade.credits} onChange={event => setGrade({ ...grade, credits: event.target.value })} required /></label><label>绩点（0–4）<input type="number" min="0" max="4" step=".01" value={grade.points} onChange={event => setGrade({ ...grade, points: event.target.value })} required /></label></div><button type="submit"><Plus size={15} /> 计入平均</button></form>
       <div className="campus-grade-list">{data.grades.map(item => <div key={item.id}><span>{item.name}</span><span>{item.credits} 学分</span><strong>{item.points.toFixed(2)}</strong><button type="button" aria-label={`删除成绩 ${item.name}`} onClick={() => setData(current => ({ ...current, grades: current.grades.filter(gradeItem => gradeItem.id !== item.id) }))}><Trash2 size={15} /></button></div>)}</div>
     </> : null}
@@ -628,14 +666,15 @@ export function CampusTools({ identity, activeId, onOpenAccounts, suspended = fa
       </> : forumLoading ? <p role="status">正在读取论坛帖子…</p> : null}
     </div> : null}
     {activeId === 'focus' ? <div className="campus-focus"><div className="campus-focus-clock" role="timer" aria-label={`剩余 ${focusLabel}`}><span>{focusLabel}</span><small>{focus.endsAt ? '专注中' : remaining === 0 ? '完成一次专注' : '准备开始'}</small></div><div className="campus-focus-actions"><button type="button" onClick={() => { setNow(Date.now()); setFocus(current => current.endsAt ? { ...current, endsAt: null, remaining: Math.max(0, Math.ceil((current.endsAt - Date.now()) / 1000)) } : { ...current, endsAt: Date.now() + current.remaining * 1000 }); }} disabled={remaining === 0}>{focus.endsAt ? <Pause size={16} /> : <Play size={16} />}{focus.endsAt ? '暂停' : '开始专注'}</button><button type="button" onClick={() => setFocus(current => ({ ...current, endsAt: null, remaining: current.duration * 60 }))}><RotateCcw size={16} /> 重置</button></div><div className="campus-focus-presets" aria-label="专注时长">{[15, 25, 45, 60].map(minutes => <button type="button" key={minutes} aria-pressed={focus.duration === minutes} onClick={() => setFocus(current => ({ ...current, duration: minutes, remaining: minutes * 60, endsAt: null }))}>{focus.duration === minutes ? <Check size={14} /> : null}{minutes} 分钟</button>)}</div><p><strong>{focus.sessions}</strong> 次专注已完成 · 按实际时间计算，切换工具或锁屏后仍可恢复。</p></div> : null}
-    <Dialog open={officeDialogShown} onOpenChange={open => { setOfficeDialogOpen(open); if (!open) setOfficePending(false); }}>
+    <Dialog open={officeDialogShown} onOpenChange={setOfficeDialogOpen}>
       <DialogContent className="campus-credential-dialog">
         <header className="campus-dialog-header"><div><DialogTitle>连接办公网教务</DialogTitle><DialogDescription>查看下方验证码图片，完成办公网认证后同步课表、考试和 GPA。微北洋连接独立保留。</DialogDescription></div><DialogClose asChild><button type="button" className="campus-dialog-close" aria-label="关闭办公网认证"><X size={17} /></button></DialogClose></header>
         <form className="campus-dialog-body campus-office-form" onSubmit={submitOfficeCode}>
           {officeCaptcha ? <img className="campus-office-captcha" src={`data:${officeCaptcha.content_type};base64,${officeCaptcha.data}`} alt="办公网验证码" /> : null}
           {officeError ? <p className="campus-live-error" role="alert">{officeError}</p> : null}
           <label>图片验证码<input autoComplete="off" value={officeCode} onChange={event => setOfficeCode(event.target.value)} disabled={!officeCaptcha || officeBusy} required /></label>
-          <div className="campus-form-actions"><button type="submit" disabled={!officeCaptcha || !officeCode.trim() || officeBusy}>连接办公网</button><button type="button" onClick={() => void loadOfficeCaptcha()} disabled={officeBusy}>刷新图片</button><button type="button" onClick={() => { setOfficeDialogOpen(false); setOfficePending(false); }}>稍后再说</button></div>
+          {!officeCaptcha ? <p role="status">{officeBusy ? '正在获取验证码…' : '验证码图片尚未就绪，课表仍可查看。'}</p> : null}
+          <div className="campus-form-actions"><button type="submit" disabled={!officeCaptcha || !officeCode.trim() || officeBusy}>连接办公网</button><button type="button" onClick={() => void loadOfficeCaptcha()} disabled={officeBusy}>刷新图片</button><button type="button" onClick={() => setOfficeDialogOpen(false)}>稍后再说</button></div>
         </form>
       </DialogContent>
     </Dialog>
