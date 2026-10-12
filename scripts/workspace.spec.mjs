@@ -837,6 +837,203 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByText('campus-secret-user')).toHaveCount(0);
   });
 
+  test('office captcha never interrupts opening the timetable and reports undecodable images', async ({ page }, testInfo) => {
+    await mockWorkspace(page, defaultState());
+    let captchaReads = 0;
+    let broken = false;
+    let unavailable = false;
+    let captchaImage = '';
+    await page.route('**/api/campus/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/campus/office/captcha') {
+        captchaReads++;
+        if (unavailable) return json(route, 502, { error: { id: 'campus_upstream_unavailable' } });
+        return json(route, 200, {
+          captcha_id: `image-${captchaReads}`, content_type: 'image/png',
+          data: broken ? 'bm90IGFuIGltYWdl' : captchaImage,
+          expires_at: '2099-01-01T00:00:00Z',
+        });
+      }
+      return json(route, 401, { error: { id: 'campus_office_session_required' } });
+    });
+    await page.goto('/workspace');
+    captchaImage = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 160; canvas.height = 64;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#fff'; context.fillRect(0, 0, 160, 64);
+      context.fillStyle = '#253b52'; context.font = '32px monospace';
+      context.fillText('A7K2', 36, 44);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await openCampusTools(page);
+    await page.getByRole('textbox', { name: '课程名' }).fill('保留的手动课程');
+    await page.getByRole('button', { name: '添加到课表' }).click();
+    await bindCampusAccounts(page, { office: ['office-user', 'office-password'] });
+    await expect.poll(() => captchaReads).toBe(1);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^保留的手动课程，/ })).toBeVisible();
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '连接办公网教务' });
+    await expect(dialog).toBeVisible();
+    const image = dialog.getByRole('img', { name: '办公网验证码' });
+    await expect.poll(() => image.evaluate(node => node.naturalWidth)).toBeGreaterThan(0);
+    await expect(dialog.getByRole('textbox', { name: '图片验证码' })).toBeEnabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '连接办公网', exact: true })).toBeFocused();
+    broken = true;
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('验证码图片加载失败');
+    await expect(dialog.getByRole('textbox', { name: '图片验证码' })).toBeDisabled();
+    await expect(dialog.getByRole('img')).toHaveCount(0);
+    unavailable = true;
+    await dialog.getByRole('button', { name: '刷新图片' }).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('alert')).toContainText('校园服务暂时不可用');
+    unavailable = false;
+    broken = false;
+    await dialog.getByRole('button', { name: '刷新图片' }).click();
+    await expect.poll(() => image.evaluate(node => node.naturalWidth)).toBeGreaterThan(0);
+    await expect(dialog.getByRole('textbox', { name: '图片验证码' })).toBeEnabled();
+    for (const [width, height, theme] of [[1440, 900, 'light'], [1440, 900, 'dark'], [390, 844, 'light'], [390, 844, 'dark'], [360, 800, 'light'], [390, 420, 'light']]) {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme: theme });
+      // Exercise both token sets while the modal is open; appearance-store
+      // subscriptions and persistence have their own UI regression suite.
+      await page.evaluate(value => {
+        document.documentElement.dataset.theme = value;
+        document.documentElement.style.colorScheme = value;
+      }, theme);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const rect = await dialog.boundingBox();
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+      expect(rect.y).toBeGreaterThanOrEqual(0);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(height);
+      await expect(dialog.getByRole('button', { name: '稍后再说' })).toBeInViewport();
+      await page.keyboard.press('Tab');
+      expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`office-verification-${width}x${height}-${theme}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await dialog.getByRole('button', { name: '稍后再说' }).click();
+    await page.locator('.obsidian-sidebar').getByRole('button', { name: '主页', exact: true }).click();
+    await page.locator('.obsidian-tree').getByRole('button', { name: 'First note for user A', exact: true }).click();
+    await page.getByRole('treeitem', { name: '课程表校园笔记', exact: true }).getByRole('button', { name: '课程表', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^保留的手动课程，/ })).toBeVisible();
+  });
+
+  test('office teaching sync needs no image captcha and distinguishes saved courses from a new sync', async ({ page }) => {
+    await mockWorkspace(page, defaultState());
+    const saved = { courses: { major: [{ name: '上次保存的课程', arrangeList: [{ weekday: 1, unitList: [1, 2] }] }] }, exams: [], gpa: {} };
+    await page.addInitScript(({ identity, classes }) => {
+      localStorage.setItem(`tjuclaw.campus.academic.v1.${identity}`, JSON.stringify({
+        officeUsername: 'office-user', classes, exams: [], gpa: null, semester: null,
+      }));
+    }, { identity: syntheticSessionA.id, classes: saved });
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    let logins = 0;
+    await page.route('**/api/campus/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/campus/office/captcha') return json(route, 200, { captcha_required: false, captcha_id: 'learning-challenge', expires_at: '2099-01-01T00:00:00Z' });
+      if (path === '/api/campus/office/session' && route.request().method() === 'POST') {
+        expect(route.request().postDataJSON().captcha).toBe('');
+        logins++;
+        await pending;
+        return json(route, 200, { username: 'office-user', protocol: 'learning', expires_at: '2099-01-01T00:00:00Z' });
+      }
+      if (path === '/api/campus/academic/classes') return json(route, 200, {
+        courses: { major: [{ name: '本次更新的课程', arrangeList: [{ weekday: 1, unitList: [3, 4] }] }] }, exams: [], gpa: {},
+      });
+      if (path === '/api/campus/academic/exams') return json(route, 200, { exams: [] });
+      if (path === '/api/campus/academic/gpa') return json(route, 200, { gpa: {} });
+      return json(route, 401, { error: { id: 'campus_office_session_required' } });
+    });
+    await page.goto('/workspace');
+    await openCampusTools(page);
+    await expect(page.getByText('当前显示本机保存的教务课表，尚未完成本次同步。')).toBeVisible();
+    await bindCampusAccounts(page, { office: ['office-user', 'office-password'] });
+    await expect.poll(() => logins).toBe(1);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^上次保存的课程，/ })).toBeVisible();
+    await expect(page.getByText('正在更新教务课表，先显示本机保存的课程。')).toBeVisible();
+    release();
+    await expect(page.getByRole('button', { name: /^本次更新的课程，/ })).toBeVisible();
+    await expect(page.getByText('教务课表已完成本次更新。')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('img', { name: '办公网验证码' })).toHaveCount(0);
+    await page.getByRole('button', { name: '刷新教务数据' }).click();
+    await expect.poll(() => logins).toBe(2);
+    await expect(page.getByText('教务课表已完成本次更新。')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  for (const result of ['recognized', 'recognition unavailable', 'recognition rejected', 'academic session expired']) {
+    test(`office automatic captcha ${result} preserves the timetable and only offers manual fallback after failure`, async ({ page }) => {
+      await mockWorkspace(page, defaultState());
+      let automaticLogins = 0;
+      let manualLogins = 0;
+      let images = 0;
+      await page.route('**/api/campus/**', route => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/api/campus/office/captcha') return json(route, 200, {
+          captcha_id: `auto-${++images}`, auto_captcha_supported: true, content_type: 'image/png',
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=',
+          expires_at: '2099-01-01T00:00:00Z',
+        });
+        if (path === '/api/campus/office/session' && route.request().method() === 'POST') {
+          const body = route.request().postDataJSON();
+          if (body.auto_captcha === true) {
+            automaticLogins++;
+            expect(body.captcha).toBeUndefined();
+            expect(body.captcha_id).toBe('auto-1');
+            if (result === 'recognition unavailable' || result === 'recognition rejected') return json(route, result === 'recognition unavailable' ? 409 : 401, {
+              error: { id: result === 'recognition unavailable' ? 'campus_office_captcha_manual_required' : 'campus_office_credentials_invalid' },
+            });
+          } else {
+            manualLogins++;
+            expect(body.captcha).toBe('A7K2');
+            expect(body.captcha_id).toBe(`auto-${images}`);
+          }
+          return json(route, 200, { username: 'office-user', protocol: 'captcha', expires_at: '2099-01-01T00:00:00Z' });
+        }
+        if (path === '/api/campus/academic/classes') {
+          if (result === 'academic session expired' && !manualLogins) return json(route, 401, { error: { id: 'campus_office_session_expired' } });
+          return json(route, 200, {
+            courses: { major: [{ name: '自动连接的课程', arrangeList: [{ weekday: 1, unitList: [3, 4] }] }] }, exams: [], gpa: {},
+          });
+        }
+        if (path === '/api/campus/academic/exams') return json(route, 200, { exams: [] });
+        if (path === '/api/campus/academic/gpa') return json(route, 200, { gpa: {} });
+        return json(route, 401, { error: { id: 'campus_office_session_required' } });
+      });
+      await page.goto('/workspace');
+      await openCampusTools(page);
+      await page.getByRole('textbox', { name: '课程名' }).fill('手动保留的课程');
+      await page.getByRole('button', { name: '添加到课表' }).click();
+      await bindCampusAccounts(page, { office: ['office-user', 'office-password'] });
+      await expect.poll(() => automaticLogins).toBe(1);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /^手动保留的课程，/ })).toBeVisible();
+      if (result !== 'recognized') {
+        if (result !== 'academic session expired') await expect(page.getByRole('alert')).toContainText('自动验证未完成');
+        await expect.poll(() => images).toBe(2);
+        await page.getByRole('button', { name: '连接办公网', exact: true }).click();
+        await expect(page.getByRole('img', { name: '办公网验证码' })).toBeVisible();
+        await page.getByRole('textbox', { name: '图片验证码' }).fill('A7K2');
+        await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
+        expect(manualLogins).toBe(1);
+      }
+      await expect(page.getByRole('button', { name: /^自动连接的课程，/ })).toBeVisible();
+      await expect(page.getByText('教务课表已完成本次更新。')).toBeVisible();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(automaticLogins).toBe(1);
+      expect(images).toBe(result === 'recognized' ? 1 : 3);
+    });
+  }
+
   test('connects office with a visible captcha and loads live academic data without forwarding credentials', async ({ page }) => {
     await mockWorkspace(page, defaultState());
     let captchaCount = 0;
@@ -867,6 +1064,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await openCampusTools(page);
     await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
     await expect(page.getByRole('img', { name: '办公网验证码' })).toBeVisible();
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
@@ -880,7 +1078,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.locator('.campus-exam-list')).toContainText('2026-10-10');
     await page.locator('.campus-sidebar-list').getByRole('button', { name: 'GPA', exact: true }).click();
     await expect(page.locator('.campus-gpa-result strong')).toHaveText('3.800');
-    expect(captchaCount).toBe(2);
+    expect(captchaCount).toBe(3);
     expect(academicRequests).toBe(3);
   });
 
@@ -949,6 +1147,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await openCampusTools(page);
     await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect.poll(() => officeLogins).toBe(1);
@@ -1005,6 +1204,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.getByRole('button', { name: '添加到课表' }).click();
     await expect(page.locator('.campus-class')).toContainText('手动课程');
     await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect(page.locator('.campus-schedule-nav')).toContainText('第 1 教学周');
@@ -1018,7 +1218,7 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('button', { name: /^第一周课程，/ })).toHaveCount(0);
   });
 
-  test('keeps office authentication open when academic validation fails', async ({ page }) => {
+  test('keeps office authentication and saved academic data when academic validation fails', async ({ page }) => {
     await mockWorkspace(page, defaultState());
     let academicReady = false;
     let academicExpired = false;
@@ -1055,6 +1255,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.goto('/workspace');
     await openCampusTools(page);
     await bindCampusAccounts(page, { wpy: ['campus-user', 'campus-password'], office: ['office-user', 'office-password'], passphrase: 'long-local-secret-2026' });
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
     await page.getByRole('textbox', { name: '图片验证码' }).fill('1234');
     await page.getByRole('dialog').getByRole('button', { name: '连接办公网' }).click();
     await expect(page.getByRole('alert')).toContainText('教务数据暂时无法验证');
@@ -1075,11 +1276,12 @@ test.describe('Workspace mocked contract suite', () => {
     academicUnavailable = true;
     await page.getByRole('button', { name: '刷新教务数据' }).click();
     await expect(page.getByRole('alert')).toContainText('教务数据暂时无法验证');
-    await expect(page.locator('.campus-gpa-result strong')).toHaveText('4.000');
+    await expect(page.locator('.campus-gpa-result strong')).toHaveText('3.500');
     await expect(page.locator('.campus-grade-list')).toContainText('本地成绩');
     await page.locator('.campus-sidebar-list').getByRole('button', { name: '课程表', exact: true }).click();
-    await expect(page.locator('.campus-class')).toHaveCount(0);
-    await expect(page.locator('.campus-exam-list')).toHaveCount(0);
+    await expect(page.locator('.campus-class')).toContainText('线性代数');
+    await expect(page.locator('.campus-exam-list')).toContainText('2026-10-10');
+    await expect(page.getByText('当前显示本机保存的教务课表，尚未完成本次同步。')).toBeVisible();
     academicUnavailable = false;
     await page.getByRole('button', { name: '刷新教务数据' }).click();
     await expect(page.locator('.campus-class')).toContainText('线性代数');
@@ -1087,12 +1289,14 @@ test.describe('Workspace mocked contract suite', () => {
     expect(disconnects).toBe(0);
     academicExpired = true;
     await page.getByRole('button', { name: '刷新教务数据' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: '连接办公网', exact: true }).click();
     await expect(page.getByRole('img', { name: '办公网验证码' })).toBeVisible();
-    await expect(page.locator('.campus-class')).toHaveCount(0);
-    await expect(page.locator('.campus-exam-list')).toHaveCount(0);
+    await expect(page.locator('.campus-class')).toContainText('线性代数');
+    await expect(page.locator('.campus-exam-list')).toContainText('2026-10-10');
     if (await page.getByRole('button', { name: '稍后再说' }).count()) await page.getByRole('button', { name: '稍后再说' }).click();
     await page.locator('.campus-sidebar-list').getByRole('button', { name: 'GPA', exact: true }).click();
-    await expect(page.locator('.campus-gpa-result strong')).toHaveText('4.000');
+    await expect(page.locator('.campus-gpa-result strong')).toHaveText('3.500');
     await expect(page.getByRole('button', { name: '连接办公网' }).first()).toBeVisible();
     expect(officeLogins).toBe(1);
   });

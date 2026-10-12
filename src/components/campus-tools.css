@@ -241,6 +241,50 @@
 .campus-credential-dialog { border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-dialog); }
 .campus-dialog-header { border-bottom: 0; }
 
+.campus-sync-status {
+  display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 14px 0;
+  border-block: 1px solid var(--border); font-size: 13px;
+}
+.campus-sync-status > svg { color: var(--foreground); }
+.campus-sync-status > div { flex: 1; min-width: 0; }
+.campus-sync-status strong { font-weight: 600; }
+.campus-sync-status p { margin-top: 4px; font-size: 12px; line-height: 1.6; }
+.campus-sync-status .campus-action-button { flex-shrink: 0; margin-top: 0; min-height: 44px; }
+.campus-office-dialog {
+  --shell-editor: var(--surface); --shell-panel: var(--muted);
+  width: min(420px, calc(100vw - 32px)); height: auto; border: 0; border-radius: 12px;
+  background: var(--surface-raised);
+}
+.campus-office-dialog .campus-dialog-header { gap: 12px; padding: 24px 24px 0; }
+.campus-office-dialog .campus-dialog-header h2 { font-size: 18px; line-height: 1.4; }
+.campus-office-dialog .campus-dialog-header p { color: var(--foreground); font-size: 13px; line-height: 1.7; }
+.campus-office-dialog .campus-dialog-close { flex-shrink: 0; width: 44px; height: 44px; margin: -10px -12px 0 0; border-radius: 6px; }
+.campus-office-dialog .campus-dialog-body { gap: 20px; padding: 24px; }
+.campus-office-image-row { display: flex; align-items: center; gap: 12px; }
+.campus-office-image {
+  display: grid; flex: 1; min-width: 0; min-height: 96px; place-items: center;
+  overflow: hidden; border-radius: 6px; background: var(--muted); color: var(--foreground);
+}
+.campus-office-image p { padding: 12px; font-size: 13px; text-align: center; }
+.campus-office-dialog .campus-office-captcha { width: auto; max-width: 100%; min-height: 0; max-height: 96px; }
+.campus-office-dialog .campus-office-refresh { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; background: transparent; }
+.campus-office-dialog .campus-office-refresh:hover:not(:disabled) { background: var(--hover-wash); }
+.campus-office-dialog label { color: var(--foreground); font-size: 13px; }
+.campus-office-dialog input { min-height: 44px; font-size: 16px; }
+.campus-office-dialog input::placeholder { color: var(--foreground); opacity: .8; }
+.campus-office-dialog input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.campus-office-dialog .campus-live-error { width: 100%; margin: 0; line-height: 1.7; font-size: 13px; }
+.campus-office-dialog .campus-form-actions { justify-content: flex-end; padding-top: 4px; }
+.campus-office-dialog .campus-form-actions button { min-height: 44px; padding-inline: 16px; border-radius: 6px; font-size: 13px; }
+.campus-office-dialog .campus-office-submit { border-color: transparent; background: var(--primary); color: var(--primary-foreground); }
+.campus-office-dialog .campus-office-submit:hover:not(:disabled) { filter: brightness(.92); }
+@media (max-width: 720px) {
+  .campus-sync-status { flex-wrap: wrap; margin-inline: 8px; }
+  .campus-sync-status > div { flex-basis: calc(100% - 28px); }
+  .campus-sync-status .campus-action-button { margin-left: 28px; }
+  .campus-office-dialog.ui-dialog-content { left: 16px; width: calc(100% - 32px); height: auto; border-radius: 12px; }
+}
+
 @keyframes campus-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .campus-tool, .campus-map-index > div { animation: none; transition: none; } }
 @media (max-width: 720px) {

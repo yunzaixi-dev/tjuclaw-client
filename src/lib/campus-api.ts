@@ -30,6 +30,7 @@ export type OfficeCaptcha = {
   content_type: string;
   data: string;
   expires_at: string;
+  auto_captcha_supported?: boolean;
 };
 export type OfficeChallenge = OfficeCaptcha | {
   captcha_required: false;
@@ -101,6 +102,14 @@ export function connectOffice(credentials: Pick<CampusCredentials, 'officeUserna
   return authRequest<OfficeSession>('/api/campus/office/session', {
     method: 'POST',
     body: JSON.stringify({ username: credentials.officeUsername, password: credentials.officePassword, captcha_id: captchaId, captcha }),
+    signal,
+  });
+}
+
+export function connectOfficeAutomatically(credentials: Pick<CampusCredentials, 'officeUsername' | 'officePassword'>, captchaId: string, signal?: AbortSignal) {
+  return authRequest<OfficeSession>('/api/campus/office/session', {
+    method: 'POST',
+    body: JSON.stringify({ username: credentials.officeUsername, password: credentials.officePassword, captcha_id: captchaId, auto_captcha: true }),
     signal,
   });
 }
