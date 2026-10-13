@@ -35,6 +35,8 @@ test('preferences synchronize between tabs, and tolerate invalid storage', async
   await page.goto('/preview/appearance');
   const second = await context.newPage();
   await second.goto('/preview/appearance');
+  // Navigation may finish before React mounts the second tab's settings.
+  await expect(choice(second, '跟随系统')).toBeChecked();
   await select(page, '深色');
   await select(page, '蓝色');
   await expect(root(second)).toHaveAttribute('data-theme', 'dark');
