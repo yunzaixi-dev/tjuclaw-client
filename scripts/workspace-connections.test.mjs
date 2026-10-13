@@ -10,7 +10,7 @@ const dataURL = source => `data:text/javascript;base64,${Buffer.from(source).toS
 const deliveryURL = dataURL(await compile('../src/lib/file-delivery.ts'));
 const noteFilesURL = dataURL(await compile('../src/lib/note-files.ts'));
 const imageURL = dataURL((await compile('../src/lib/image-cache.ts'))
-  .replace(/from ['"]\.\/file-delivery['"]/, `from ${JSON.stringify(deliveryURL)}`)
+  .replace(/import\(['"]\.\/file-delivery['"]\)/, `import(${JSON.stringify(deliveryURL)})`)
   .replace(/from ['"]\.\/note-files['"]/, `from ${JSON.stringify(noteFilesURL)}`));
 const trustURL = dataURL(await compile('../src/lib/campus-device-trust.ts'));
 const unlockURL = dataURL((await compile('../src/lib/campus-unlock.ts'))

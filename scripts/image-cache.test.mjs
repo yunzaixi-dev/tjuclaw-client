@@ -12,7 +12,7 @@ const noteFiles = ts.transpileModule(await readFile(new URL('../src/lib/note-fil
 }).outputText;
 const noteFilesURL = `data:text/javascript;base64,${Buffer.from(noteFiles).toString('base64')}`;
 const source = ts.transpileModule((await readFile(new URL('../src/lib/image-cache.ts', import.meta.url), 'utf8'))
-  .replace("from './file-delivery'", `from '${deliveryURL}'`)
+  .replace("import('./file-delivery')", `import('${deliveryURL}')`)
   .replace("from './note-files'", `from '${noteFilesURL}'`), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;

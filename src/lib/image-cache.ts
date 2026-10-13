@@ -1,4 +1,3 @@
-import { fetchAttachment } from './file-delivery';
 import { cloudNoteImage } from './note-files';
 
 export type CachedImage = { src: string; width: number; height: number; bytes: number };
@@ -141,6 +140,8 @@ async function loadImage(src: string, signal: AbortSignal): Promise<CachedImage>
       if (!markdownImageCache.signedIn) throw new Error('image_session_required');
       let blob: Blob;
       if (/^\/api\/entries\/[a-f0-9]{32}\/(?:file|image)$/.test(url.pathname)) {
+        const { fetchAttachment } = await import('./file-delivery');
+        bounded.throwIfAborted();
         const cloud = cloudNoteImage(src);
         ({ blob } = await fetchAttachment(cloud?.url ?? src, {
           signal: bounded, fallback: cloud?.fallback,

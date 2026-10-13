@@ -3182,9 +3182,11 @@ for (const colorScheme of ['light', 'dark']) test(`todo checkbox keeps its geome
   await expect(boxes).toHaveCount(3);
   const geometry = () => boxes.evaluateAll(elements => elements.map(element => {
     const box = element.getBoundingClientRect();
-    const line = element.closest('.cm-line').getBoundingClientRect();
-    return { x: box.x, y: box.y, height: box.height, lineHeight: line.height };
-  }));
+    const line = element.closest('.cm-line');
+    // CodeMirror briefly reparents widgets while measuring an updated line.
+    return line ? { x: box.x, y: box.y, height: box.height, lineHeight: line.getBoundingClientRect().height } : null;
+  }).filter(Boolean));
+  await expect.poll(async () => (await geometry()).length).toBe(3);
   const before = await geometry();
   for (const index of [0, 1, 2, 2, 1, 0]) {
     await boxes.nth(index).click();
