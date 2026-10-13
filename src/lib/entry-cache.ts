@@ -13,6 +13,7 @@
 import { clearGitEntries, readGitEntry, rememberGitEntry } from './git/entry-replica.ts';
 import { getEntry, type Entry } from './library';
 import { openLocalStore, type LocalStore } from './local-store.ts';
+import { markdownImageCache } from './image-cache';
 
 const memory = new Map<string, Entry>();
 /** Notes remembered before the database was opened, written once it is. */
@@ -99,6 +100,7 @@ function persistent(): Promise<LocalStore | null> {
 
 /** Selects whose notes this cache holds; nothing is read from disk yet. */
 export function openEntryCache(identity: string) {
+  markdownImageCache.open(identity);
   if (owner === identity) return;
   owner = identity;
   memory.clear();
@@ -312,6 +314,7 @@ export function listedWithCache(entry: Entry): Entry {
 
 /** Forgets every stored note of the current identity (sign-out, another account). */
 export function clearEntryCache() {
+  markdownImageCache.clear();
   const identity = owner;
   owner = null;
   memory.clear();

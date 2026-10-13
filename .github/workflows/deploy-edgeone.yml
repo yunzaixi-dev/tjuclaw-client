@@ -29,6 +29,7 @@ jobs:
           EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
           EDGEONE_AREA: ${{ vars.EDGEONE_AREA || 'global' }}
           EDGEONE_SANDBOX_ORIGIN: ${{ vars.EDGEONE_SANDBOX_ORIGIN }}
+          EDGEONE_LIBRARY_R2_ORIGIN: ${{ vars.EDGEONE_LIBRARY_R2_ORIGIN }}
           EDGEONE_PUBLIC_ORIGIN: ${{ vars.EDGEONE_PUBLIC_ORIGIN || 'https://app.tjuclaw.cloud' }}
         run: |
           set -euo pipefail

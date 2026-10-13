@@ -43,6 +43,15 @@ test('production CSP permits local image previews without granting executable bl
   assert.deepEqual(directives.get('object-src'), ["'none'"]);
 });
 
+test('private attachment delivery permits only the configured R2 account origin', () => {
+  const r2 = `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`;
+  assert.match(createEdgeoneConfig('https://sandbox.example.invalid', r2).headers[0].headers[0].value,
+    new RegExp(`connect-src 'self' https://sandbox\\.example\\.invalid ${r2.replaceAll('.', '\\.')};`));
+  for (const invalid of [r2 + '/', r2 + '/bucket', r2.replace('https:', 'http:'), 'https://files.example.invalid', 'https://*.r2.cloudflarestorage.com']) {
+    assert.throws(() => createEdgeoneConfig('', invalid), /exact HTTPS R2 S3 origin/);
+  }
+});
+
 test('deployment generator writes the tested configuration', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tjuclaw-edgeone-'));
   try {

@@ -32,6 +32,14 @@ test('note links resolve paths, extensions, aliases and heading fragments', () =
   assert.equal(notes.resolveNoteLink('复习'), null);
 });
 
+test('an attachment revision changes its cache URL without changing note paths', () => {
+  const revised = entries.map(item => item.id === 'pic' ? { ...item, updated_at: '2026-10-13T13:00:00Z' } : item);
+  notes.setNoteFiles(revised);
+  const first = notes.resolveNoteFile('../assets/%E5%9B%BE%20%231.png', 'source');
+  assert.equal(first, '/api/entries/pic/file?v=2026-10-13T13%3A00%3A00Z');
+  notes.setNoteFiles(revised.map(item => item.id === 'pic' ? { ...item, updated_at: '2026-10-13T14:00:00Z' } : item));
+  assert.notEqual(notes.resolveNoteFile('../assets/%E5%9B%BE%20%231.png', 'source'), first);
+});
 test('never resolve unsafe or outside-library targets and clear the old library index', () => {
   notes.setNoteFiles(entries);
   for (const target of ['https://example.com/复习.md', '//example.com/复习.md', '../../../复习.md', 'javascript:alert(1)']) {
@@ -39,4 +47,29 @@ test('never resolve unsafe or outside-library targets and clear the old library 
   }
   notes.setNoteFiles([]);
   assert.equal(notes.resolveNoteFile('local.png', 'source'), null);
+});
+
+test('cloud image addresses reuse resolved case and preserve the legacy cache key', () => {
+  notes.setNoteFiles([...entries, entry('upper', 'UPPER.PNG', 'file', 'assets')]);
+  const src = notes.resolveNoteFile('../assets/upper.png', 'source');
+  assert.equal(src, '/api/entries/upper/file');
+  const cloud = notes.cloudNoteImage(src);
+  assert.equal(cloud.fallback, src);
+  const url = new URL(cloud.url, 'https://app.example.invalid');
+  assert.equal(url.pathname, '/api/entries/source/image');
+  assert.equal(url.searchParams.get('target'), '课程/assets/UPPER.PNG');
+  assert.equal(url.searchParams.get('wiki'), '1');
+  notes.setNoteFiles([]);
+  assert.equal(notes.cloudNoteImage(src), undefined);
+});
+
+test('Git-only relative images have a note-scoped route and ambiguous file names stay unresolved', () => {
+  notes.setNoteFiles(entries);
+  const src = notes.resolveNoteFile('../assets/cloud-only.png', 'source');
+  const url = new URL(src, 'https://app.example.invalid');
+  assert.equal(url.pathname, '/api/entries/source/image');
+  assert.equal(url.searchParams.get('target'), '../assets/cloud-only.png');
+  assert.equal(notes.cloudNoteImage(src).fallback, undefined);
+  assert.equal(notes.resolveNoteFile('图 %231.png', 'source', true), null);
+  assert.equal(notes.resolveNoteFile('../../../outside.png', 'source'), null);
 });

@@ -30,15 +30,16 @@ test('Obsidian live preview opens wiki and relative note links and loads origina
   const { state, source, target, image } = obsidianState();
   await mockWorkspace(page, state);
   const requested = [];
-  await page.route('**/api/entries/**/file', route => {
-    requested.push(route.request().url().split('/').at(-2));
+  await page.route('**/api/entries/**/file*', route => {
+    requested.push(new URL(route.request().url()).pathname.split('/').at(-2));
     return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') });
   });
   await page.goto('/workspace');
   const editor = page.locator('.codemirror-editor');
   await expect(editor.locator('img.cm-md-image')).toHaveCount(2);
   for (const img of await editor.locator('img.cm-md-image').all()) {
-    await expect(img).toHaveAttribute('src', `/api/entries/${image.id}/file`);
+    await expect(img).toHaveAttribute('data-image-source', `/api/entries/${image.id}/file?v=${encodeURIComponent(image.updated_at)}`);
+    await expect(img).toHaveAttribute('src', /^blob:/);
     await expect.poll(() => img.evaluate(node => node.naturalWidth)).toBe(1);
   }
   await expect(editor.locator('img.cm-md-image[width="80"]')).toHaveCount(1);
@@ -53,14 +54,292 @@ test('Obsidian live preview opens wiki and relative note links and loads origina
   await page.keyboard.press('Enter');
   await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
   expect(requested.every(id => id === image.id)).toBe(true);
+  expect(requested).toHaveLength(1);
   expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+const markdownImageFixture = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="300" viewBox="0 0 480 300"><rect width="480" height="300" fill="#e8ede7"/><path d="M70 225 160 110 240 190 330 70 410 225" fill="none" stroke="#61795e" stroke-width="6"/><circle cx="160" cy="110" r="10" fill="#61795e"/><circle cx="330" cy="70" r="10" fill="#61795e"/></svg>';
+
+const privateR2Origin = `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`;
+const privateSignedAt = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+const privateR2URL = `${privateR2Origin}/forgejo-lfs/lfs/aa/bb/${'c'.repeat(64)}?X-Amz-Date=${privateSignedAt}&X-Amz-Expires=300&X-Amz-Signature=synthetic`;
+const privateR2Image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64');
+
+async function privateAttachmentRoutes(page, { allowR2 = true, fail = '', imageTitle = '图 #1.png' } = {}) {
+  const counts = { tickets: 0, binary: 0, remote: 0 };
+  await page.route('**/workspace', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, headers: { ...response.headers(),
+      'content-security-policy': createEdgeoneConfig('', allowR2 ? privateR2Origin : '').headers[0].headers[0].value,
+    } });
+  });
+  await page.route('**/api/entries/**/image?*', route => {
+    if (!new URL(route.request().url()).searchParams.has('delivery')) {
+      counts.binary++;
+      return route.fulfill({ contentType: 'image/png', body: privateR2Image });
+    }
+    counts.tickets++;
+    return route.fulfill({ contentType: 'application/json', headers: { 'X-TJUClaw-File-Delivery': 'r2' }, body: JSON.stringify({ download: {
+      url: fail === 'invalid-host' ? privateR2URL.replace('.r2.cloudflarestorage.com', '.invalid') : privateR2URL,
+      expires_at: new Date(Date.now() + (fail === 'expired' ? -1000 : 300_000)).toISOString(),
+      filename: imageTitle, content_type: 'image/png', size: privateR2Image.length,
+    } }) });
+  });
+  await page.route(`${privateR2Origin}/**`, route => {
+    if (route.request().method() === 'OPTIONS') {
+      return route.fulfill({ headers: { 'Access-Control-Allow-Origin': 'http://127.0.0.1:1424', 'Access-Control-Allow-Methods': 'GET' } });
+    }
+    counts.remote++;
+    const headers = route.request().headers();
+    expect(headers.cookie).toBeUndefined();
+    expect(headers.referer).toBeUndefined();
+    return route.fulfill({
+      status: fail === 'denied' ? 403 : 200, contentType: 'image/png',
+      headers: { 'Access-Control-Allow-Origin': 'http://127.0.0.1:1424' }, body: privateR2Image,
+    });
+  });
+  return counts;
+}
+
+test('private R2 attachments share one image download and revoke it on logout', async ({ page }) => {
+  const { state, source, target } = obsidianState();
+  source.body += '\n\n<img src="../assets/%E5%9B%BE%20%231.png" alt="HTML 示意">';
+  await mockWorkspace(page, state);
+  await page.context().addCookies([{ name: 'synthetic-private-test', value: 'should-not-be-sent', url: privateR2Origin }]);
+  await page.addInitScript(() => {
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = url => { sessionStorage.setItem('r2-test-revoked', 'yes'); revoke(url); };
+  });
+  const counts = await privateAttachmentRoutes(page);
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(3);
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  const reader = page.getByRole('region', { name: '阅读' });
+  await expect(reader.locator('img[src^="blob:"]')).toHaveCount(3);
+  await reader.getByRole('link', { name: '去复习' }).click();
+  await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+  await page.getByRole('button', { name: '上一个笔记', exact: true }).click();
+  await expect(reader.locator('.md-image-frame[data-state="ready"]')).toHaveCount(3);
+  expect(counts).toEqual({ tickets: 1, binary: 0, remote: 1 });
+  expect(state.entryById[source.id].body).toBe(source.body);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('X-Amz-Signature');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.route('**/api/auth/logout', route => json(route, 204, {}));
+  await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'unauthorized' } }));
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
+  await expect(page).toHaveURL(/\/auth\/logged-out/);
+  expect(await page.evaluate(() => sessionStorage.getItem('r2-test-revoked'))).toBe('yes');
+});
+
+for (const failure of ['denied', 'expired', 'invalid-host', 'CSP']) {
+  test(`private R2 ${failure} falls back to the API and keeps the note usable`, async ({ page }) => {
+    const { state } = obsidianState();
+    await mockWorkspace(page, state);
+    const counts = await privateAttachmentRoutes(page, { fail: failure, allowR2: failure !== 'CSP' });
+    await page.goto('/workspace');
+    await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(2);
+    expect(counts.tickets).toBe(1);
+    expect(counts.binary).toBe(1);
+    expect(counts.remote).toBe(failure === 'denied' ? 1 : 0);
+    await page.getByRole('button', { name: '阅读模式' }).click();
+    await expect(page.locator('.note-reader img[src^="blob:"]')).toHaveCount(2);
+    await expect(page).toHaveURL(/\/workspace$/);
+  });
+}
+
+test('cloud Git images load without a legacy file entry', async ({ page }) => {
+  const { state, source, image } = obsidianState();
+  state.entries = state.entries.filter(entry => entry.id !== image.id);
+  delete state.entryById[image.id];
+  source.body = '![云端图片](../assets/%E5%9B%BE%20%231.png)';
+  await mockWorkspace(page, state);
+  const counts = await privateAttachmentRoutes(page);
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(1);
+  expect(counts).toEqual({ tickets: 1, binary: 0, remote: 1 });
+});
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark']) {
+    test(`Markdown image placeholders reserve space and share attachments (${width}px ${theme})`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.addInitScript(mode => {
+        localStorage.setItem('tjuclaw.appearance.v1', JSON.stringify({ mode, accent: 'mono' }));
+      }, theme);
+      const { state, source, target } = obsidianState();
+      source.body += '\n\n<img src="../assets/%E5%9B%BE%20%231.png" alt="HTML 示意" width="480" height="300">';
+      await mockWorkspace(page, state);
+      let release;
+      const pending = new Promise(resolve => { release = resolve; });
+      let requests = 0;
+      await page.route('**/api/entries/**/file*', async route => {
+        requests++;
+        await pending;
+        await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture });
+      });
+      await page.goto('/workspace');
+      const image = page.locator('.codemirror-editor img[alt="课程图片"]');
+      const frame = image.locator('..');
+      await expect(frame).toHaveAttribute('data-state', 'loading');
+      const before = await frame.boundingBox();
+      expect(before.width).toBeGreaterThan(250);
+      expect(before.height).toBeGreaterThan(150);
+      expect(before.width).toBeLessThanOrEqual(width);
+      const small = page.locator('.md-image-frame').filter({ has: page.locator('img[width="80"]') });
+      await expect(small).toHaveClass(/is-compact/);
+      await expect(small.locator('.md-image-caption')).toBeHidden();
+      const sizedFrame = page.locator('.codemirror-editor img[alt="HTML 示意"]').locator('..');
+      await expect(sizedFrame).toHaveAttribute('data-state', 'loading');
+      const sizedBefore = await sizedFrame.boundingBox();
+      await page.screenshot({ path: testInfo.outputPath(`placeholder-${theme}-${width}.png`) });
+      release();
+      await expect(frame).toHaveAttribute('data-state', 'ready');
+      await expect(sizedFrame).toHaveAttribute('data-state', 'ready');
+      const sizedAfter = await sizedFrame.boundingBox();
+      expect(Math.abs(sizedAfter.height - sizedBefore.height)).toBeLessThan(2);
+      const after = await frame.boundingBox();
+      expect(Math.abs(after.height - before.height)).toBeLessThan(2);
+      expect(Math.abs(after.width - before.width)).toBeLessThan(2);
+      await page.getByRole('button', { name: '阅读模式' }).click();
+      const reader = page.getByRole('region', { name: '阅读' });
+      await expect(reader.locator('.md-image-frame[data-state="ready"]')).toHaveCount(3);
+      await expect(reader.locator('img[alt="HTML 示意"]')).toHaveAttribute('height', '300');
+      await page.screenshot({ path: testInfo.outputPath(`loaded-${theme}-${width}.png`) });
+      await reader.getByRole('link', { name: '去复习' }).click();
+      await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveValue(target.title);
+      await page.getByRole('button', { name: '上一个笔记', exact: true }).click();
+      await expect(reader.locator('.md-image-frame[data-state="ready"]')).toHaveCount(3);
+      expect(requests).toBe(1);
+      expect(state.entryById[source.id].body).toBe(source.body);
+      await testInfo.attach('image-loading-measurements', { contentType: 'application/json', body: Buffer.from(JSON.stringify({ requests, before, after, sizedBefore, sizedAfter })) });
+    });
+  }
+}
+
+test('Markdown image failure can be retried without changing the source', async ({ page }, testInfo) => {
+  const { state, source } = obsidianState();
+  await mockWorkspace(page, state);
+  let requests = 0;
+  await page.route('**/api/entries/**/file*', route => ++requests === 1
+    ? json(route, 503, { error: { id: 'image_unavailable' } })
+    : route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture }));
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="error"]')).toHaveCount(2);
+  const retry = page.getByRole('button', { name: '重新加载图片：课程图片', exact: true });
+  await expect(retry).toBeVisible();
+  expect((await retry.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: testInfo.outputPath('image-error-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.obsidian-sidebar').getByRole('button', { name: '收起侧栏', exact: true }).click();
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.screenshot({ path: testInfo.outputPath('image-error-mobile-dark.png') });
+  await retry.click();
+  await expect(page.locator('.md-image-frame').filter({ has: page.locator('img[alt="课程图片"]') })).toHaveAttribute('data-state', 'ready');
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  await expect(page.locator('.note-reader .md-image-frame[data-state="ready"]')).toHaveCount(2);
+  expect(requests).toBe(2);
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+test('Markdown images below the reading viewport wait until scrolled near view', async ({ page }) => {
+  const { state, source } = obsidianState();
+  source.body = '# 长笔记\n\n' + '正文段落。\n\n'.repeat(100) + '![远处图片](../assets/%E5%9B%BE%20%231.png)';
+  await mockWorkspace(page, state);
+  let requests = 0;
+  await page.route('**/api/entries/**/file*', route => {
+    requests++;
+    return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture });
+  });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  const frame = page.locator('.note-reader .md-image-frame');
+  await expect(frame).toHaveAttribute('data-state', 'waiting');
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(requests).toBe(0);
+  await frame.scrollIntoViewIfNeeded();
+  await expect(frame).toHaveAttribute('data-state', 'ready');
+  expect(requests).toBe(1);
+});
+
+test('Markdown attachment permission denial leaves other image caches usable', async ({ page }) => {
+  const { state, source, image } = obsidianState();
+  const denied = { ...image, id: '16161616161616161616161616161616', title: '不可访问.png' };
+  state.entries.push(denied);
+  state.entryById[denied.id] = denied;
+  source.body = '# 图片权限\n\n![正常图片](../assets/%E5%9B%BE%20%231.png)\n\n![无权限图片](../assets/不可访问.png)';
+  await mockWorkspace(page, state);
+  let requests = 0;
+  await page.route(`**/api/entries/${image.id}/file*`, route => {
+    requests++;
+    return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture });
+  });
+  await page.route(`**/api/entries/${denied.id}/file*`, route => json(route, 403, { error: { id: 'forbidden' } }));
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(1);
+  await expect(page.locator('.md-image-frame[data-state="error"]')).toHaveCount(1);
+  await page.getByRole('button', { name: '阅读模式' }).click();
+  await expect(page.locator('.note-reader .md-image-frame[data-state="ready"]')).toHaveCount(1);
+  await expect(page.locator('.note-reader .md-image-frame[data-state="error"]')).toHaveCount(1);
+  expect(requests).toBe(1);
+});
+
+test('Markdown image cache refreshes when an attachment revision changes', async ({ page }) => {
+  const { state, image } = obsidianState();
+  await mockWorkspace(page, state);
+  const urls = [];
+  await page.route('**/api/entries/**/file*', route => {
+    urls.push(new URL(route.request().url()).searchParams.get('v'));
+    return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture });
+  });
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(2);
+  const oldRevision = image.updated_at;
+  image.updated_at = '2026-10-13T10:00:00.000Z';
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/libraries/${libA.id}/entries`, async route => {
+    await pending;
+    return json(route, 200, { entries: state.entries });
+  });
+  urls.length = 0;
+  await page.reload();
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(2);
+  expect(urls).toEqual([oldRevision]);
+  release();
+  await expect(page.locator('img[data-image-source]').first()).toHaveAttribute('data-image-source', `/api/entries/${image.id}/file?v=${encodeURIComponent(image.updated_at)}`);
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(2);
+  expect(urls).toEqual([oldRevision, image.updated_at]);
+});
+
+test('Markdown image cache revokes private image URLs on logout', async ({ page }) => {
+  const { state } = obsidianState();
+  await page.addInitScript(() => {
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = url => {
+      sessionStorage.setItem('image-test-revocations', String(Number(sessionStorage.getItem('image-test-revocations') ?? 0) + 1));
+      revoke(url);
+    };
+  });
+  await mockWorkspace(page, state);
+  await page.route('**/api/entries/**/file*', route => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: markdownImageFixture }));
+  await page.goto('/workspace');
+  await expect(page.locator('.md-image-frame[data-state="ready"]')).toHaveCount(2);
+  expect(await page.evaluate(() => Number(sessionStorage.getItem('image-test-revocations') ?? 0))).toBe(0);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.route('**/api/auth/logout', route => json(route, 204, {}));
+  await page.route('**/api/auth/session', route => json(route, 401, { error: { id: 'unauthorized' } }));
+  await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: '账户', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
+  await expect(page).toHaveURL(/\/auth\/logged-out/);
+  expect(await page.evaluate(() => Number(sessionStorage.getItem('image-test-revocations') ?? 0))).toBeGreaterThanOrEqual(1);
 });
 
 for (const mode of ['edit', 'preview']) {
   test(`Obsidian ${mode} refreshes attachments when the full library replaces its cached tree`, async ({ page }) => {
     const { state, source, image } = obsidianState();
     await mockWorkspace(page, state);
-    await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+    await page.route('**/api/entries/**/file*', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
     await page.goto('/workspace');
     await expect(page.locator('img.cm-md-image')).toHaveCount(2);
     await page.evaluate(({ owner, sourceId, imageId }) => {
@@ -77,7 +356,9 @@ for (const mode of ['edit', 'preview']) {
       return json(route, 200, { entries: state.entries });
     });
     await page.reload();
-    await expect(page.locator('.cm-md-image-card')).toHaveCount(1);
+    // Both Markdown and wiki references now attempt the cloud Git route even
+    // before the legacy attachment row arrives. This mock Gateway has no image.
+    await expect(page.locator('.md-image-frame[data-state="error"]')).toHaveCount(2);
     if (mode === 'preview') await page.getByRole('button', { name: '阅读模式' }).click();
     release();
     const images = page.locator(mode === 'edit' ? 'img.cm-md-image' : '.note-reader img');
@@ -103,13 +384,14 @@ test.describe('Obsidian touch links', () => {
 test('Obsidian reading links stay in the workspace, jump to headings, and leave code untouched', async ({ page }) => {
   const { state, source, target, image } = obsidianState();
   await mockWorkspace(page, state);
-  await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+  await page.route('**/api/entries/**/file*', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
   await page.goto('/workspace');
   await page.getByRole('button', { name: '阅读模式' }).click();
   const reader = page.getByRole('region', { name: '阅读' });
   await expect(reader.locator('img')).toHaveCount(2);
   for (const img of await reader.locator('img').all()) {
-    await expect(img).toHaveAttribute('src', `/api/entries/${image.id}/file`);
+    await expect(img).toHaveAttribute('data-image-source', `/api/entries/${image.id}/file?v=${encodeURIComponent(image.updated_at)}`);
+    await expect(img).toHaveAttribute('src', /^blob:/);
     await expect.poll(() => img.evaluate(node => node.naturalWidth)).toBe(1);
   }
   await expect(reader.locator('code a')).toHaveCount(0);
@@ -131,7 +413,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     state.entries.push(image);
     state.entryById[image.id] = image;
     await mockWorkspace(page, state);
-    await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
+    await page.route('**/api/entries/**/file*', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5N8AAAAASUVORK5CYII=', 'base64') }));
     await page.route('**/workspace', async route => {
       const response = await route.fetch();
       await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': createEdgeoneConfig().headers[0].headers[0].value } });
@@ -151,7 +433,7 @@ test('invalid image bytes show an actionable preview error without losing the or
   state.entries.push(image);
   state.entryById[image.id] = image;
   await mockWorkspace(page, state);
-  await page.route('**/api/entries/**/file', route => route.fulfill({ status: 200, contentType: 'image/png', body: 'not PNG bytes' }));
+  await page.route('**/api/entries/**/file*', route => route.fulfill({ status: 200, contentType: 'image/png', body: 'not PNG bytes' }));
   await page.goto('/workspace');
   await page.locator('.obsidian-tree').getByRole('button', { name: image.title }).click();
   await expect(page.getByRole('alert')).toContainText('图片预览失败');
@@ -631,7 +913,7 @@ test.describe('Workspace mocked contract suite', () => {
     state.entryById[image.id] = image;
     state.entryById[pdf.id] = pdf;
     await mockWorkspace(page, state);
-    await page.route('**/api/entries/**/file', route => route.request().url().includes(image.id)
+    await page.route('**/api/entries/**/file*', route => route.request().url().includes(image.id)
       ? route.fulfill({ status: 200, contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAAAAACwAAAAAAQABAAA=', 'base64') })
       : route.fulfill({ status: 200, contentType: 'application/pdf', body: '<html>not a PDF</html>' }));
     await page.goto('/workspace');
@@ -3532,7 +3814,8 @@ test('Agent replies show original campus images through the API proxy only', asy
   const used = log.getByRole('list', { name: '思考与工具调用' });
   await expect(used.getByText('识别图片')).toBeVisible();
   const image = log.getByRole('img', { name: '校园卡' });
-  await expect(image).toHaveAttribute('src', '/api/media/image?url=' + encodeURIComponent('https://qnhdpic.twt.edu.cn/download/origin/a.jpg'));
+  await expect(image).toHaveAttribute('data-image-source', '/api/media/image?url=' + encodeURIComponent('https://qnhdpic.twt.edu.cn/download/origin/a.jpg'));
+  await expect(image).toHaveAttribute('src', /^blob:/);
   await expect.poll(() => image.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
   expect(proxied).toEqual(['https://qnhdpic.twt.edu.cn/download/origin/a.jpg']);
   await expect(log.locator('img[alt="外链"]')).not.toHaveAttribute('src', /evil/);
@@ -4485,7 +4768,7 @@ test('EPUB books open in the paged reader with their chapters', async ({ page })
   state.entries.push(book);
   state.entryById[book.id] = book;
   await mockWorkspace(page, state);
-  await page.route(`**/api/entries/${book.id}/file`, route => route.fulfill({ status: 200, contentType: 'application/epub+zip', body: epub }));
+  await page.route(`**/api/entries/${book.id}/file*`, route => route.fulfill({ status: 200, contentType: 'application/epub+zip', body: epub }));
   await page.goto('/workspace');
   await page.getByRole('button', { name: '测试之书.epub' }).click();
   const reader = page.getByRole('region', { name: '阅读' });
@@ -5613,7 +5896,7 @@ test('spreadsheets preview as a grid with sheet tabs', async ({ page }) => {
   state.entries.push(sheet);
   state.entryById[sheet.id] = sheet;
   await mockWorkspace(page, state);
-  await page.route(`**/api/entries/${sheet.id}/file`, route => route.fulfill({ status: 200, contentType: sheet.content_type, body: xlsx }));
+  await page.route(`**/api/entries/${sheet.id}/file*`, route => route.fulfill({ status: 200, contentType: sheet.content_type, body: xlsx }));
   await page.goto('/workspace');
   await page.getByRole('button', { name: '成绩.xlsx' }).click();
   const grid = page.getByRole('region', { name: '工作表 成绩' });
@@ -5674,17 +5957,17 @@ test('notes show Obsidian embeds and relative images from the library', async ({
   state.entries.push(folder, first, second, note);
   for (const entry of [folder, first, second, note]) state.entryById[entry.id] = entry;
   await mockWorkspace(page, state);
-  for (const file of [first, second]) await page.route(`**/api/entries/${file.id}/file`, route => route.fulfill({ status: 200, contentType: 'image/png', body: png }));
+  for (const file of [first, second]) await page.route(`**/api/entries/${file.id}/file*`, route => route.fulfill({ status: 200, contentType: 'image/png', body: png }));
   await page.goto('/workspace');
   await page.getByRole('button', { name: '课程笔记' }).click();
   // The editor shows the embed as the image away from the caret.
-  await expect(page.locator(`.cm-content img[src="/api/entries/${first.id}/file"]`)).toBeVisible();
-  await expect(page.locator(`.cm-content img[src="/api/entries/${second.id}/file"]`)).toBeVisible();
+  await expect(page.locator(`.cm-content img[data-image-source^="/api/entries/${first.id}/file"]`)).toBeVisible();
+  await expect(page.locator(`.cm-content img[data-image-source^="/api/entries/${second.id}/file"]`)).toBeVisible();
   // The reader too, with the requested width; code keeps the embed as text.
   await page.getByRole('button', { name: '阅读模式' }).first().click();
   const reader = page.locator('.note-reader');
-  await expect(reader.locator(`img[src="/api/entries/${first.id}/file"]`)).toHaveAttribute('width', '200');
-  await expect(reader.locator(`img[src="/api/entries/${second.id}/file"]`)).toHaveAttribute('alt', '示意');
+  await expect(reader.locator(`img[data-image-source^="/api/entries/${first.id}/file"]`)).toHaveAttribute('width', '200');
+  await expect(reader.locator(`img[data-image-source^="/api/entries/${second.id}/file"]`)).toHaveAttribute('alt', '示意');
   await expect(reader.locator('code')).toContainText('![[图1.png]]');
 });
 

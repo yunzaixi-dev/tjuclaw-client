@@ -32,6 +32,8 @@ import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
 import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
+import { observeMarkdownImages, prepareMarkdownImage } from './lib/markdown-images';
+import './components/markdown-images.css';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
 import './product.css';
 import './workspace.css';
@@ -354,6 +356,7 @@ const PROXIED_IMAGE_HOSTS = new Set(['qnhdpic.twt.edu.cn']);
 let allowExternalImages = false;
 let renderingNoteId: string | undefined;
 function proxiedImage(node: Element) {
+  if (node.tagName === 'SOURCE') node.removeAttribute('srcset');
   if (node.tagName === 'A' && allowExternalImages && !node.hasAttribute('data-note-target')) {
     const href = node.getAttribute('href') ?? '';
     if (resolveNoteLink(href, renderingNoteId) || /^(?![a-z][a-z0-9+.-]*:|\/\/).*\.md(?:#.*)?$/i.test(href)) {
@@ -362,13 +365,13 @@ function proxiedImage(node: Element) {
   }
   if (node.tagName !== 'IMG') return;
   const src = node.getAttribute('src') ?? '';
-  if (src.startsWith('//')) { node.removeAttribute('src'); return; }
+  if (src.startsWith('//')) { prepareMarkdownImage(node, null); return; }
   const localFile = allowExternalImages ? resolveNoteFile(src, renderingNoteId) : null;
-  if (localFile) { node.setAttribute('src', localFile); node.setAttribute('loading', 'lazy'); return; }
+  if (localFile) { prepareMarkdownImage(node, localFile); return; }
   let url: URL | null = null;
   try { url = new URL(src); } catch { url = null; }
   if (url && url.protocol === 'https:' && PROXIED_IMAGE_HOSTS.has(url.hostname)) {
-    node.setAttribute('src', `/api/media/image?url=${encodeURIComponent(url.href)}`);
+    prepareMarkdownImage(node, `/api/media/image?url=${encodeURIComponent(url.href)}`);
     node.setAttribute('loading', 'lazy');
     node.setAttribute('decoding', 'async');
     node.setAttribute('referrerpolicy', 'no-referrer');
@@ -379,10 +382,13 @@ function proxiedImage(node: Element) {
     // (a crafted reply could leak data through an image address).
     node.setAttribute('loading', 'lazy');
     node.setAttribute('referrerpolicy', 'no-referrer');
+    prepareMarkdownImage(node, url.href);
   } else if (!src.startsWith('data:') && !src.startsWith('/')) {
     // A relative image in the user's own note may name a file in the library.
     const file = allowExternalImages && !url ? resolveNoteFile(src, renderingNoteId) : null;
-    if (file) { node.setAttribute('src', file); node.setAttribute('loading', 'lazy'); } else node.removeAttribute('src');
+    prepareMarkdownImage(node, file || null);
+  } else {
+    prepareMarkdownImage(node, src || null);
   }
 }
 
@@ -617,6 +623,7 @@ export default function Workspace() {
   const [, setMathLoaded] = useState(mathReady());
   const [, setHighlightVersion] = useState(0);
   useEffect(() => onHighlighterLoaded(() => setHighlightVersion(version => version + 1)), []);
+  useEffect(() => observeMarkdownImages(document.body), []);
   // Diagrams render after each paint; copy buttons in code blocks copy their code.
   useEffect(() => { renderMermaidBlocks(document); });
   useEffect(() => {

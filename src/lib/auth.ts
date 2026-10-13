@@ -1,4 +1,5 @@
 import { confirmCampusIdentity, lockAllCampusCredentials } from './campus-unlock';
+import { markdownImageCache } from './image-cache';
 
 export type IdentitySession = { id: string; email: string; email_verified: boolean; expires_at: string };
 export type FlowState = {
@@ -48,6 +49,7 @@ function validateSession(session: IdentitySession): IdentitySession {
   }
   if (validatedIdentity && validatedIdentity !== session.id) lockAllCampusCredentials();
   validatedIdentity = session.id;
+  markdownImageCache.open(session.id);
   confirmCampusIdentity(session.id);
   return session;
 }
@@ -56,6 +58,7 @@ export async function readSession(signal?: AbortSignal): Promise<IdentitySession
   try { return validateSession(await authRequest<IdentitySession>('/api/auth/session', { signal })); }
   catch (error) {
     if (error instanceof AuthError && (error.status === 401 || error.status === 403)) {
+      markdownImageCache.clear();
       lockAllCampusCredentials(); validatedIdentity = null; return null;
     }
     throw error;
@@ -81,6 +84,7 @@ export async function registerWithPassword(email: string, password: string, capt
 }
 export async function resetFlow(signal?: AbortSignal) { return validateFlow(await post<FlowState>('reset', {}, signal)); }
 export async function logout() {
+  markdownImageCache.clear();
   lockAllCampusCredentials();
   await post('logout', {});
   if (await readSession()) throw new AuthError(503);

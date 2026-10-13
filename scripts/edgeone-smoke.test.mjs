@@ -37,6 +37,17 @@ test('public smoke checks the SPA, exact CSP and anonymous API JSON', async () =
   assert.deepEqual(stub.requested, ['/auth/login', '/workspace', '/api/healthz', '/api/auth/session']);
 });
 
+test('public smoke checks the exact R2 account origin when delivery is enabled', async () => {
+  const r2 = `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`;
+  const html = () => new Response('<div id="root"></div>', { headers: {
+    'Content-Type': 'text/html',
+    'Content-Security-Policy': `connect-src 'self' ${sandbox} ${r2}; frame-ancestors 'none'`,
+  } });
+  const fetch = replies({ '/auth/login': html(), '/workspace': html() }).fetch;
+  await checkPublicWeb(origin, sandbox, fetch, r2);
+  await assert.rejects(checkPublicWeb(origin, sandbox, replies().fetch, r2));
+});
+
 test('public smoke refuses HTML API fallbacks, missing SPA rewrites and permissive CSP', async () => {
   for (const [path, response] of [
     ['/workspace', new Response('not found', { status: 404, headers: { 'Content-Type': 'text/html' } })],

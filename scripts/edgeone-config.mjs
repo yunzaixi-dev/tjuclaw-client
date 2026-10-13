@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 
-export function createEdgeoneConfig(sandboxOrigin = '') {
+export function createEdgeoneConfig(sandboxOrigin = '', r2Origin = '') {
   let gateway = '';
   if (sandboxOrigin) {
     let parsed;
@@ -11,6 +11,12 @@ export function createEdgeoneConfig(sandboxOrigin = '') {
       throw new Error('EDGEONE_SANDBOX_ORIGIN must be an exact HTTPS origin');
     }
     gateway = ` ${parsed.origin}`;
+  }
+  if (r2Origin) {
+    if (!/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(r2Origin)) {
+      throw new Error('EDGEONE_LIBRARY_R2_ORIGIN must be an exact HTTPS R2 S3 origin');
+    }
+    gateway += ` ${r2Origin}`;
   }
   const csp = [
     "default-src 'self'",
@@ -48,7 +54,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   if (process.argv.length !== 3 && (process.argv.length !== 4 || process.argv[3] !== '--direct-upload')) {
     throw new Error('Usage: node scripts/edgeone-config.mjs OUTPUT [--direct-upload]');
   }
-  const config = createEdgeoneConfig(process.env.EDGEONE_SANDBOX_ORIGIN);
+  const config = createEdgeoneConfig(process.env.EDGEONE_SANDBOX_ORIGIN, process.env.EDGEONE_LIBRARY_R2_ORIGIN);
   if (process.argv[3] === '--direct-upload') delete config.outputDirectory;
   await writeFile(process.argv[2], `${JSON.stringify(config)}\n`, { flag: 'wx' });
 }

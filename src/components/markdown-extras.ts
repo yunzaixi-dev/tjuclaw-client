@@ -1,6 +1,8 @@
 import { StateEffect } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 import { noteFilesRevision, resolveNoteFile } from '../lib/note-files';
+import { createMarkdownImage, enhanceMarkdownImages, prepareMarkdownImage, releaseMarkdownImages } from '../lib/markdown-images';
+import './markdown-images.css';
 
 // Math renders with KaTeX as MathML: browsers draw it natively, and it needs
 // no inline styles or fonts, so it works under the client's strict CSP.
@@ -87,38 +89,9 @@ export class ImageWidget extends WidgetType {
   }
   eq(other: ImageWidget) { return this.src === other.src && this.alt === other.alt && this.sourceId === other.sourceId && this.width === other.width && this.loadable === other.loadable; }
   toDOM() {
-    // Keep the widget's root stable. Replacing it on error makes CodeMirror
-    // interpret the fallback text as an edit (especially on touch devices).
-    const root = document.createElement('span');
-    root.contentEditable = 'false';
-    const loadable = this.loadable;
-    if (loadable) {
-      const image = document.createElement('img');
-      image.className = 'cm-md-image';
-      image.src = loadable;
-      image.alt = this.alt;
-      if (this.width) image.width = this.width;
-      image.loading = 'lazy';
-      image.referrerPolicy = 'no-referrer';
-      // An image that fails to load shows as its card instead.
-      image.addEventListener('error', () => root.replaceChildren(this.card()), { once: true });
-      root.append(image);
-      return root;
-    }
-    root.append(this.card());
-    return root;
+    return createMarkdownImage(this.loadable, this.alt, this.width);
   }
-  card() {
-    const card = document.createElement('span');
-    card.className = 'cm-md-image-card';
-    const label = document.createElement('strong');
-    label.textContent = this.alt || '图片';
-    const host = document.createElement('small');
-    try { host.textContent = `图片未能加载 · ${new URL(this.src).hostname}`; } catch { host.textContent = '图片未能加载'; }
-    card.append(label, host);
-    card.title = this.src;
-    return card;
-  }
+  destroy(dom: HTMLElement) { releaseMarkdownImages(dom); }
 }
 
 export class FootnoteWidget extends WidgetType {
@@ -172,15 +145,21 @@ export class HtmlBlockWidget extends WidgetType {
     const block = document.createElement('div');
     block.className = 'cm-md-html-block';
     void import('dompurify').then(({ default: DOMPurify }) => {
-      block.innerHTML = DOMPurify.sanitize(this.html, { USE_PROFILES: { html: true } });
-      block.querySelectorAll('img').forEach(image => {
-        const src = loadableImage(image.getAttribute('src') ?? '', this.sourceId);
-        if (src) image.src = src; else image.removeAttribute('src');
-        image.referrerPolicy = 'no-referrer'; image.loading = 'lazy';
+      if (block.dataset.mdDisposed) return;
+      DOMPurify.addHook('afterSanitizeAttributes', node => {
+        if (node.tagName === 'SOURCE') node.removeAttribute('srcset');
+        if (node.tagName === 'IMG') prepareMarkdownImage(node, loadableImage(node.getAttribute('src') ?? '', this.sourceId));
       });
+      try {
+        block.replaceChildren(DOMPurify.sanitize(this.html, { USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true }));
+      } finally {
+        DOMPurify.removeHook('afterSanitizeAttributes');
+      }
+      enhanceMarkdownImages(block);
     });
     return block;
   }
+  destroy(dom: HTMLElement) { dom.dataset.mdDisposed = 'true'; releaseMarkdownImages(dom); }
 }
 
 const TAG_ONLY = /^\s*(<\/?[a-z][^<>]*>\s*)+$/i;

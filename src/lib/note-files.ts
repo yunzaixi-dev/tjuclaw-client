@@ -5,10 +5,12 @@ import type { Entry } from './library';
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 
-type IndexedEntry = { path: string; name: string; id: string; kind: Entry['kind'] };
+type IndexedEntry = { path: string; rawPath: string; name: string; id: string; kind: Entry['kind']; updatedAt?: string };
 let files: IndexedEntry[] = [];
 let indexedEntries: Entry[] | undefined;
 let revision = 0;
+const cloudImages = new Map<string, { url: string; fallback?: string }>();
+export const cloudNoteImage = (src: string) => cloudImages.get(src);
 export const noteFilesRevision = () => revision;
 const key = (value: string) => value.normalize('NFC').toLowerCase();
 
@@ -17,6 +19,7 @@ export function setNoteFiles(entries: Entry[]) {
   if (indexedEntries === entries) return;
   indexedEntries = entries;
   revision++;
+  cloudImages.clear();
   const byId = new Map(entries.map(entry => [entry.id, entry]));
   const pathOf = (entry: Entry) => {
     const parts = [entry.title];
@@ -25,9 +28,12 @@ export function setNoteFiles(entries: Entry[]) {
       seen.add(parent.id);
       parts.unshift(parent.title);
     }
-    return key(parts.join('/'));
+    return parts.join('/');
   };
-  files = entries.map(entry => ({ path: pathOf(entry), name: key(entry.title), id: entry.id, kind: entry.kind }));
+  files = entries.map(entry => {
+    const rawPath = pathOf(entry);
+    return { path: key(rawPath), rawPath, name: key(entry.title), id: entry.id, kind: entry.kind, updatedAt: entry.updated_at };
+  });
 }
 
 function decode(value: string) {
@@ -82,7 +88,22 @@ function resolve(target: string, sourceId: string | undefined, kinds: Entry['kin
 /** The address of the library file a note refers to, or null. */
 export function resolveNoteFile(target: string, sourceId?: string, wiki = false): string | null {
   const match = resolve(target, sourceId, ['file'], wiki);
-  return match ? `/api/entries/${match.id}/file` : null;
+  const fallback = match ? `/api/entries/${match.id}/file${match.updatedAt ? `?v=${encodeURIComponent(match.updatedAt)}` : ''}` : undefined;
+  const source = files.find(file => file.id === sourceId && (file.kind === 'note' || file.kind === 'rich_text'));
+  const imagePath = targetParts(target).path;
+  // An ambiguous legacy name must never turn into a guessed Git file.
+  const ambiguous = !match && !imagePath.includes('/') &&
+    files.filter(file => file.kind === 'file' && file.name === key(imagePath)).length > 1;
+  if (source && !ambiguous && isImageTarget(target) && safePath(imagePath, source.path.split('/').slice(0, -1).join('/')) !== null) {
+    // Keep the entry/version cache key for known files. Images which exist
+    // only in the cloud Git repository can resolve without a legacy file row.
+    const cloudPath = match?.rawPath ?? imagePath;
+    const url = `/api/entries/${source.id}/image?target=${encodeURIComponent(cloudPath)}${match || wiki ? '&wiki=1' : ''}${source.updatedAt ? `&v=${encodeURIComponent(source.updatedAt)}` : ''}`;
+    const key = fallback ?? url;
+    cloudImages.set(key, { url, fallback });
+    return key;
+  }
+  return fallback ?? null;
 }
 
 export function resolveNoteLink(target: string, sourceId?: string, wiki = false): { id: string; fragment: string } | null {

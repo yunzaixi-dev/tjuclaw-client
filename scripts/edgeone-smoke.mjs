@@ -1,9 +1,9 @@
 const paths = ['/auth/login', '/workspace', '/api/healthz', '/api/auth/session'];
 
-export async function checkPublicWeb(origin, sandboxOrigin = '', fetchImpl = fetch) {
+export async function checkPublicWeb(origin, sandboxOrigin = '', fetchImpl = fetch, r2Origin = '') {
   const base = new URL(origin);
   if (base.protocol !== 'https:' || base.origin !== origin) throw new Error('Invalid public Web origin');
-  const expectedConnect = `'self'${sandboxOrigin ? ` ${sandboxOrigin}` : ''}`;
+  const expectedConnect = `'self'${sandboxOrigin ? ` ${sandboxOrigin}` : ''}${r2Origin ? ` ${r2Origin}` : ''}`;
   for (const path of paths) {
     const response = await fetchImpl(new URL(path, base), {
       cache: 'no-store',
@@ -38,12 +38,12 @@ export async function checkPublicWeb(origin, sandboxOrigin = '', fetchImpl = fet
   }
 }
 
-export async function waitForPublicWeb(origin, sandboxOrigin = '', attempts = 18, fetchImpl = fetch, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+export async function waitForPublicWeb(origin, sandboxOrigin = '', attempts = 18, fetchImpl = fetch, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), r2Origin = '') {
   let lastError;
   let consecutive = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      await checkPublicWeb(origin, sandboxOrigin, fetchImpl);
+      await checkPublicWeb(origin, sandboxOrigin, fetchImpl, r2Origin);
       if (++consecutive === 3) return;
     } catch (error) {
       lastError = error;
@@ -56,6 +56,6 @@ export async function waitForPublicWeb(origin, sandboxOrigin = '', attempts = 18
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   if (process.argv.length !== 3) throw new Error('Usage: node scripts/edgeone-smoke.mjs HTTPS_ORIGIN');
-  await waitForPublicWeb(process.argv[2], process.env.EDGEONE_SANDBOX_ORIGIN);
+  await waitForPublicWeb(process.argv[2], process.env.EDGEONE_SANDBOX_ORIGIN, 18, fetch, undefined, process.env.EDGEONE_LIBRARY_R2_ORIGIN);
   console.log('Web SPA, CSP and anonymous API routing verified on the public origin');
 }

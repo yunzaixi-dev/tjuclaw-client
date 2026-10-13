@@ -7,10 +7,16 @@ const compile = async path => ts.transpileModule(await readFile(new URL(path, im
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const dataURL = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const deliveryURL = dataURL(await compile('../src/lib/file-delivery.ts'));
+const noteFilesURL = dataURL(await compile('../src/lib/note-files.ts'));
+const imageURL = dataURL((await compile('../src/lib/image-cache.ts'))
+  .replace(/from ['"]\.\/file-delivery['"]/, `from ${JSON.stringify(deliveryURL)}`)
+  .replace(/from ['"]\.\/note-files['"]/, `from ${JSON.stringify(noteFilesURL)}`));
 const trustURL = dataURL(await compile('../src/lib/campus-device-trust.ts'));
 const unlockURL = dataURL((await compile('../src/lib/campus-unlock.ts'))
   .replace(/from ['"]\.\/campus-device-trust['"]/, `from ${JSON.stringify(trustURL)}`));
 const authURL = dataURL((await compile('../src/lib/auth.ts'))
+  .replace(/from ['"]\.\/image-cache['"]/, `from ${JSON.stringify(imageURL)}`)
   .replace(/from ['"]\.\/campus-unlock['"]/, `from ${JSON.stringify(unlockURL)}`));
 const { AuthError } = await import(authURL);
 const api = await import(dataURL((await compile('../src/lib/workspace-cloud-registration.ts'))
