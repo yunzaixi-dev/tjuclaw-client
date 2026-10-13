@@ -60,6 +60,147 @@ test('Obsidian live preview opens wiki and relative note links and loads origina
 
 const markdownImageFixture = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="300" viewBox="0 0 480 300"><rect width="480" height="300" fill="#e8ede7"/><path d="M70 225 160 110 240 190 330 70 410 225" fill="none" stroke="#61795e" stroke-width="6"/><circle cx="160" cy="110" r="10" fill="#61795e"/><circle cx="330" cy="70" r="10" fill="#61795e"/></svg>';
 
+test('note images copy pixels, preview at original size and download cached originals without editing Markdown', async ({ page }) => {
+  const { state, source } = obsidianState();
+  source.body += '\n\n<div><img src="../assets/%E5%9B%BE%20%231.png" alt="容器图片"></div>';
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await mockWorkspace(page, state);
+  let downloads = 0;
+  await page.route('**/api/entries/**/file*', route => {
+    downloads++;
+    return route.fulfill({ contentType: 'image/svg+xml', headers: { 'Content-Disposition': 'attachment; filename="diagram.svg"' }, body: markdownImageFixture });
+  });
+  await page.goto('/workspace');
+  const image = page.getByRole('button', { name: '放大图片：课程图片', exact: true });
+  const frame = image.locator('..');
+  await expect(frame).toHaveAttribute('data-state', 'ready');
+  await frame.hover();
+  await frame.getByRole('button', { name: '复制图片', exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const item = (await navigator.clipboard.read()).find(value => value.types.includes('image/png'));
+    if (!item) return null;
+    const image = await createImageBitmap(await item.getType('image/png'));
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const result = { width: image.width, height: image.height, pixel: [...context.getImageData(0, 0, 1, 1).data] };
+    image.close();
+    return result;
+  })).toEqual({ width: 480, height: 300, pixel: [232, 237, 231, 255] });
+  await image.focus();
+  await image.press('Enter');
+  const viewer = page.getByRole('dialog', { name: '课程图片', exact: true });
+  await expect(viewer).toBeVisible();
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('1 / 3');
+  await viewer.getByRole('button', { name: '原始尺寸', exact: true }).click();
+  expect(await viewer.locator('.md-image-viewer-stage img').evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }))).toEqual({ width: 480, height: 300 });
+  const downloading = page.waitForEvent('download');
+  await viewer.getByRole('button', { name: '下载图片', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('diagram.svg');
+  expect(await readFile(await download.path(), 'utf8')).toBe(markdownImageFixture);
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(image).toBeFocused();
+  await page.getByRole('button', { name: '阅读模式', exact: true }).click();
+  await page.locator('.note-reader').getByRole('button', { name: '放大图片：课程图片', exact: true }).click();
+  await expect(viewer).toBeVisible();
+  await viewer.getByRole('button', { name: '关闭图片预览', exact: true }).click();
+  await expect(viewer).toHaveCount(0);
+  expect(downloads).toBe(1);
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+test('blocked external image downloads keep the viewer usable and offer the actual original', async ({ page }) => {
+  const { state, source } = obsidianState();
+  const original = 'https://images.example.com/diagram.svg';
+  source.body = `![外链图](${original})`;
+  await mockWorkspace(page, state);
+  await page.route(original, route => route.fulfill({ status: route.request().resourceType() === 'image' ? 200 : 403, contentType: 'image/svg+xml', body: markdownImageFixture }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '放大图片：外链图', exact: true }).click();
+  const viewer = page.getByRole('dialog', { name: '外链图', exact: true });
+  const download = viewer.getByRole('button', { name: '下载图片', exact: true });
+  await download.click();
+  await expect(viewer.getByRole('link', { name: '打开原图', exact: true })).toHaveAttribute('href', original);
+  await expect(download).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+test('embedded note images copy as PNG and download their original bytes under production CSP', async ({ page }) => {
+  const { state, source } = obsidianState();
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="#2864a0"/></svg>';
+  source.body = `![内嵌图](data:image/svg+xml,${encodeURIComponent(svg)})`;
+  await mockWorkspace(page, state);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.route('**/workspace', async route => {
+    const response = await route.fetch();
+    return route.fulfill({ response, headers: { ...response.headers(), 'Content-Security-Policy': createEdgeoneConfig().headers[0].headers[0].value } });
+  });
+  await page.goto('/workspace');
+  const image = page.getByRole('button', { name: '放大图片：内嵌图', exact: true });
+  const frame = image.locator('..');
+  await expect(frame).toHaveAttribute('data-state', 'ready');
+  await frame.hover();
+  await frame.getByRole('button', { name: '复制图片', exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const item = (await navigator.clipboard.read()).find(value => value.types.includes('image/png'));
+    if (!item) return null;
+    const image = await createImageBitmap(await item.getType('image/png'));
+    const result = { width: image.width, height: image.height };
+    image.close();
+    return result;
+  })).toEqual({ width: 320, height: 160 });
+  const downloading = page.waitForEvent('download');
+  await frame.getByRole('button', { name: '下载图片', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('内嵌图.svg');
+  expect(await readFile(await download.path(), 'utf8')).toBe(svg);
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
+test('image gallery swipes through distant and repeated references and locates the chosen image instead of the opener', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { state, source } = obsidianState();
+  const path = '../assets/%E5%9B%BE%20%231.png';
+  source.body = `# 图库\n\n![第一张](${path})\n\n` + '隔开图片的正文。\n\n'.repeat(100)
+    + `![[课程/assets/图 %231.png|80]]\n\n<div><img src="${path}" alt="末尾图">${'<p>HTML 正文段落。</p>'.repeat(30)}<details><summary>展开图片</summary><img src="${path}" alt="折叠内图片"></details></div>\n\n\`\`\`md\n![代码中的图](${path})\n\`\`\``;
+  await mockWorkspace(page, state);
+  await page.route('**/api/entries/**/file*', route => route.fulfill({ contentType: 'image/svg+xml', body: markdownImageFixture }));
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '放大图片：第一张', exact: true }).click();
+  const viewer = page.getByRole('dialog');
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('1 / 4');
+  await expect(viewer.getByRole('button', { name: '上一张图片' })).toBeDisabled();
+  const cdp = await page.context().newCDPSession(page);
+  const box = await viewer.locator('.md-image-viewer-stage').boundingBox();
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + box.width * .8, y, id: 1 }] });
+  for (const fraction of [.65, .5, .35, .2]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: box.x + box.width * fraction, y, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('2 / 4');
+  await viewer.getByRole('button', { name: '下一张图片' }).click();
+  await expect(viewer.locator('.md-image-viewer-stage img')).toHaveAttribute('alt', '末尾图');
+  await expect(viewer.getByRole('button', { name: '下一张图片' })).toBeEnabled();
+  await page.keyboard.press('ArrowLeft');
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('2 / 4');
+  await page.keyboard.press('ArrowRight');
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('3 / 4');
+  await page.keyboard.press('ArrowRight');
+  await expect(viewer.locator('.md-image-viewer-stage img')).toHaveAttribute('alt', '折叠内图片');
+  await expect(viewer.getByRole('button', { name: '下一张图片' })).toBeDisabled();
+  await viewer.getByRole('button', { name: '定位到笔记' }).click();
+  await expect(viewer).toHaveCount(0);
+  await expect(page.locator('.codemirror-editor img[alt="折叠内图片"]')).toBeInViewport();
+  await page.getByRole('button', { name: '放大图片：折叠内图片', exact: true }).click();
+  await expect(viewer.getByRole('status', { name: '图片序号' })).toHaveText('4 / 4');
+  await page.keyboard.press('Escape');
+  expect(state.entryById[source.id].body).toBe(source.body);
+});
+
 const privateR2Origin = `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`;
 const privateSignedAt = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 const privateR2URL = `${privateR2Origin}/forgejo-lfs/lfs/aa/bb/${'c'.repeat(64)}?X-Amz-Date=${privateSignedAt}&X-Amz-Expires=300&X-Amz-Signature=synthetic`;
@@ -3815,7 +3956,7 @@ test('Agent replies show original campus images through the API proxy only', asy
   const log = page.getByRole('log', { name: '会话记录' });
   const used = log.getByRole('list', { name: '思考与工具调用' });
   await expect(used.getByText('识别图片')).toBeVisible();
-  const image = log.getByRole('img', { name: '校园卡' });
+  const image = log.locator('img[alt="校园卡"]');
   await expect(image).toHaveAttribute('data-image-source', '/api/media/image?url=' + encodeURIComponent('https://qnhdpic.twt.edu.cn/download/origin/a.jpg'));
   await expect(image).toHaveAttribute('src', /^blob:/);
   await expect.poll(() => image.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
@@ -4854,7 +4995,8 @@ test('records initial workspace JavaScript and defers optional feature downloads
   const total = loaded.reduce((sum, script) => sum + script.bytes, 0);
   console.log(`Initial workspace JavaScript: ${total} bytes across ${loaded.length} modules`);
   await testInfo.attach('initial-javascript', { body: JSON.stringify({ total, loaded }, null, 2), contentType: 'application/json' });
-  expect(total).toBeLessThan(1_350_000);
+  // Static image actions are core note UI; unrelated feature screens stay deferred.
+  expect(total).toBeLessThan(1_370_000);
   expect(loaded.some(script => script.captcha)).toBe(false);
   expect(loaded.some(script => /campus-tools-|workspace-settings-|anki-workspace-/.test(script.path))).toBe(false);
 });

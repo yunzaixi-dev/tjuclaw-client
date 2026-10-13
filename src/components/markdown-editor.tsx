@@ -16,6 +16,8 @@ import { codeLanguages } from '../lib/code-highlight';
 import { findDisplayMath } from './display-math';
 import { embedWidth, isImageTarget, resolveNoteFile } from '../lib/note-files';
 import type { Entry } from '../lib/library';
+import type { MarkdownImageGalleryRequest } from '../lib/markdown-images';
+import { collectEditorImageGallery } from '../lib/markdown-image-actions';
 
 const sourceNote = Facet.define<string, string>({ combine: values => values[0] ?? '' });
 const noteFilesChanged = StateEffect.define<null>();
@@ -723,9 +725,17 @@ export function MarkdownEditor({ value, onChange, editorRef, entryId = '', onOpe
     });
     viewRef.current = view;
     if (editorRef) editorRef.current = view;
+    const gallery = (event: Event) => {
+      const request = (event as CustomEvent<MarkdownImageGalleryRequest>).detail;
+      request.gallery = () => collectEditorImageGallery(view, request.frame,
+        () => [livePreviewDecorations(view).decorations, blockDecorations(view.state)]);
+      event.stopPropagation();
+    };
+    view.dom.addEventListener('tjuclaw:image-gallery', gallery);
     return () => {
       if (longPress.current) window.clearTimeout(longPress.current.timer);
       if (editorRef?.current === view) editorRef.current = null;
+      view.dom.removeEventListener('tjuclaw:image-gallery', gallery);
       view.destroy();
     };
   }, [editorRef, entryId]);

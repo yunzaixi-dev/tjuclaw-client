@@ -167,5 +167,5 @@ const SUMMARY = /^\s*<summary>.*<\/summary>\s*$/i;
 /** Whether an HTML block draws as HTML (not only structural tag lines). */
 export function htmlBlockRenders(source: string) {
   return source.split('\n').some(line => line.trim() && !TAG_ONLY.test(line) && !SUMMARY.test(line))
-    || /^\s*<(img|table|p|figure|picture|video|audio|hr|br)\b/i.test(source);
+    || /^\s*<(img|table|p|figure|picture|video|audio|hr|br)\b/i.test(source) || /<img\b/i.test(source);
 }

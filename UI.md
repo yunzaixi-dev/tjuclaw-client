@@ -197,6 +197,16 @@ and the shared appearance state.
   automatic save continue to operate on the original Markdown. Revealed syntax
   remains legible in both themes; heading text is not underlined by the default
   CodeMirror highlighter, while actual links retain their underline.
+- Markdown, wiki embeds and sanitized HTML images share `markdown-images.ts` frames
+  and the existing session-only cache. Hover controls on desktop and visible phone
+  controls copy image pixels as PNG or download the original format. Clicking an
+  image opens the shared Dialog with original-size viewing, previous/next controls,
+  arrow keys and horizontal touch swipes. Original-size mode keeps native panning.
+  Gallery navigation includes virtualized editor images; locating an image closes
+  the viewer, scrolls to its exact note occurrence and opens enclosing details.
+  Operations never edit Markdown. Account/cache reset closes the viewer and cancels
+  pending work. Unsupported clipboard APIs and blocked external exports show an
+  honest failure instead of claiming a copied link is an image.
 - UI, note titles, Markdown editing and rendered Markdown use Cascadia Code for
   Latin text and symbols, followed by LXGW WenKai for Chinese glyphs. Bundle both
   fonts locally so Web and native clients do not rely on installed system fonts.

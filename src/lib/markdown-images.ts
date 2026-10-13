@@ -1,4 +1,9 @@
 import { markdownImageCache, type CachedImage, type ImageLease } from './image-cache';
+import { attachMarkdownImageActions } from './markdown-image-actions';
+
+export type MarkdownGalleryImage = { src: string | null; alt: string; locate: () => void };
+export type MarkdownImageGallery = { images: MarkdownGalleryImage[]; index: number };
+export type MarkdownImageGalleryRequest = { frame: HTMLElement; gallery?: () => MarkdownImageGallery };
 
 const cleanups = new WeakMap<HTMLElement, () => void>();
 
@@ -50,6 +55,7 @@ export function createMarkdownImage(src: string | null, alt = '', width?: number
   let attempt = 0;
   let lease: ImageLease | undefined;
   let observer: IntersectionObserver | undefined;
+  let actions: (() => void) | undefined;
   const size = (cached?: CachedImage) => {
     const w = width || cached?.width || (src ? 480 : 360);
     const h = height || (cached ? w * cached.height / cached.width : src ? w * .625 : 144);
@@ -69,6 +75,8 @@ export function createMarkdownImage(src: string | null, alt = '', width?: number
   const load = () => {
     if (disposed || !src) return;
     observer?.disconnect();
+    actions?.();
+    actions = undefined;
     const current = ++attempt;
     lease?.release();
     image.removeAttribute('src');
@@ -77,6 +85,7 @@ export function createMarkdownImage(src: string | null, alt = '', width?: number
     void lease.ready.then(cached => {
       if (disposed || current !== attempt) return;
       size(cached);
+      actions = attachMarkdownImageActions(frame, image, cached);
       image.onload = () => { if (!disposed && current === attempt) state('ready'); };
       image.onerror = () => { if (!disposed && current === attempt) state('error'); };
       image.src = cached.src;
@@ -87,6 +96,8 @@ export function createMarkdownImage(src: string | null, alt = '', width?: number
   const reset = markdownImageCache.onReset(() => {
     ++attempt;
     observer?.disconnect();
+    actions?.();
+    actions = undefined;
     lease?.release();
     lease = undefined;
     image.removeAttribute('src');
@@ -97,6 +108,7 @@ export function createMarkdownImage(src: string | null, alt = '', width?: number
     disposed = true;
     ++attempt;
     observer?.disconnect();
+    actions?.();
     image.onload = image.onerror = null;
     image.removeAttribute('src');
     lease?.release();

@@ -1,6 +1,6 @@
 import { cloudNoteImage } from './note-files';
 
-export type CachedImage = { src: string; width: number; height: number; bytes: number };
+export type CachedImage = { src: string; width: number; height: number; bytes: number; blob?: Blob; filename?: string };
 export type ImageLease = { ready: Promise<CachedImage>; release: () => void };
 type Record = { key: string; refs: number; touched: number; expires: number; controller: AbortController; ready: Promise<CachedImage>; image?: CachedImage; retired: boolean };
 type CacheOptions = {
@@ -139,11 +139,12 @@ async function loadImage(src: string, signal: AbortSignal): Promise<CachedImage>
     if (privateImage) {
       if (!markdownImageCache.signedIn) throw new Error('image_session_required');
       let blob: Blob;
+      let filename: string | undefined;
       if (/^\/api\/entries\/[a-f0-9]{32}\/(?:file|image)$/.test(url.pathname)) {
         const { fetchAttachment } = await import('./file-delivery');
         bounded.throwIfAborted();
         const cloud = cloudNoteImage(src);
-        ({ blob } = await fetchAttachment(cloud?.url ?? src, {
+        ({ blob, filename } = await fetchAttachment(cloud?.url ?? src, {
           signal: bounded, fallback: cloud?.fallback,
           onUnauthorized: () => markdownImageCache.clear(),
         }));
@@ -156,7 +157,7 @@ async function loadImage(src: string, signal: AbortSignal): Promise<CachedImage>
       if (!blob.size || !blob.type.startsWith('image/')) throw new Error('image_unavailable');
       objectURL = URL.createObjectURL(blob);
       const size = await dimensions(objectURL, bounded);
-      return { src: objectURL, ...size, bytes: blob.size + size.width * size.height * 4 };
+      return { src: objectURL, ...size, bytes: blob.size + size.width * size.height * 4, blob, filename };
     }
     // Remote images use the browser image cache, preserving hosts without CORS.
     // They never receive API cookies and keep the no-referrer policy.

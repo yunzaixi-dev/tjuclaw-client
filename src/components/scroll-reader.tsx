@@ -45,6 +45,7 @@ export function ScrollReader({ html, storageKey, className = '' }: { html: strin
     scroller.addEventListener('touchstart', settle, { passive: true });
     scroller.addEventListener('keydown', settle);
     scroller.addEventListener('pointerdown', settle);
+    scroller.addEventListener('focusin', settle);
     let frame = 0;
     const save = () => {
       frame = 0;
@@ -61,6 +62,7 @@ export function ScrollReader({ html, storageKey, className = '' }: { html: strin
       scroller.removeEventListener('touchstart', settle);
       scroller.removeEventListener('keydown', settle);
       scroller.removeEventListener('pointerdown', settle);
+      scroller.removeEventListener('focusin', settle);
       scroller.removeEventListener('scroll', onScroll);
     };
   }, [storageKey]);

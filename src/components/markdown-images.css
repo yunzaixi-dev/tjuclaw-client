@@ -96,3 +96,152 @@
   .md-image-frame { border-color: CanvasText; }
   .md-image-retry { border-color: ButtonText; }
 }
+
+.md-image-frame[data-state="ready"] > img[role="button"] { cursor: zoom-in; }
+.md-image-frame > img[role="button"]:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
+.md-image-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.md-image-frame:hover > .md-image-actions,
+.md-image-frame:focus-within > .md-image-actions { opacity: 1; }
+.md-image-actions > button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.md-image-actions > button:hover { background: var(--muted); }
+.md-image-actions > button:active { background: var(--background); }
+.md-image-actions > button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.md-image-actions > button:disabled { cursor: wait; opacity: .6; }
+.md-image-feedback {
+  position: absolute;
+  inset: auto 8px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.md-image-feedback[hidden],
+.md-image-frame:not([data-state="ready"]) > .md-image-actions,
+.md-image-frame.is-compact > .md-image-actions { display: none; }
+
+.md-image-viewer.ui-dialog-content {
+  width: min(1120px, calc(100vw - 48px));
+  height: min(880px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.md-image-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.md-image-viewer-heading { min-width: 0; }
+.md-image-viewer .ui-dialog-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.md-image-viewer .ui-dialog-description { margin: 4px 0 0; font-size: 12px; color: var(--muted-foreground); }
+.md-image-viewer-close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+}
+.md-image-viewer-close:hover { background: var(--muted); }
+.md-image-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--background);
+}
+.md-image-viewer-stage > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+.md-image-viewer-stage.is-original > img { width: auto; height: auto; max-width: none; margin: 0 auto; }
+.md-image-frame:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.md-image-viewer-stage:not(.is-original) { touch-action: pan-y pinch-zoom; }
+.md-image-viewer-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; color: var(--muted-foreground); font-size: 14px; }
+.md-image-viewer-navigation { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 10px; }
+.md-image-viewer-navigation > span { min-width: 64px; text-align: center; color: var(--muted-foreground); font-size: 13px; font-variant-numeric: tabular-nums; }
+.md-image-viewer-navigation > button { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--foreground); cursor: pointer; }
+.md-image-viewer-navigation > button:hover { background: var(--muted); }
+.md-image-viewer-navigation > button:active { background: var(--background); }
+.md-image-viewer-navigation > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.md-image-viewer-navigation > button:disabled { opacity: .5; cursor: default; }
+.md-image-viewer-footer { padding: 12px 20px 16px; border-top: 1px solid var(--border); }
+.md-image-viewer-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.md-image-viewer-tools > button, .md-image-viewer-tools > a, .md-image-viewer-loading > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.md-image-viewer-tools > button:hover, .md-image-viewer-tools > a:hover { background: var(--muted); }
+.md-image-viewer-tools > button:active, .md-image-viewer-close:active { background: var(--background); }
+.md-image-viewer-tools > button:disabled { opacity: .6; cursor: wait; }
+.md-image-viewer-close:focus-visible,
+.md-image-viewer-tools > button:focus-visible,
+.md-image-viewer-tools > a:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.md-image-viewer-feedback { min-height: 18px; margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
+@media (hover: none), (pointer: coarse), (max-width: 720px) {
+  .md-image-actions { opacity: 1; }
+}
+@media (max-width: 720px) {
+  .md-image-viewer.ui-dialog-content { inset: 0; transform: none; width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
+  .md-image-viewer-header { padding: calc(12px + env(safe-area-inset-top)) 12px 12px; }
+  .md-image-viewer-stage { padding: 12px; }
+  .md-image-viewer-footer { padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .md-image-viewer-tools > button { flex: 1; padding: 0 8px; white-space: nowrap; }
+  .md-image-viewer-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md-image-viewer-tools > a { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .md-image-actions { transition: none; } }
+@media (forced-colors: active) {
+  .md-image-actions, .md-image-viewer-tools > button { border-color: ButtonText; }
+}
