@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { ArrowLeft, ArrowRight, Copy, Crosshair, Download, ExternalLink, Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
 import type { CachedImage } from './image-cache';
@@ -255,13 +255,13 @@ export function attachMarkdownImageActions(frame: HTMLElement, image: HTMLImageE
   feedback.className = 'md-image-feedback';
   feedback.setAttribute('role', 'status');
   feedback.hidden = true;
-  const iconRoots: Root[] = [];
   const buttons = (['copy', 'download'] as const).map(action => {
     const button = document.createElement('button');
     button.type = 'button';
-    const iconRoot = createRoot(button);
-    iconRoot.render(action === 'copy' ? <Copy size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />);
-    iconRoots.push(iconRoot);
+    // Static Lucide geometry, like the image placeholder; no React root per icon.
+    button.innerHTML = action === 'copy'
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>';
     button.setAttribute('aria-label', action === 'copy' ? '复制图片' : '下载图片');
     button.title = action === 'copy' ? '复制图片' : '下载图片';
     button.addEventListener('click', event => {
@@ -340,7 +340,6 @@ export function attachMarkdownImageActions(frame: HTMLElement, image: HTMLImageE
   return () => {
     controller.abort();
     closeViewer?.(false);
-    iconRoots.forEach(root => root.unmount());
     actions.remove();
     feedback.remove();
     image.removeAttribute('tabindex');

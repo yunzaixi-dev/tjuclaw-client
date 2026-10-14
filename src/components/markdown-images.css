@@ -106,9 +106,9 @@
   display: flex;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-radius: 6px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   opacity: 0;
   transition: opacity 160ms ease-out;
 }
@@ -129,8 +129,8 @@
   font-size: 12px;
   cursor: pointer;
 }
-.md-image-actions > button:hover { background: var(--muted); }
-.md-image-actions > button:active { background: var(--background); }
+.md-image-actions > button:hover { background: color-mix(in srgb, var(--muted) 90%, transparent); }
+.md-image-actions > button:active { background: color-mix(in srgb, var(--background) 94%, transparent); }
 .md-image-actions > button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .md-image-actions > button:disabled { cursor: wait; opacity: .6; }
 .md-image-feedback {
@@ -202,7 +202,7 @@
 .md-image-viewer-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; color: var(--muted-foreground); font-size: 14px; }
 .md-image-viewer-navigation { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 10px; }
 .md-image-viewer-navigation > span { min-width: 64px; text-align: center; color: var(--muted-foreground); font-size: 13px; font-variant-numeric: tabular-nums; }
-.md-image-viewer-navigation > button { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--foreground); cursor: pointer; }
+.md-image-viewer-navigation > button { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--surface) 82%, transparent); color: var(--foreground); cursor: pointer; }
 .md-image-viewer-navigation > button:hover { background: var(--muted); }
 .md-image-viewer-navigation > button:active { background: var(--background); }
 .md-image-viewer-navigation > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
@@ -219,7 +219,7 @@
   padding: 0;
   border: 0;
   border-radius: 6px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   color: var(--foreground);
   font: inherit;
   font-size: 13px;
