@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { createRoot, type Root } from 'react-dom/client';
 import { ArrowLeft, ArrowRight, Copy, Crosshair, Download, ExternalLink, Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
 import type { CachedImage } from './image-cache';
@@ -256,10 +255,13 @@ export function attachMarkdownImageActions(frame: HTMLElement, image: HTMLImageE
   feedback.className = 'md-image-feedback';
   feedback.setAttribute('role', 'status');
   feedback.hidden = true;
+  const iconRoots: Root[] = [];
   const buttons = (['copy', 'download'] as const).map(action => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.innerHTML = renderToStaticMarkup(action === 'copy' ? <Copy size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />);
+    const iconRoot = createRoot(button);
+    iconRoot.render(action === 'copy' ? <Copy size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />);
+    iconRoots.push(iconRoot);
     button.setAttribute('aria-label', action === 'copy' ? '复制图片' : '下载图片');
     button.title = action === 'copy' ? '复制图片' : '下载图片';
     button.addEventListener('click', event => {
@@ -338,6 +340,7 @@ export function attachMarkdownImageActions(frame: HTMLElement, image: HTMLImageE
   return () => {
     controller.abort();
     closeViewer?.(false);
+    iconRoots.forEach(root => root.unmount());
     actions.remove();
     feedback.remove();
     image.removeAttribute('tabindex');
