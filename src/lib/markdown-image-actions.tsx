@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeft, ArrowRight, Copy, Crosshair, Download, Maximize2, Minimize2, X } from 'lucide-react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ArrowLeft, ArrowRight, Copy, Crosshair, Download, ExternalLink, Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
 import type { CachedImage } from './image-cache';
 import { markdownImageCache } from './image-cache';
@@ -159,7 +160,7 @@ function ImageViewer({ initial, gallery, signal, onClose, onLocate }: { initial:
       }} onPointerCancel={() => { swipe.current = null; }}>
         {cached ? <img key={index} src={cached.src} alt={current.alt} referrerPolicy="no-referrer" width={cached.width} height={cached.height} />
           : <div className="md-image-viewer-loading" role="status">{!current.src || result.index === index && result.error
-            ? <><span>图片未能加载</span><button type="button" disabled={!current.src} onClick={() => { setResult({ index }); setRetry(value => value + 1); }}>重新加载图片</button></>
+            ? <><span>图片未能加载</span><button type="button" aria-label="重新加载图片" title="重新加载图片" disabled={!current.src} onClick={() => { setResult({ index }); setRetry(value => value + 1); }}><RotateCw size={18} aria-hidden="true" /></button></>
             : '正在加载图片…'}</div>}
       </div>
       <footer className="md-image-viewer-footer">
@@ -169,11 +170,11 @@ function ImageViewer({ initial, gallery, signal, onClose, onLocate }: { initial:
           <button type="button" aria-label="下一张图片" disabled={index === gallery.images.length - 1} onClick={() => move(1)}><ArrowRight size={18} /></button>
         </nav>
         <div className="md-image-viewer-tools">
-          <button type="button" disabled={!cached} onClick={() => setOriginal(value => !value)} aria-pressed={original}>{original ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{original ? '适应窗口' : '原始尺寸'}</button>
-          <button type="button" onClick={() => onLocate(current)}><Crosshair size={16} />定位到笔记</button>
-          <button type="button" disabled={busy !== null || !cached} onClick={() => act('copy')}><Copy size={16} />{busy === 'copy' ? '复制中…' : '复制图片'}</button>
-          <button type="button" disabled={busy !== null || !cached} onClick={() => act('download')}><Download size={16} />{busy === 'download' ? '下载中…' : '下载图片'}</button>
-          {feedback.includes('失败') && cached ? <a href={cached.src} target="_blank" rel="noreferrer">打开原图</a> : null}
+          <button type="button" disabled={!cached} onClick={() => setOriginal(value => !value)} aria-pressed={original} aria-label={original ? '适应窗口' : '原始尺寸'} title={original ? '适应窗口' : '原始尺寸'}>{original ? <Minimize2 size={18} aria-hidden="true" /> : <Maximize2 size={18} aria-hidden="true" />}</button>
+          <button type="button" aria-label="定位到笔记" title="定位到笔记" onClick={() => onLocate(current)}><Crosshair size={18} aria-hidden="true" /></button>
+          <button type="button" aria-label="复制图片" title="复制图片" aria-busy={busy === 'copy'} disabled={busy !== null || !cached} onClick={() => act('copy')}><Copy size={18} aria-hidden="true" /></button>
+          <button type="button" aria-label="下载图片" title="下载图片" aria-busy={busy === 'download'} disabled={busy !== null || !cached} onClick={() => act('download')}><Download size={18} aria-hidden="true" /></button>
+          {feedback.includes('失败') && cached ? <a href={cached.src} target="_blank" rel="noreferrer" aria-label="打开原图" title="打开原图"><ExternalLink size={18} aria-hidden="true" /></a> : null}
         </div>
         <p className="md-image-viewer-feedback" role="status">{feedback || '左右切换图片；定位返回笔记中的对应位置。'}</p>
       </footer>
@@ -258,7 +259,7 @@ export function attachMarkdownImageActions(frame: HTMLElement, image: HTMLImageE
   const buttons = (['copy', 'download'] as const).map(action => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = action === 'copy' ? '复制' : '下载';
+    button.innerHTML = renderToStaticMarkup(action === 'copy' ? <Copy size={18} aria-hidden="true" /> : <Download size={18} aria-hidden="true" />);
     button.setAttribute('aria-label', action === 'copy' ? '复制图片' : '下载图片');
     button.title = action === 'copy' ? '复制图片' : '下载图片';
     button.addEventListener('click', event => {

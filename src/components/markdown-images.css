@@ -115,9 +115,12 @@
 .md-image-frame:hover > .md-image-actions,
 .md-image-frame:focus-within > .md-image-actions { opacity: 1; }
 .md-image-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  padding: 0 10px;
+  padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -205,15 +208,16 @@
 .md-image-viewer-navigation > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .md-image-viewer-navigation > button:disabled { opacity: .5; cursor: default; }
 .md-image-viewer-footer { padding: 12px 20px 16px; border-top: 1px solid var(--border); }
-.md-image-viewer-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.md-image-viewer-tools { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .md-image-viewer-tools > button, .md-image-viewer-tools > a, .md-image-viewer-loading > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
+  width: 44px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
   background: var(--surface);
   color: var(--foreground);
@@ -237,9 +241,6 @@
   .md-image-viewer-header { padding: calc(12px + env(safe-area-inset-top)) 12px 12px; }
   .md-image-viewer-stage { padding: 12px; }
   .md-image-viewer-footer { padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
-  .md-image-viewer-tools > button { flex: 1; padding: 0 8px; white-space: nowrap; }
-  .md-image-viewer-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .md-image-viewer-tools > a { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .md-image-actions { transition: none; } }
 @media (forced-colors: active) {
