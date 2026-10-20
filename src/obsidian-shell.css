@@ -2780,13 +2780,11 @@
 .obsidian-app :is(.markdown-preview, .note-reader) math { font-family: 'Latin Modern Math', 'STIX Two Math', 'Cambria Math', serif; font-size: 1.15em; }
 .obsidian-app :is(.markdown-preview, .note-reader) .math-block { margin: 1em 0; overflow-x: auto; text-align: center; }
 
-/* Phone top bar: room above the tab pill, so it does not sit against the
-   edge or the notice above it. Placed last: the page chrome rules above set
-   the bar's height for every width. */
+/* Keep the phone's 44px controls below the safe area without an extra top spacer. */
 @media (max-width: 720px) {
   .obsidian-app .obsidian-topbar {
-    height: calc(60px + env(safe-area-inset-top));
-    padding-top: calc(env(safe-area-inset-top) + 10px);
+    height: calc(48px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
     padding-bottom: 4px;
   }
 }

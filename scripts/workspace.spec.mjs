@@ -3663,6 +3663,14 @@ test('touch editing keeps native selection and formats from the bar above the ke
     await expect(bar).toHaveCount(0);
     await editor.tap();
     await expect(bar).toBeVisible();
+    // Overlay keyboards report CSS insets without changing visualViewport.
+    await page.evaluate(() => document.documentElement.style.setProperty('--keyboard-inset', '300px'));
+    await expect.poll(async () => Math.round((await bar.boundingBox()).y + (await bar.boundingBox()).height)).toBe(544);
+    await page.evaluate(() => document.documentElement.style.removeProperty('--keyboard-inset'));
+    // Resized WebViews must not subtract the keyboard a second time.
+    await page.setViewportSize({ width: 390, height: 544 });
+    await expect.poll(async () => Math.round((await bar.boundingBox()).y + (await bar.boundingBox()).height)).toBe(544);
+    await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('.mobile-command-bar')).toBeHidden();
     // Long-press belongs to the system text menu now.
     const box = await editor.boundingBox();

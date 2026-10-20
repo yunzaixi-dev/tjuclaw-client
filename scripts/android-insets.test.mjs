@@ -5,6 +5,13 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { generatedMainActivity, prepareAndroidInsets } from './android-insets.mjs';
 
+test('Android owns system and keyboard insets once, leaving the WebView a resized content area', () => {
+  const source = readFileSync(new URL('../src-tauri/android/MainActivity.kt', import.meta.url), 'utf8');
+  assert.match(source, /Type\.ime\(\)/);
+  assert.match(source, /maxOf\(safe\.bottom, ime\.bottom\)/);
+  assert.match(source, /WindowInsetsCompat\.CONSUMED/);
+});
+
 test('Android initialization applies native safe areas and repeated builds preserve them', () => {
   const root = mkdtempSync(join(tmpdir(), 'tjuclaw-android-insets-'));
   const template = join(root, 'src-tauri/android/MainActivity.kt');

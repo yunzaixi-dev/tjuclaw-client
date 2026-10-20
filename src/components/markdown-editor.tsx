@@ -52,7 +52,7 @@ function TouchFormatBar({ view, onMore }: { view: EditorView; onMore: () => void
   const inset = useSyncExternalStore(subscribeViewport, keyboardInset, () => 0);
   // Rendered inline (not portaled) so it inherits the workspace colour tokens.
   return (
-    <div className="md-touch-bar" role="toolbar" aria-label="Markdown 格式" style={{ bottom: inset }}
+    <div className="md-touch-bar" role="toolbar" aria-label="Markdown 格式" style={{ bottom: `max(${inset}px, var(--keyboard-height, 0px))` }}
       // Keep the editor focused (and the keyboard open) while tapping a button.
       onPointerDown={event => event.preventDefault()}>
       {toolbarActions.map(action => {
