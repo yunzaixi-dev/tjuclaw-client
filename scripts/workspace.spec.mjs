@@ -5308,7 +5308,7 @@ test('the empty conversation greets with the mark and a line for the time of day
   await expect(page.getByText('校园服务', { exact: true })).toHaveCount(0);
 });
 
-test('the phone top bar keeps the tab pill clear of the edge above it', async ({ page }) => {
+test('the phone top bar stays compact with breathing room around the tab pill', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -5317,10 +5317,12 @@ test('the phone top bar keeps the tab pill clear of the edge above it', async ({
   const gap = async () => {
     const bar = await page.locator('.obsidian-topbar').boundingBox();
     const pill = await page.locator('.mobile-tab-title').boundingBox();
-    return { above: pill.y - bar.y, below: bar.y + bar.height - (pill.y + pill.height) };
+    return { height: bar.height, above: pill.y - bar.y, below: bar.y + bar.height - (pill.y + pill.height) };
   };
   const note = await gap();
-  expect(note.above).toBeGreaterThanOrEqual(12);
+  expect(note.height).toBe(48);
+  expect(note.above).toBeGreaterThanOrEqual(4);
+  expect(note.above).toBeLessThanOrEqual(8);
   expect(note.below).toBeGreaterThanOrEqual(4);
   // The conversation page uses the same bar.
   await page.getByRole('button', { name: '打开侧栏' }).click();
@@ -5328,7 +5330,10 @@ test('the phone top bar keeps the tab pill clear of the edge above it', async ({
   await page.getByRole('button', { name: '收起侧栏' }).first().click();
   await expect(page.locator('.obsidian-app')).toHaveClass(/sidebar-collapsed/);
   const session = await gap();
-  expect(session.above).toBeGreaterThanOrEqual(12);
+  expect(session.height).toBe(48);
+  expect(session.above).toBeGreaterThanOrEqual(4);
+  expect(session.above).toBeLessThanOrEqual(8);
+  expect(session.below).toBeGreaterThanOrEqual(4);
 });
 
 test('a recent card with a two-line title keeps its date inside the card', async ({ page }) => {
