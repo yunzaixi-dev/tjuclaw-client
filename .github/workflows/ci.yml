@@ -264,6 +264,12 @@ jobs:
       - name: Build Android debug APK
         run: task android:build
 
+      - name: Verify packaged Android brand icons
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-pil aapt
+          python3 scripts/verify-android-icons.py src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk debug
+
       - name: Upload installable Android debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -273,7 +279,9 @@ jobs:
           retention-days: 7
 
       - name: Compile and verify unsigned Android release APK
-        run: task android:release:check
+        run: |
+          task android:release:check
+          python3 scripts/verify-android-icons.py src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk release
 
       - name: Upload unsigned Android release compilation artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
