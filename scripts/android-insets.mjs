@@ -47,7 +47,14 @@ export function prepareAndroidInsets(root = defaultRoot) {
   const desired = readFileSync(template, 'utf8');
   const current = readFileSync(generated, 'utf8');
   if (current === desired) return false;
-  if (current !== generatedMainActivity && current !== previousMainActivity) {
+  const keyboardMainActivity = previousMainActivity
+    .replace('      view.setPadding(safe.left, safe.top, safe.right, safe.bottom)\n      insets',
+      '      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())\n'
+      + '      view.setPadding(safe.left, safe.top, safe.right, maxOf(safe.bottom, ime.bottom))\n'
+      + '      // The WebView now fits the unobscured content area. Do not apply system\n'
+      + '      // safe areas or the IME a second time inside the web page.\n'
+      + '      WindowInsetsCompat.CONSUMED');
+  if (current !== generatedMainActivity && current !== previousMainActivity && current !== keyboardMainActivity) {
     throw new Error('Generated MainActivity differs from the expected Tauri template; review before replacing it');
   }
   writeFileSync(generated, desired);

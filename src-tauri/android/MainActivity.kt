@@ -1,12 +1,33 @@
 package cn.edu.tju.tjuclaw
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  private var productWebView: WebView? = null
+
+  private fun applyTextScale(webView: WebView) {
+    // Small system text otherwise shrinks glyphs inside unchanged CSS spacing.
+    // Keep the designed minimum while retaining accessibility enlargement.
+    webView.settings.textZoom = maxOf(100, (resources.configuration.fontScale * 100).toInt())
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    productWebView = webView
+    applyTextScale(webView)
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    productWebView?.let { applyTextScale(it) }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
