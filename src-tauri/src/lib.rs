@@ -26,9 +26,8 @@ pub fn run() {
             // commands then report store_unavailable and the client falls back.
             let dir = app.path().app_data_dir().ok();
             app.manage(store::Store::open_or_unavailable(dir.as_deref()));
-            // The desktop app is the TJUClaw web app with native extras: it
-            // opens the product origin (sign-in, API and updates work as on
-            // the web), preserving Docker extras and adapting the packaged CLI.
+            // Desktop-only extras never become mobile permissions. Mobile
+            // production origins are selected in the platform config files.
             #[cfg(desktop)]
             {
                 app.manage(local_sandbox::LocalSandbox::default());

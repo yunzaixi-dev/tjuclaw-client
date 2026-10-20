@@ -1,0 +1,7 @@
+{
+  "app": {
+    "windows": [
+      { "label": "main", "title": "TJUClaw", "url": "https://app.tjuclaw.cloud/workspace" }
+    ]
+  }
+}

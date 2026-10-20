@@ -4,6 +4,20 @@ import test from 'node:test';
 
 const config = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
 
+test('mobile windows start at the product origin rather than the bundled proxy-less page', () => {
+  for (const platform of ['android', 'ios']) {
+    const mobileConfig = JSON.parse(readFileSync(new URL(`../src-tauri/tauri.${platform}.conf.json`, import.meta.url), 'utf8'));
+    assert.equal(mobileConfig.app.windows[0].url, 'https://app.tjuclaw.cloud/workspace');
+    assert.equal(mobileConfig.app.windows[0].label, 'main');
+  }
+  const mobile = JSON.parse(readFileSync(new URL('../src-tauri/capabilities/mobile-app.json', import.meta.url), 'utf8'));
+  assert.deepEqual(mobile.platforms, ['android', 'iOS']);
+  assert.deepEqual(mobile.remote.urls, ['https://app.tjuclaw.cloud/*']);
+  assert.deepEqual(mobile.permissions, [
+    'core:app:allow-version', 'allow-store-get', 'allow-store-set', 'allow-store-delete', 'allow-store-list',
+  ]);
+});
+
 test('native bundles select host-specific targets rather than restricting macOS to deb and nsis', () => {
   assert.equal(config.bundle.targets, undefined);
   assert.ok(config.bundle.icon.includes('icons/icon.icns'));

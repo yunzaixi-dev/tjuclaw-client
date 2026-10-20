@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-app",
+  "description": "Mobile product origin: app version and device store only, no desktop execution permissions.",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "remote": { "urls": ["https://app.tjuclaw.cloud/*"] },
+  "permissions": [
+    "core:app:allow-version",
+    "allow-store-get",
+    "allow-store-set",
+    "allow-store-delete",
+    "allow-store-list"
+  ]
+}
