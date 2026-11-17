@@ -1009,7 +1009,7 @@ test.describe('live note sync', () => {
   const title = page => page.getByRole('textbox', { name: '标题', exact: true });
   const saved = page => page.locator('.workspace-statusbar');
 
-  async function devices(browser, baseURL, run) {
+  async function devices(browser, baseURL, run, prepareReceiver) {
     const server = noteSyncServer();
     const contexts = await Promise.all([
       browser.newContext({ baseURL, serviceWorkers: 'block' }),
@@ -1018,6 +1018,7 @@ test.describe('live note sync', () => {
     try {
       const pages = await Promise.all(contexts.map(context => context.newPage()));
       const requests = await Promise.all(pages.map(page => server.connect(page)));
+      await prepareReceiver?.(pages[1]);
       await Promise.all(pages.map(page => page.goto('/workspace')));
       await Promise.all(pages.map(page => expect(editor(page)).toContainText(noteA.body)));
       await expect.poll(() => requests.map(record => record.polls.slice(0, 2)), { timeout: 2500 })
@@ -1119,18 +1120,38 @@ test.describe('live note sync', () => {
   });
 
   test('cancels its wait offline and catches up with a new handshake on reconnect', async ({ browser, baseURL }) => {
+    // Keep an optional panel preload in flight so the real disconnect also
+    // exercises the app's chunk-error handler, even on a fast runner.
+    const panelChunk = /\/assets\/workspace-settings-[^/]+\.js$/;
+    let preloadStarted;
+    let letPreloadContinue;
+    const preload = new Promise(resolve => { preloadStarted = resolve; });
+    const holdPreload = new Promise(resolve => { letPreloadContinue = resolve; });
     await devices(browser, baseURL, async ([a, b], [, receiver], [, receiverContext]) => {
-      await receiverContext.setOffline(true);
-      await expect.poll(() => receiver.aborted).toBe(1);
-      const before = receiver.polls.length;
-      await editor(a).fill('Committed while receiver offline');
-      await expect(saved(a)).toContainText('保存中');
-      await expect(saved(a)).toContainText('已保存');
-      await expect(editor(b)).toHaveText(noteA.body);
-      expect(receiver.polls).toHaveLength(before);
-      await receiverContext.setOffline(false);
-      await expect(editor(b)).toHaveText('Committed while receiver offline');
-      expect(receiver.polls[before]).toBeNull();
+      try {
+        await preload;
+        const chunkFailure = b.waitForEvent('requestfailed', request => panelChunk.test(request.url()));
+        await receiverContext.setOffline(true);
+        await expect.poll(() => b.evaluate(() => navigator.onLine)).toBe(false);
+        letPreloadContinue();
+        expect((await chunkFailure).failure()?.errorText).toBe('net::ERR_INTERNET_DISCONNECTED');
+        await expect.poll(() => receiver.aborted).toBe(1);
+        const before = receiver.polls.length;
+        await editor(a).fill('Committed while receiver offline');
+        await expect(saved(a)).toContainText('保存中');
+        await expect(saved(a)).toContainText('已保存');
+        await expect(editor(b)).toHaveText(noteA.body);
+        expect(receiver.polls).toHaveLength(before);
+        await receiverContext.setOffline(false);
+        await expect(editor(b)).toHaveText('Committed while receiver offline');
+        expect(receiver.polls[before]).toBeNull();
+      } finally { letPreloadContinue(); }
+    }, async b => {
+      await b.route(panelChunk, async route => {
+        preloadStarted();
+        await holdPreload;
+        await route.continue();
+      }, { times: 1 });
     });
   });
 

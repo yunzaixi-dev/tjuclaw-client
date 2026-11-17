@@ -56,6 +56,9 @@ const RECOVERED_KEY = 'tjuclaw.pwa.recovered';
  */
 function recoverFromMissingCode() {
   window.addEventListener('vite:preloadError', event => {
+    // An offline import can fail even though the current build is intact.
+    // Keep the open page (and any draft) instead of reloading it offline.
+    if (!navigator.onLine) return;
     try {
       if (sessionStorage.getItem(RECOVERED_KEY)) return;
       sessionStorage.setItem(RECOVERED_KEY, String(Date.now()));
@@ -64,13 +67,15 @@ function recoverFromMissingCode() {
     void (async () => {
       const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => undefined) : undefined;
       await registration?.update().catch(() => undefined);
+      if (!navigator.onLine) return;
       const next = waiting ?? registration?.waiting ?? null;
+      const reload = () => { if (navigator.onLine) location.reload(); };
       if (next) {
-        navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+        navigator.serviceWorker.addEventListener('controllerchange', reload, { once: true });
         next.postMessage('activate');
         // If the worker does not take over, load again anyway.
-        window.setTimeout(() => location.reload(), 4000);
-      } else location.reload();
+        window.setTimeout(reload, 4000);
+      } else reload();
     })();
   });
 }
