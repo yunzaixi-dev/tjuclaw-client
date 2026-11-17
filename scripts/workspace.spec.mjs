@@ -5679,6 +5679,85 @@ test('with motion on, the newest characters of a streamed reply fade in and sett
   release();
 });
 
+test('mobile live Markdown renders an arriving update once, without rewriting it for animation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mockWorkspace(page, defaultState());
+  const text = '已收到：**这段实时正文立即显示**。'.repeat(36);
+  let finish;
+  const held = new Promise(resolve => { finish = resolve; });
+  await page.route('**/api/sessions/*/live*', async route => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.has('version')) await held;
+    return json(route, 200, { client_request_id: query.get('client_request_id'), version: 1, count: 1,
+      stage: { id: 'writing', ms: 0 }, items: [{ i: 0, kind: 'text', text, next: Buffer.byteLength(text) }] });
+  });
+  await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+  try {
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+    await page.getByRole('button', { name: '工作', exact: true }).click();
+    await page.locator('.obsidian-sidebar nav').getByRole('button', { name: '新对话', exact: true }).click();
+    await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('逐步输出正文');
+    await page.evaluate(() => {
+      window.__firstLiveText = null;
+      const observer = new MutationObserver(() => {
+        const text = document.querySelector('.agent-live-text')?.textContent?.trim();
+        if (text) { window.__firstLiveText = text; observer.disconnect(); }
+      });
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__firstLiveText)).toBe(text.replaceAll('**', ''));
+    await expect(page.locator('.agent-live-text strong')).toHaveCount(36);
+    await expect(page.locator('.agent-live-text .agent-tail')).toHaveCount(0);
+  } finally { finish(); }
+});
+
+for (const width of [390, 1280]) {
+  test(`live SSE shows thinking, tool and reply in separate updates at width ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await mockWorkspace(page, defaultState());
+    await page.addInitScript(() => {
+      const original = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = new URL(String(input), location.href);
+        if (!url.pathname.endsWith('/live') || new Headers(init?.headers).get('accept') !== 'text/event-stream') return original(input, init);
+        const id = url.searchParams.get('client_request_id');
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({ start(controller) {
+          controller.enqueue(encoder.encode(': ready\n\n'));
+          window.__sendLiveFrame = frame => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ...frame, client_request_id: id })}\n\n`));
+        } });
+        return Promise.resolve(new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }));
+      };
+    });
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
+    try {
+      await page.goto('/workspace');
+      if (width === 390) await page.getByRole('button', { name: '打开侧栏', exact: true }).click();
+      await page.getByRole('button', { name: '工作', exact: true }).click();
+      if (width === 390) await page.locator('.obsidian-sidebar nav').getByRole('button', { name: '新对话', exact: true }).click();
+      await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('先查再回答');
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      const working = page.getByRole('status', { name: /正在处理/ });
+      await expect.poll(() => page.evaluate(() => typeof window.__sendLiveFrame)).toBe('function');
+      const append = (version, stage, item) => page.evaluate(frame => window.__sendLiveFrame(frame), { version, count: version, stage: { id: stage, ms: 0 }, items: [{ i: version - 1, ...item }] });
+      await append(1, 'thinking', { kind: 'thinking', text: '正在找讲义', next: 15 });
+      await expect(working.getByLabel('思考过程')).toHaveText('正在找讲义');
+      await expect(working.locator('li.agent-step')).toHaveCount(1);
+      await append(2, 'tool', { kind: 'tool', name: 'read_entry', status: 'running' });
+      await expect(working.locator('li.agent-step')).toHaveCount(2);
+      await expect(working.locator('.agent-live-text')).toHaveCount(0);
+      await append(3, 'writing', { kind: 'text', text: '**找到讲义**', next: 16 });
+      await expect(working.locator('.agent-live-text strong')).toHaveText('找到讲义');
+    } finally { release(); }
+  });
+}
+
 const threeConversations = () => {
   const state = defaultState();
   const make = (id, question, at) => ({ id: id.repeat(32), entry_id: guideA.id, created_at: at, updated_at: at,

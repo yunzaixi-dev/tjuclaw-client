@@ -417,7 +417,7 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
       {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working key={requestId ?? 'preparing'} name={title} sessionId={chat?.id} requestId={requestId} stopping={stopping} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
+      {sending ? <Working key={requestId ?? 'preparing'} name={title} sessionId={chat?.id} requestId={requestId} stopping={stopping} direct={phone} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

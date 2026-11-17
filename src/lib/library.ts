@@ -86,7 +86,7 @@ export interface TurnStep {
 export type LiveStatus = 'writing' | 'running' | 'done' | 'failed';
 
 /**
- * One entry of the running turn's timeline, as one poll reports it. `text` is
+ * One entry of the running turn's timeline, as one live frame reports it. `text` is
  * the entry's text from byte `from` on, and `next` the offset to ask from next
  * time.
  */
@@ -105,7 +105,7 @@ export interface LiveItem {
 
 /**
  * The running turn as the server sees it: a timeline of thinking, text and
- * tool calls in the order they happened. A poll with a cursor carries only
+ * tool calls in the order they happened. A frame after a cursor carries only
  * the entries that changed.
  */
 export interface LiveTurn {
@@ -133,11 +133,20 @@ const liveStatuses = ['writing', 'running', 'done', 'failed'];
  * changed (or after about 15 seconds) and sends only what is new.
  */
 export async function getLive(sessionId: string, cursor?: LiveCursor, signal?: AbortSignal, requestId?: string): Promise<LiveTurn> {
+  return decodeLiveTurn(await authRequest<unknown>(livePath(sessionId, cursor, requestId), { signal }, 25000), requestId);
+}
+
+export function livePath(sessionId: string, cursor?: LiveCursor, requestId?: string): string {
   const params = new URLSearchParams(cursor ? { version: String(cursor.version), tail: String(cursor.tail), at: String(cursor.at) } : {});
   if (requestId) params.set('client_request_id', requestId);
-  const query = params.size ? `?${params}` : '';
-  const data = await authRequest<{ client_request_id?: unknown; version?: unknown; items?: unknown; count?: unknown; stage?: { id?: unknown; ms?: unknown }; rate?: { tokens?: unknown; ms?: unknown } }>(
-    `/api/sessions/${sessionId}/live${query}`, { signal }, 25000);
+  return `/api/sessions/${sessionId}/live${params.size ? `?${params}` : ''}`;
+}
+
+export function decodeLiveTurn(payload: unknown, requestId?: string): LiveTurn {
+  const data = (payload && typeof payload === 'object' ? payload : {}) as {
+    client_request_id?: unknown; version?: unknown; items?: unknown; count?: unknown;
+    stage?: { id?: unknown; ms?: unknown }; rate?: { tokens?: unknown; ms?: unknown };
+  };
   // Fail closed during a rolling deployment too: an old server cannot prove
   // that its session-wide output belongs to this request.
   if (requestId && data.client_request_id !== requestId) {

@@ -1,8 +1,8 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import { SaidText, ToolRow, groupSteps, toolView } from './agent-steps';
-import { getLive, type LiveCursor, type LiveTurn } from '../lib/library';
-import { formatTokenRate, mergeTimeline, stageText, timelineCursor, type TimelineItem } from '../lib/live-stream';
+import { followLiveEvents } from '../lib/live-events';
+import { formatTokenRate, stageText, type TimelineItem } from '../lib/live-stream';
 import './agent-live.css';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -20,9 +20,13 @@ const TAIL = 14;
  * the end of the text, 0 while text is still arriving and TAIL once the last
  * character is fully shown.
  */
-function useFlowingText(target: string): { shown: string; lead: number } {
+function useFlowingText(target: string, direct: boolean): { shown: string; lead: number } {
   const [flow, setFlow] = useState({ shown: 0, lead: 0 });
-  const still = reducedMotion();
+  const still = direct || reducedMotion();
+  // Keep already displayed text visible if the viewport becomes wide again.
+  if (still && (flow.shown !== target.length || flow.lead !== TAIL)) {
+    setFlow({ shown: target.length, lead: TAIL });
+  }
   const done = flow.shown >= target.length;
   useEffect(() => {
     if (still || (done && flow.lead >= TAIL)) return;
@@ -39,7 +43,7 @@ function useFlowingText(target: string): { shown: string; lead: number } {
     });
     return () => cancelAnimationFrame(frame);
   }, [flow, target, still, done]);
-  return still ? { shown: target, lead: TAIL } : { shown: target.slice(0, Math.min(flow.shown, target.length)), lead: flow.lead };
+  return still ? { shown: target, lead: TAIL } : { shown: target.slice(0, flow.shown), lead: flow.lead };
 }
 
 /** The opacity of the character `distance` places before the end of the text. */
@@ -100,8 +104,8 @@ function fadeTail(root: HTMLElement, lead: number) {
  * written it is open and flows; once the turn has moved on it folds into a
  * row, in place, that opens again on demand.
  */
-const LiveThought = memo(function LiveThought({ text, active, onProgress }: { text: string; active: boolean; onProgress?: () => void }) {
-  const { shown, lead } = useFlowingText(text);
+const LiveThought = memo(function LiveThought({ text, active, direct, onProgress }: { text: string; active: boolean; direct: boolean; onProgress?: () => void }) {
+  const { shown, lead } = useFlowingText(text, direct || !active);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
@@ -122,14 +126,16 @@ const LiveThought = memo(function LiveThought({ text, active, onProgress }: { te
   </li>;
 });
 
-const LiveText = memo(function LiveText({ text, renderMarkdown, onProgress }: { text: string; renderMarkdown: (markdown: string) => string; onProgress?: () => void }) {
-  const { shown, lead } = useFlowingText(text);
+const LiveText = memo(function LiveText({ text, renderMarkdown, direct, onProgress }: { text: string; renderMarkdown: (markdown: string) => string; direct: boolean; onProgress?: () => void }) {
+  const { shown, lead } = useFlowingText(text, direct);
   const box = useRef<HTMLDivElement | null>(null);
   // Rendered again only when more text is shown, not while the fade moves on.
   const html = useMemo(() => renderMarkdown(shown), [renderMarkdown, shown]);
   useEffect(() => { onProgress?.(); }, [shown, onProgress]);
   // After React has written the Markdown, and again as the fade moves on.
-  useLayoutEffect(() => { if (box.current) fadeTail(box.current, lead); }, [html, lead]);
+  useLayoutEffect(() => {
+    if (box.current && (!direct || box.current.querySelector('.agent-tail'))) fadeTail(box.current, lead);
+  }, [html, lead, direct]);
   return <div ref={box} className="agent-live-text chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />;
 });
 
@@ -170,42 +176,6 @@ function WorkingHead({ name, since, stage, stageAt, hasTools, toolLabel, tailKin
   </header>;
 }
 
-/**
- * Follows a session's running turn: one long poll at a time, each answered
- * when the turn changes. `onFrame` receives every poll, with the timeline to
- * show when the poll carried one. Returns the function that stops following.
- */
-function followTimeline(sessionId: string, requestId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void): () => void {
-  const controller = new AbortController();
-  let timer = 0;
-  let cursor: LiveCursor | undefined;
-  let shown: TimelineItem[] = [];
-  const pause = (ms: number) => new Promise<void>(resolve => { timer = window.setTimeout(resolve, ms); });
-  void (async () => {
-    await pause(300);
-    while (!controller.signal.aborted) {
-      try {
-        const live = await getLive(sessionId, cursor, controller.signal, requestId);
-        if (controller.signal.aborted) return;
-        // Without a cursor the answer is the whole timeline.
-        const merged = mergeTimeline(cursor ? shown : [], live);
-        if (merged.resync) { cursor = undefined; await pause(200); continue; }
-        if (live.version) shown = merged.items;
-        onFrame(live.version ? shown : null, live);
-        // Before the turn is registered, or on a server without live output, poll gently.
-        if (live.version === null) { cursor = undefined; await pause(1200); }
-        else if (live.version === 0) { cursor = undefined; await pause(500); }
-        else cursor = timelineCursor(live.version, shown);
-      } catch {
-        if (controller.signal.aborted) return;
-        cursor = undefined;
-        await pause(1500);
-      }
-    }
-  })();
-  return () => { controller.abort(); window.clearTimeout(timer); };
-}
-
 /** Stages in which the model itself is writing, so its speed means something. */
 const WRITING_STAGES = ['thinking', 'writing', 'preparing'];
 
@@ -215,12 +185,13 @@ const WRITING_STAGES = ['thinking', 'writing', 'preparing'];
  * they happen. Nothing shown is taken back; when the turn ends the saved
  * reply takes this place with the same rows.
  */
-export function Working({ name, sessionId, requestId, stopping, renderMarkdown, onProgress }: {
+export function Working({ name, sessionId, requestId, stopping, direct, renderMarkdown, onProgress }: {
   name: string;
   sessionId?: string;
   requestId?: string;
   /** The user stopped the turn; it ends once the current step is done. */
   stopping?: boolean;
+  direct: boolean;
   renderMarkdown: (markdown: string) => string;
   /** Called as the live output grows, to keep it in view. */
   onProgress?: () => void;
@@ -231,10 +202,10 @@ export function Working({ name, sessionId, requestId, stopping, renderMarkdown, 
   // The server's stage and when it began on this device's clock.
   const [stage, setStage] = useState<{ id: string; at: number }>({ id: '', at: since });
   const [rate, setRate] = useState({ tokens: 0, ms: 0 });
-  // One long poll at a time: the server answers when the turn changes.
+  // Follow only this send, including across a stream reconnect.
   useEffect(() => {
     if (!sessionId || !requestId) return;
-    return followTimeline(sessionId, requestId, (shown, live) => {
+    return followLiveEvents(sessionId, requestId, (shown, live) => {
       if (shown) {
         setItems(shown);
         setRate({ tokens: live.rateTokens, ms: live.rateMs });
@@ -266,10 +237,10 @@ export function Working({ name, sessionId, requestId, stopping, renderMarkdown, 
         : <ol key={`rows:${group.rows[0].index}`} className="agent-steps-list agent-live-steps" aria-label="正在进行的步骤">
           {group.rows.map(({ step: item, index }) => item.kind === 'tool' ? <LiveTool key={index} item={item} />
             // The thought being written is open; once the turn has moved past it, it folds into a row in place.
-            : <LiveThought key={index} text={item.text} active={index === last} onProgress={onProgress} />)}
+            : <LiveThought key={index} text={item.text} active={index === last} direct={direct} onProgress={onProgress} />)}
         </ol>)}
       {/* The text being written now is the reply unless a tool call follows it. */}
-      {tail?.kind === 'text' ? <LiveText key={`text:${last}`} text={tail.text} renderMarkdown={renderMarkdown} onProgress={onProgress} /> : null}
+      {tail?.kind === 'text' ? <LiveText key={`text:${last}`} text={tail.text} renderMarkdown={renderMarkdown} direct={direct} onProgress={onProgress} /> : null}
     </div>
   </article>;
 }
