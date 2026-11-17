@@ -368,6 +368,14 @@ export async function listLibraries(signal?: AbortSignal): Promise<Library[]> {
   return data.libraries;
 }
 
+/** Owner-scoped change signal; an unchanged cursor can wait for up to 15 seconds. */
+export async function getLibraryChanges(cursor: string | undefined, signal: AbortSignal): Promise<string> {
+  const query = cursor === undefined ? '' : `?${new URLSearchParams({ cursor })}`;
+  const data = await authRequest<{ cursor?: unknown }>(`/api/libraries/changes${query}`, { signal }, 25_000);
+  if (typeof data?.cursor !== 'string' || !data.cursor) throw new AuthError(503);
+  return data.cursor;
+}
+
 export async function createLibrary(name: string, signal?: AbortSignal): Promise<Library> {
   const data = await authRequest<{ library: unknown }>('/api/libraries', { method: 'POST', body: JSON.stringify({ name }), signal });
   if (!isLibrary(data.library)) throw new AuthError(503);

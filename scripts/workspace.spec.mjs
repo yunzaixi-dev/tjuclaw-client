@@ -943,6 +943,220 @@ async function mockWorkspace(page, state, { seedWorkspaceUnlock = true } = {}) {
   });
 }
 
+// Two real browser contexts share only this mock server state. The opaque
+// cursor is owner-scoped; equal cursors wait unless a committed write wakes them.
+function noteSyncServer() {
+  const state = defaultState();
+  state.entries.push(noteC);
+  state.entryById[noteC.id] = { ...noteC };
+  let revision = 0;
+  const waiters = new Set();
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const cursor = () => `owner A / ${revision}`;
+  return {
+    state,
+    async connect(page) {
+      await mockWorkspace(page, state);
+      const requests = { polls: [], trees: 0, bodies: [], patches: [], aborted: 0, beforeSaveAck: null };
+      page.on('requestfailed', request => {
+        if (new URL(request.url()).pathname === '/api/libraries/changes') requests.aborted++;
+      });
+      await page.route('**/api/libraries/changes*', async route => {
+        const sent = new URL(route.request().url()).searchParams.get('cursor');
+        requests.polls.push(sent);
+        if (sent === cursor()) await new Promise(resolve => {
+          const done = () => { clearTimeout(timer); waiters.delete(done); resolve(); };
+          const timer = setTimeout(done, 15_000);
+          waiters.add(done);
+        });
+        await delay(20);
+        await json(route, 200, { cursor: cursor() }).catch(() => {});
+      });
+      await page.route(`**/api/libraries/${libA.id}/entries`, async route => {
+        requests.trees++;
+        const entries = state.entries.map(row => ({ ...row, body: undefined }));
+        await delay(20);
+        return json(route, 200, { entries });
+      });
+      await page.route(/\/api\/entries\/[0-9a-f]{32}$/, async route => {
+        const id = new URL(route.request().url()).pathname.split('/').at(-1);
+        const previous = state.entryById[id];
+        if (route.request().method() === 'GET') {
+          requests.bodies.push(id);
+          await delay(20);
+          return json(route, 200, { entry: previous });
+        }
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const { expected_updated_at, ...patch } = route.request().postDataJSON();
+        requests.patches.push(expected_updated_at);
+        await delay(20);
+        if (expected_updated_at !== state.entryById[id].updated_at) return json(route, 409, { error: { id: 'entry_conflict' } });
+        const entry = { ...previous, ...patch, updated_at: new Date(Date.parse(noteA.updated_at) + ++revision * 1000).toISOString() };
+        state.entryById[id] = entry;
+        state.entries = state.entries.map(row => row.id === id ? entry : row);
+        for (const wake of waiters) wake();
+        await requests.beforeSaveAck?.();
+        return json(route, 200, { entry });
+      });
+      return requests;
+    },
+    wake() { for (const wake of waiters) wake(); },
+  };
+}
+
+test.describe('live note sync', () => {
+  const editor = page => page.locator('.codemirror-editor .cm-content');
+  const title = page => page.getByRole('textbox', { name: '标题', exact: true });
+  const saved = page => page.locator('.workspace-statusbar');
+
+  async function devices(browser, baseURL, run) {
+    const server = noteSyncServer();
+    const contexts = await Promise.all([
+      browser.newContext({ baseURL, serviceWorkers: 'block' }),
+      browser.newContext({ baseURL, serviceWorkers: 'block', viewport: { width: 390, height: 844 } }),
+    ]);
+    try {
+      const pages = await Promise.all(contexts.map(context => context.newPage()));
+      const requests = await Promise.all(pages.map(page => server.connect(page)));
+      await Promise.all(pages.map(page => page.goto('/workspace')));
+      await Promise.all(pages.map(page => expect(editor(page)).toContainText(noteA.body)));
+      await expect.poll(() => requests.map(record => record.polls.slice(0, 2)), { timeout: 2500 })
+        .toEqual([[null, 'owner A / 0'], [null, 'owner A / 0']]);
+      await run(pages, requests, contexts, server);
+    } finally {
+      server.wake();
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  }
+
+  async function watchText(page, selector, text) {
+    await page.evaluate(({ selector, text }) => {
+      window.syncObservedAt = new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+          if (!document.querySelector(selector)?.textContent.includes(text)) return;
+          observer.disconnect();
+          resolve(performance.timeOrigin + performance.now());
+        });
+        observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+      });
+    }, { selector, text });
+  }
+
+  test('updates another device’s open editor and directory without loading unrelated bodies', async ({ browser, baseURL }) => {
+    await devices(browser, baseURL, async ([a, b], [, receiver], _contexts, server) => {
+      const initialReads = receiver.trees;
+      server.wake(); // Return the same cursor, as a long-poll timeout would.
+      await expect.poll(() => receiver.polls.length).toBeGreaterThan(2);
+      expect(receiver.trees).toBe(initialReads);
+      const samples = [];
+      for (let index = 1; index <= 5; ++index) {
+        const text = `Synced body ${index}`;
+        const revision = `Synced title ${index}`;
+        await title(a).fill(revision);
+        await expect(saved(a)).toContainText('保存中');
+        await Promise.all([
+          watchText(a, '.workspace-statusbar', '已保存'),
+          watchText(b, '.codemirror-editor .cm-content', text),
+        ]);
+        await editor(a).fill(text);
+        const [sent, received] = await Promise.all([a, b].map(page => page.evaluate(() => window.syncObservedAt)));
+        samples.push(Math.round(received - sent));
+        await expect(title(b)).toHaveValue(revision);
+        await expect(b.getByRole('button', { name: revision, exact: true, includeHidden: true }).first()).toBeAttached();
+      }
+      console.log('note-sync save acknowledged → remote editor (ms)', { samples, max: Math.max(...samples), mockResponseDelayMs: 20 });
+      expect(Math.max(...samples)).toBeLessThan(1000);
+      expect(receiver.bodies).toEqual(Array(6).fill(noteA.id));
+    });
+  });
+
+  test('keeps the original edit revision and draft through an in-flight save and conflict', async ({ browser, baseURL }) => {
+    await devices(browser, baseURL, async ([a, b], [, receiver]) => {
+      let release;
+      const held = new Promise(resolve => { release = resolve; });
+      let savingDraft = false;
+      await b.route(`**/api/entries/${noteA.id}`, async route => {
+        if (route.request().method() === 'PATCH') { savingDraft = true; await held; }
+        return route.fallback();
+      });
+      try {
+        await editor(b).fill('Unsaved receiver draft');
+        await expect.poll(() => savingDraft).toBe(true);
+        const before = receiver.trees;
+        await editor(a).fill('New committed version');
+        await expect(saved(a)).toContainText('保存中');
+        await expect(saved(a)).toContainText('已保存');
+        await expect.poll(() => receiver.trees).toBeGreaterThan(before);
+        await expect(editor(b)).toHaveText('Unsaved receiver draft');
+        release();
+        await expect(b.getByRole('button', { name: '加载云端版本' })).toBeVisible();
+        expect(receiver.patches).toEqual([noteA.updated_at]);
+        await editor(a).fill('Another committed version');
+        await expect.poll(() => receiver.polls.includes('owner A / 2')).toBe(true);
+        await expect(editor(b)).toHaveText('Unsaved receiver draft');
+        b.once('dialog', dialog => dialog.accept());
+        await b.getByRole('button', { name: '加载云端版本' }).click();
+        await expect(editor(b)).toHaveText('Another committed version');
+      } finally { release(); }
+    });
+  });
+
+  test('catches up after a newer remote update arrived before the local save acknowledgement', async ({ browser, baseURL }) => {
+    await devices(browser, baseURL, async ([a, b], [, receiver]) => {
+      let release;
+      const held = new Promise(resolve => { release = resolve; });
+      receiver.beforeSaveAck = () => held;
+      try {
+        await editor(b).fill('Committed with an acknowledgement in flight');
+        await expect(editor(a)).toHaveText('Committed with an acknowledgement in flight');
+        await editor(a).fill('New revision before the acknowledgement');
+        await expect.poll(() => receiver.polls.includes('owner A / 2')).toBe(true);
+        await expect(editor(b)).toHaveText('Committed with an acknowledgement in flight');
+        release();
+        await expect(editor(b)).toHaveText('New revision before the acknowledgement');
+      } finally { release(); }
+    });
+  });
+
+  test('cancels its wait offline and catches up with a new handshake on reconnect', async ({ browser, baseURL }) => {
+    await devices(browser, baseURL, async ([a, b], [, receiver], [, receiverContext]) => {
+      await receiverContext.setOffline(true);
+      await expect.poll(() => receiver.aborted).toBe(1);
+      const before = receiver.polls.length;
+      await editor(a).fill('Committed while receiver offline');
+      await expect(saved(a)).toContainText('保存中');
+      await expect(saved(a)).toContainText('已保存');
+      await expect(editor(b)).toHaveText(noteA.body);
+      expect(receiver.polls).toHaveLength(before);
+      await receiverContext.setOffline(false);
+      await expect(editor(b)).toHaveText('Committed while receiver offline');
+      expect(receiver.polls[before]).toBeNull();
+    });
+  });
+
+  test('drops an old account’s outstanding wait before starting the new account’s loop', async ({ browser, baseURL }) => {
+    await devices(browser, baseURL, async ([a, b], [, receiver]) => {
+      const bState = { ...defaultState(), session: syntheticSessionB, libraries: [libB], entries: [guideB], entryById: { [guideB.id]: guideB } };
+      const bCursor = [];
+      // Keep the original long poll held, even as the session cookie changes.
+      await mockWorkspace(b, bState, { seedWorkspaceUnlock: false });
+      await b.route('**/api/libraries/changes*', route => {
+        bCursor.push(new URL(route.request().url()).searchParams.get('cursor'));
+        return json(route, 200, { cursor: 'owner B / 0' });
+      });
+      await b.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect.poll(() => receiver.aborted).toBe(1);
+      await expect.poll(() => bCursor.slice(0, 2)).toEqual([null, 'owner B / 0']);
+      await editor(a).fill('Only for the old account');
+      await expect(saved(a)).toContainText('保存中');
+      await expect(saved(a)).toContainText('已保存');
+      await expect(editor(b)).toHaveCount(0);
+      await expect(b.getByRole('button', { name: noteA.title, exact: true, includeHidden: true })).toHaveCount(0);
+      expect(receiver.bodies).toEqual([noteA.id]);
+    });
+  });
+});
+
 test.describe('Workspace mocked contract suite', () => {
   for (const theme of ['light', 'dark']) {
     for (const mobile of [false, true]) {

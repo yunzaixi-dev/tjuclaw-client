@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowUp, ArrowRight, BookOpen, Check, CheckSquare, History, SquareStack, ChevronDown, ChevronRight, Copy, FileText, FilePlus2, Folder, FolderInput, FolderOpen, FolderPlus, ListTree, Network, PanelLeft, Plus, Search, SquarePen, House, LibraryBig, MessageCircle, Settings, StickyNote, Trash2, X, Eye, Pencil, MoreHorizontal, Quote, Table2, MoveRight, FileUp, FilePenLine, Paperclip, Blocks, Plug, BriefcaseBusiness, Cloud, Laptop, FolderGit2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -31,7 +31,8 @@ import { attempt } from './lib/attempt';
 import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
 import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
-import { clearEntryCache, enableEntryReplica, hydrateEntryCache, justLoaded, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
+import { cachedEntry, clearEntryCache, enableEntryReplica, hydrateEntryCache, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
+import { syncLibrary } from './lib/library-sync';
 import { observeMarkdownImages, prepareMarkdownImage } from './lib/markdown-images';
 import './components/markdown-images.css';
 import { clearRemoteWorkspaceUnlocks, clearWorkspaceUnlock, forgetRememberedWorkspaces, isWorkspaceUnlocked, workspacePassphraseState, workspaceVerification, type WorkspacePassphraseState, type WorkspaceVerification } from './lib/workspace-vault';
@@ -553,6 +554,8 @@ function downloadLegacyAnkiBackup() {
 export default function Workspace() {
   const [boot] = useState(bootCachedWorkspace);
   const [session, setSession] = useState<IdentitySession | null>(boot?.session ?? null);
+  const [verifiedSession, setVerifiedSession] = useState<IdentitySession | null>(null);
+  const [readyLibraryId, setReadyLibraryId] = useState<string | null>(null);
   const [libraries, setLibraries] = useState<Library[]>(boot ? [boot.library] : []);
   const [entries, setEntries] = useState<Entry[]>(boot?.items ?? []);
   // Notes show images by the library file's name or path.
@@ -648,17 +651,21 @@ export default function Workspace() {
   const [saving, setSaving] = useState(false);
   const [operations, setOperations] = useState<Record<string, string>>({});
   const operationLocks = useRef(new Map<string, symbol>());
+  const treeMutation = useRef(0);
   const noteRequestRef = useRef(0);
 
   function beginOperation(key: string, label: string) {
     if (operationLocks.current.has(key)) return null;
     const token = Symbol(key);
     const generation = identityGeneration.current;
+    const mutatesTree = !key.startsWith('open:');
+    if (mutatesTree) ++treeMutation.current;
     operationLocks.current.set(key, token);
     setOperations(current => ({ ...current, [key]: label }));
     return () => {
       if (operationLocks.current.get(key) !== token) return;
       operationLocks.current.delete(key);
+      if (mutatesTree) ++treeMutation.current;
       if (generation !== identityGeneration.current) return;
       setOperations(current => {
         const next = { ...current };
@@ -704,10 +711,15 @@ export default function Workspace() {
   const saveTimer = useRef<number>(0);
   const pendingSave = useRef<{ id: string; title: string; body: string; generation: number; version: number } | null>(null);
   const saveVersions = useRef<Record<string, number>>({});
-  const entryRevisions = useRef<Record<string, string>>({});
+  const draftsToSave = useRef(new Map<string, number>());
+  const deferredNoteRevisions = useRef(new Map<string, string | null>());
+  const [syncCatchUp, setSyncCatchUp] = useState(0);
+  const entryRevisions = useRef<Record<string, string>>(boot?.selected ? { [boot.selected.id]: boot.selected.updated_at } : {});
   const conflictedEntries = useRef<Set<string>>(new Set());
   const [saveConflictId, setSaveConflictId] = useState<string | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
+  const librarySync = useRef<AbortController | null>(null);
+  const refreshSession = useRef<() => void>(() => {});
   const draftsRef = useRef<Record<string, string>>({});
   const chatCacheRef = useRef<Record<string, ChatSession>>({});
   // Which conversation each Agent shows: a session ID, 'new' for a fresh one,
@@ -827,6 +839,26 @@ export default function Workspace() {
     setDraft(value);
   }
 
+  function protectsNote(id: string) {
+    return draftsToSave.current.has(id) || failedSave.current?.id === id || conflictedEntries.current.has(id);
+  }
+
+  function markNoteSaved(entry: Entry, version: number) {
+    ++treeMutation.current;
+    const id = entry.id;
+    if (draftsToSave.current.get(id) === version) draftsToSave.current.delete(id);
+    const deferred = deferredNoteRevisions.current.get(id);
+    deferredNoteRevisions.current.delete(id);
+    // A different device may have committed another revision while our save
+    // was already on the server but its acknowledgement was still in flight.
+    if (deferred !== undefined && deferred !== entry.updated_at) setSyncCatchUp(value => value + 1);
+    if (failedSave.current?.id === id) {
+      failedSave.current = null;
+      setSaveFailedId(null);
+    }
+    setSaving(false);
+  }
+
   function flushPendingSave() {
     window.clearTimeout(saveTimer.current);
     const pending = pendingSave.current;
@@ -842,13 +874,9 @@ export default function Workspace() {
         entryRevisions.current[entry.id] = entry.updated_at;
         rememberEntry(entry);
         if (saveVersions.current[entry.id] === pending.version) {
-          if (failedSave.current?.id === entry.id) {
-            failedSave.current = null;
-            setSaveFailedId(null);
-          }
+          markNoteSaved(entry, pending.version);
           setEntries(items => items.map(item => item.id === entry.id ? entry : item));
           setSelected(current => current?.id === entry.id ? entry : current);
-          setSaving(false);
         }
       }, async (cause) => {
         if (pending.generation === identityGeneration.current) {
@@ -860,13 +888,10 @@ export default function Workspace() {
               if (pending.generation !== identityGeneration.current || saveVersions.current[pending.id] !== pending.version) return;
               if (latest.title === pending.title && latest.body === pending.body) {
                 entryRevisions.current[latest.id] = latest.updated_at;
-                if (failedSave.current?.id === latest.id) {
-                  failedSave.current = null;
-                  setSaveFailedId(null);
-                }
+                rememberEntry(latest);
+                markNoteSaved(latest, pending.version);
                 setEntries(items => items.map(item => item.id === latest.id ? latest : item));
                 setSelected(current => current?.id === latest.id ? latest : current);
-                setSaving(false);
                 setError('');
                 return;
               }
@@ -929,6 +954,10 @@ export default function Workspace() {
       const entry = await getEntry(saveConflictId);
       if (generation !== identityGeneration.current) return;
       entryRevisions.current[entry.id] = entry.updated_at;
+      rememberEntry(entry);
+      ++treeMutation.current;
+      draftsToSave.current.delete(entry.id);
+      deferredNoteRevisions.current.delete(entry.id);
       conflictedEntries.current.delete(entry.id);
       conflictDraft.current = null;
       setSaveConflictId(null);
@@ -1448,17 +1477,25 @@ export default function Workspace() {
   // next time and, if it is newer and the note has not been edited or left
   // meanwhile, show it. An edited note keeps its text; saving it then reports
   // the conflict as before.
-  async function refreshFromServer(shown: Entry, generation: number, request: number, version: number) {
-    const fresh = await attempt(() => loadEntry(shown.id), () => null);
-    if (!fresh || generation !== identityGeneration.current) return;
-    if (fresh.updated_at === shown.updated_at || request !== noteRequestRef.current ||
-      (saveVersions.current[shown.id] ?? 0) !== version || conflictedEntries.current.has(shown.id)) return;
-    entryRevisions.current[shown.id] = fresh.updated_at;
-    setEntries(items => items.map(item => item.id === fresh.id ? fresh : item));
+  function showSyncedNote(fresh: Entry) {
+    entryRevisions.current[fresh.id] = fresh.updated_at;
     setSelected(current => current?.id === fresh.id ? fresh : current);
     setTabs(current => current.map(tab => tab.entryId === fresh.id ? { ...tab, title: fresh.title || '未命名笔记' } : tab));
     setTitle(fresh.title);
     setBody(fresh.body ?? '');
+  }
+
+  async function refreshFromServer(shown: Entry, generation: number, request: number, version: number) {
+    if (protectsNote(shown.id)) return;
+    const revision = entryRevisions.current[shown.id];
+    const fresh = await attempt(() => getEntry(shown.id), () => null);
+    if (!fresh || generation !== identityGeneration.current) return;
+    if (fresh.updated_at === shown.updated_at || request !== noteRequestRef.current ||
+      entryRevisions.current[shown.id] !== revision || (saveVersions.current[shown.id] ?? 0) !== version || protectsNote(shown.id)) return;
+    ++treeMutation.current;
+    rememberEntry(fresh);
+    setEntries(items => items.map(item => item.id === fresh.id ? fresh : item));
+    showSyncedNote(fresh);
   }
 
   async function openEntry(id: string, loadedItem?: Entry, targetTabKey?: string, historyIndex?: number, preserveSidebar = false) {
@@ -1483,7 +1520,7 @@ export default function Workspace() {
     if (item.kind === 'note' || item.kind === 'rich_text') {
       // Memory and the localStorage mirror are synchronous: a hit paints in
       // this click, with no progress indicator. Disk is only awaited on a miss.
-      const local = peekNote(item) ?? (item.body === undefined ? await localNote(item, !loading) : null);
+      const local = protectsNote(id) ? null : peekNote(item) ?? (item.body === undefined ? await localNote(item, !loading) : null);
       if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
       if (local) {
         fromDevice = local.entry;
@@ -1507,8 +1544,8 @@ export default function Workspace() {
       if (generation !== identityGeneration.current || request !== noteRequestRef.current) return;
       if (!canLeaveDraft(id)) return;
     }
-    if ((item.kind === 'note' || item.kind === 'rich_text') && !entryRevisions.current[id]) {
-      entryRevisions.current[id] = item.updated_at;
+    if ((item.kind === 'note' || item.kind === 'rich_text') && !protectsNote(id)) {
+      entryRevisions.current[id] = fromDevice && !revisionMatches ? fromDevice.updated_at : item.updated_at;
     }
     flushPendingSave();
     const compatible = (tab: WorkspaceTab) => item.kind === 'agent' ? tab.kind === 'agent' || tab.kind === 'agent-blank' : tab.kind === 'note' || tab.kind === 'rich_text' || tab.kind === 'file' || tab.kind === 'blank';
@@ -1536,7 +1573,7 @@ export default function Workspace() {
       setEntries(rows => rows.map(row => row.id === id && row.body === item.body ? row : row.id === id ? { ...row, body: item.body } : row));
     }
     // chooseTab advanced the counter; a later selection advances it again.
-    if (fromDevice && !revisionMatches && !justLoaded(id)) void refreshFromServer(fromDevice, generation, noteRequestRef.current, saveVersions.current[id] ?? 0);
+    if (fromDevice && !revisionMatches) void refreshFromServer(fromDevice, generation, noteRequestRef.current, saveVersions.current[id] ?? 0);
     setView(item.kind === 'agent' ? 'sessions' : 'notes');
     if (!preserveSidebar && window.innerWidth <= 720) setSidebarOpen(false);
     // Like Notion, the page opens without a side panel; the outline is on demand.
@@ -1927,6 +1964,92 @@ export default function Workspace() {
     setPlacements(Object.fromEntries(items.filter(item => (item.kind === 'note' || item.kind === 'rich_text' || item.kind === 'file') && item.parent_id).map(item => [item.id, item.parent_id])));
   }
 
+  const libraryView = useRef({ entries, selected });
+  useLayoutEffect(() => {
+    libraryView.current = { entries, selected };
+  }, [entries, selected]);
+
+  async function reconcileLibrary(id: string, signal: AbortSignal) {
+    const generation = identityGeneration.current;
+    const mutation = treeMutation.current;
+    const canApply = () => !signal.aborted && generation === identityGeneration.current && mutation === treeMutation.current;
+    if (!canApply() || [...operationLocks.current.keys()].some(key => !key.startsWith('open:'))) return false;
+    const identity = await readSession(signal);
+    if (!canApply()) return false;
+    if (identity?.id !== identityRef.current) {
+      refreshSession.current();
+      return false;
+    }
+    const listed = await listEntries(id, signal);
+    if (!canApply()) return false;
+    if (listed.some(row => row.library_id !== id)) throw new AuthError(503);
+    const { selected } = libraryView.current;
+    const request = noteRequestRef.current;
+    const note = selected && (selected.kind === 'note' || selected.kind === 'rich_text') ? selected : null;
+    const remote = note && listed.find(row => row.id === note.id);
+    const version = note ? saveVersions.current[note.id] : undefined;
+    let fresh: Entry | undefined;
+    if (note && remote && !protectsNote(note.id) && remote.updated_at !== entryRevisions.current[note.id]) {
+      fresh = typeof remote.body === 'string' ? remote : cachedEntry(remote) ?? await getEntry(note.id, signal);
+      if (fresh.id !== note.id || fresh.library_id !== id || typeof fresh.body !== 'string') throw new AuthError(503);
+    }
+    // A save or a selection may have raced with the body request. Re-read
+    // rather than repaint older bytes or swallow the change for the new tab.
+    if (!canApply() || request !== noteRequestRef.current || (note && version !== saveVersions.current[note.id])) return false;
+    const local = new Map(libraryView.current.entries.map(row => [row.id, row]));
+    const items = listed.map(row => {
+      const prior = local.get(row.id);
+      local.delete(row.id);
+      if (protectsNote(row.id)) {
+        if (row.updated_at === entryRevisions.current[row.id]) deferredNoteRevisions.current.delete(row.id);
+        else deferredNoteRevisions.current.set(row.id, row.updated_at);
+        if (prior) return prior;
+      }
+      if (fresh?.id === row.id) return { ...row, ...fresh, sort_order: row.sort_order };
+      if (row.body === undefined && prior?.updated_at === row.updated_at && prior.body !== undefined) return { ...row, body: prior.body };
+      return row;
+    });
+    // A remote delete must not remove an unsaved note from the tree/editor.
+    for (const [id, row] of local) {
+      if (!protectsNote(id)) continue;
+      deferredNoteRevisions.current.set(id, null);
+      items.push(row);
+    }
+    const rows = new Map(items.map(row => [row.id, row]));
+    if (fresh && !protectsNote(fresh.id)) {
+      rememberEntry(fresh);
+      showSyncedNote(fresh);
+    } else if (note && !rows.has(note.id) && !protectsNote(note.id)) {
+      paintedNoteRef.current = 'home';
+      chooseTab(null);
+      setSelected(null);
+      setSelectedId(null);
+      setTitle('');
+      setBody('');
+      setRailOpen(false);
+    }
+    setTabs(current => current.map(tab => {
+      if (!tab.entryId || !['note', 'rich_text', 'file'].includes(tab.kind)) return tab;
+      const row = rows.get(tab.entryId);
+      if (row) return row.title === tab.title ? tab : { ...tab, title: row.title || '未命名笔记' };
+      return { ...tab, kind: 'blank', title: '新建笔记', entryId: undefined, history: [], historyIndex: -1 };
+    }));
+    showTree(items);
+    return true;
+  }
+
+  const liveLibraryId = !loading && !workspaceGate && library?.id === readyLibraryId && library?.role !== 'subscribed' ? readyLibraryId : null;
+  useEffect(() => {
+    if (!verifiedSession || !liveLibraryId || verifiedSession.id !== identityRef.current || document.visibilityState !== 'visible' || !navigator.onLine) return;
+    const controller = new AbortController();
+    librarySync.current = controller;
+    void syncLibrary(controller.signal, () => reconcileLibrary(liveLibraryId, controller.signal));
+    return () => {
+      controller.abort();
+      if (librarySync.current === controller) librarySync.current = null;
+    };
+  }, [verifiedSession, liveLibraryId, syncCatchUp]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** Paints the last tree and a cached note before any network answer. No opening screen. */
   function paintCachedTree(tree: WorkspaceTree) {
     treeVerification.current = tree.verification;
@@ -1968,8 +2091,15 @@ export default function Workspace() {
     setLoadStep('entries');
     // Flashcards do not depend on the note tree: both load at once.
     const flashcards = loadAnkiData(generation);
-    const items = (await listEntries(activeLibrary.id)).map(listedWithCache);
+    const listed = await listEntries(activeLibrary.id);
     if (generation !== identityGeneration.current) return;
+    const protectedRows = new Map(libraryView.current.entries.filter(row => row.library_id === activeLibrary.id && protectsNote(row.id)).map(row => [row.id, row]));
+    const items = listed.map(row => {
+      const local = protectedRows.get(row.id);
+      protectedRows.delete(row.id);
+      return local ?? listedWithCache(row);
+    });
+    items.push(...protectedRows.values());
     pruneEntryCache(items);
     showTree(items);
     const identity = identityRef.current;
@@ -1988,7 +2118,7 @@ export default function Workspace() {
     // is fetched in the background, without a progress indicator.
     const paintedId = paintedNoteRef.current;
     const restoredHome = paintedId === 'home';
-    if (paintedId && !restoredHome && !items.some(item => item.id === paintedId)) {
+    if (paintedId && !restoredHome && !protectsNote(paintedId) && !items.some(item => item.id === paintedId)) {
       paintedNoteRef.current = null;
       setSelected(null);
       setSelectedId(null);
@@ -2001,14 +2131,15 @@ export default function Workspace() {
       // An older local body keeps its own revision, so saving it reports the conflict.
       if (entryRevisions.current[painted.id] === undefined) entryRevisions.current[painted.id] = stored && !stored.fresh ? stored.entry.updated_at : painted.updated_at;
       if (stored && !stored.fresh) void refreshFromServer(stored.entry, generation, noteRequestRef.current, saveVersions.current[painted.id] ?? 0);
-      else {
+      else if (!protectsNote(painted.id)) {
         setSelected(current => current?.id === painted.id ? { ...current, title: painted.title, updated_at: painted.updated_at } : current);
         setTitle(painted.title);
       }
     }
     // A cached home or note is already on screen. Do not replace it with a
     // fetch spinner. Only a cold visit still opens the first note.
-    const opening = firstNote && !painted && !restoredHome ? openEntry(firstNote.id, firstNote) : null;
+    const keepDraft = paintedId && protectsNote(paintedId);
+    const opening = firstNote && !painted && !restoredHome && !keepDraft ? openEntry(firstNote.id, firstNote) : null;
     opening?.catch(() => undefined);
     setLoadStep('cards');
     await flashcards;
@@ -2016,7 +2147,7 @@ export default function Workspace() {
     if (opening) {
       setLoadStep('note');
       await opening;
-    } else if (!painted && !restoredHome) {
+    } else if (!painted && !restoredHome && !keepDraft) {
       ++chatRequestRef.current;
       setView('notes');
       chooseTab('home');
@@ -2027,6 +2158,7 @@ export default function Workspace() {
       setChat(null);
       setRailOpen(false);
     }
+    setReadyLibraryId(activeLibrary.id);
   }
 
   async function continueAfterWorkspaceUnlock(createdWorkspace?: Library) {
@@ -2102,18 +2234,29 @@ export default function Workspace() {
 
   useEffect(() => {
     let active = true;
+    let checking: AbortController | undefined;
+    let retry = 0;
+    let delay = 1000;
     const refresh = () => {
-      if (document.visibilityState !== 'visible') return;
+      window.clearTimeout(retry);
+      checking?.abort();
+      librarySync.current?.abort();
+      setVerifiedSession(null);
+      if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+      const controller = new AbortController();
+      checking = controller;
       // On the first load, ask for the workspace list and vault mode together
       // with the session instead of after it; a signed-out visitor is
       // redirected by the session answer and these are simply dropped.
       const early = identityRef.current ? undefined : { libraries: listLibraries(), verification: workspaceVerification() };
       early?.libraries.catch(() => undefined);
       early?.verification.catch(() => undefined);
-      void readSession().then(next => {
-        if (!active) return;
+      void readSession(controller.signal).then(next => {
+        if (!active || controller.signal.aborted) return;
+        delay = 1000;
         if (!next) { dropSessionSnapshot(); location.replace('/auth/login'); return; }
         writeSessionSnapshot(next);
+        setVerifiedSession(next);
         if (identityRef.current === next.id) {
           setSession(next);
           // The cached page is already up. Still ask the cloud, without a spinner.
@@ -2136,6 +2279,7 @@ export default function Workspace() {
         window.clearTimeout(saveTimer.current);
         setSession(next);
         setLibraries([]);
+        setReadyLibraryId(null);
         setEntries([]);
         ankiDeckIdRef.current = null;
         ++ankiDeckRequest.current;
@@ -2183,6 +2327,9 @@ export default function Workspace() {
         conflictDraft.current = null;
         setSaveFailedId(null);
         saveVersions.current = {};
+        draftsToSave.current.clear();
+        deferredNoteRevisions.current.clear();
+        saveChain.current = Promise.resolve();
         entryRevisions.current = {};
         conflictedEntries.current.clear();
         setSaveConflictId(null);
@@ -2192,11 +2339,29 @@ export default function Workspace() {
         setSaving(false);
         setLoading(true);
         void load(generation, early);
-      }).catch(() => { if (active && !identityRef.current) setLoading(false); });
+      }).catch(() => {
+        if (!active || controller.signal.aborted) return;
+        if (!identityRef.current) setLoading(false);
+        else {
+          retry = window.setTimeout(refresh, delay);
+          delay = Math.min(delay * 2, 30_000);
+        }
+      });
     };
+    refreshSession.current = refresh;
     refresh();
     document.addEventListener('visibilitychange', refresh);
-    return () => { active = false; document.removeEventListener('visibilitychange', refresh); window.clearTimeout(saveTimer.current); };
+    window.addEventListener('online', refresh);
+    window.addEventListener('offline', refresh);
+    return () => {
+      active = false;
+      checking?.abort();
+      window.clearTimeout(retry);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('offline', refresh);
+      window.clearTimeout(saveTimer.current);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -2368,6 +2533,7 @@ export default function Workspace() {
     const id = selected.id;
     const version = (saveVersions.current[id] ?? 0) + 1;
     saveVersions.current[id] = version;
+    draftsToSave.current.set(id, version);
     pendingSave.current = { id, title: nextTitle, body: nextBody, generation, version };
     if (failedSave.current?.id === id) {
       failedSave.current = null;
@@ -2942,6 +3108,8 @@ export default function Workspace() {
 
   function logoutWorkspace() {
     if (hasPrivateDrafts() && !window.confirm('私密笔记还有未保存的草稿。退出登录会丢失草稿，确定继续吗？')) return;
+    librarySync.current?.abort();
+    setVerifiedSession(null);
     clearRemoteWorkspaceUnlocks();
     clearPrivateDrafts();
     clearEntryCache();
