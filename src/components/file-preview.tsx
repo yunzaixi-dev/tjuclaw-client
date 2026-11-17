@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Download, FileText } from 'lucide-react';
 import { downloadFile, type Entry } from '../lib/library';
 import { PagedReader } from './paged-reader';
@@ -13,6 +13,7 @@ type PreviewKind = 'image' | 'audio' | 'video' | 'pdf' | 'epub' | 'sheet' | null
 // compiler cannot compile a dynamic import.
 const loadEpub = () => import('../lib/epub');
 const loadXlsx = () => import('../lib/xlsx');
+const PdfPreview = lazy(() => import('./pdf-preview'));
 
 function previewKind(entry: Entry): PreviewKind {
   const type = entry.content_type?.split(';')[0]?.trim().toLowerCase();
@@ -29,6 +30,7 @@ function previewKind(entry: Entry): PreviewKind {
 export function FilePreview({ entry, renameRequest, onRename }: { entry: Entry; renameRequest: number; onRename: (name: string) => void }) {
   const kind = previewKind(entry);
   const [url, setUrl] = useState('');
+  const [pdf, setPdf] = useState<Blob | null>(null);
   const [book, setBook] = useState<EpubBook | null>(null);
   const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [error, setError] = useState('');
@@ -69,10 +71,21 @@ export function FilePreview({ entry, renameRequest, onRename }: { entry: Entry; 
         if (kind === 'pdf' && !(await blob.slice(0, 5).text()).startsWith('%PDF-')) throw new Error('invalid_pdf');
         if (!previewKind({ ...entry, content_type: blob.type })) throw new Error('unsupported_type');
         if (controller.signal.aborted) return;
+        if (kind === 'pdf') {
+          // PDF.js 6 legacy supports Chromium/WebView 125+. Its newer API
+          // polyfills cannot replace these baseline features; never patch globals.
+          if (!('withResolvers' in Promise) || !('any' in AbortSignal)) throw new Error('pdf_webview_outdated');
+          setPdf(blob);
+          return;
+        }
         objectURL = URL.createObjectURL(blob);
         setUrl(objectURL);
       })
-      .catch(() => { if (!controller.signal.aborted) setError('预览暂不可用，可下载原件。'); });
+      .catch(error => {
+        if (!controller.signal.aborted) setError(error instanceof Error && error.message === 'pdf_webview_outdated'
+          ? '当前浏览器内核过旧，请更新 Android System WebView 或浏览器后重试；也可下载原件。'
+          : '预览暂不可用，可下载原件。');
+      });
     return () => { controller.abort(); if (objectURL) URL.revokeObjectURL(objectURL); };
   }, [entry, kind]);
   if (kind === 'epub' && book) {
@@ -87,10 +100,10 @@ export function FilePreview({ entry, renameRequest, onRename }: { entry: Entry; 
     {error ? <p className="file-preview-message" role="alert">{error}</p> : null}
     {!kind ? <div className="file-preview-placeholder"><FileText size={30} /><p>此格式暂不支持在线预览</p><small>原件已保留，可下载后用本地应用打开。</small></div>
       : error ? null : kind === 'sheet' ? sheets ? <SheetView sheets={sheets} /> : <p className="file-preview-message">正在读取表格…</p>
+      : kind === 'pdf' ? pdf ? <Suspense fallback={<p className="file-preview-message">正在打开 PDF…</p>}><PdfPreview key={entry.id} blob={pdf} /></Suspense> : <p className="file-preview-message">正在加载预览…</p>
       : !url ? <p className="file-preview-message">{kind === 'epub' ? '正在打开图书…' : '正在加载预览…'}</p>
         : kind === 'image' ? <img src={url} alt={entry.title} onError={() => setError('图片预览失败，可下载原件检查，或刷新后重试。')} />
           : kind === 'audio' ? <audio controls src={url} aria-label={entry.title} />
-            : kind === 'video' ? <video controls src={url} aria-label={entry.title} />
-              : <iframe title={`${entry.title} PDF 预览`} src={url} sandbox="" />}
+            : <video controls src={url} aria-label={entry.title} />}
   </div>;
 }

@@ -1,0 +1,7 @@
+.pdf-preview { width: 100%; min-width: 0; }
+.pdf-preview-controls { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px; }
+.pdf-preview-controls button { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 5px; color: var(--foreground); background: var(--surface); }
+.pdf-preview-controls button:disabled { opacity: .4; }
+.pdf-preview-controls button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.pdf-preview-controls span { min-width: 6em; text-align: center; font-variant-numeric: tabular-nums; }
+.pdf-preview canvas { display: block; max-width: 100%; margin: 0 auto; background: white; }
