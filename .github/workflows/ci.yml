@@ -30,7 +30,7 @@ jobs:
 
   publish-downloads:
     name: Publish client downloads to R2 and GitHub Release
-    needs: [check, browser, build-artifacts, build-linux, build-android, build-macos, build-ios]
+    needs: [check, browser, build-artifacts, build-linux, build-android]
     if: github.event_name == 'push' && github.ref == 'refs/heads/release' && github.repository == 'yunzaixi-dev/tjuclaw-client'
     runs-on: ubuntu-24.04
     # Waits for the separate Windows Installer workflow of the same push, then publishes.

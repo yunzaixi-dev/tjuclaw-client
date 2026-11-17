@@ -136,7 +136,7 @@ test('validateReleaseAncestry rejects commits not on release ancestry', async ()
 test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and all required jobs pass', async () => {
   const sourceSha = '0123456789abcdef0123456789abcdef01234567';
   const repo = EXPECTED_GITHUB_REPO;
-  let includeAppleJobs = true;
+  let androidConclusion = 'success';
 
   const mockFetchSuccess = async (url) => {
     if (url.includes('/actions/runs?')) {
@@ -180,11 +180,7 @@ test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and a
         json: async () => ({
           jobs: [
             { name: 'Build Linux amd64 Debian package', status: 'completed', conclusion: 'success' },
-            { name: 'Build Android debug arm64 APK', status: 'completed', conclusion: 'success' },
-            ...(includeAppleJobs ? [
-              { name: 'Build unsigned universal macOS app', status: 'completed', conclusion: 'success' },
-              { name: 'Compile unsigned iOS device and simulator archives', status: 'completed', conclusion: 'success' },
-            ] : []),
+            { name: 'Build Android debug arm64 APK', status: 'completed', conclusion: androidConclusion },
             { name: 'Portable checks', status: 'completed', conclusion: 'success' },
             { name: 'Build Web Client', status: 'completed', conclusion: 'success' },
             { name: 'Browser UI and workspace regression', status: 'completed', conclusion: 'success' },
@@ -209,10 +205,10 @@ test('findSuccessfulWorkflowRuns verifies CI and Windows Installer succeed and a
   const runs = await findSuccessfulWorkflowRuns(sourceSha, repo, 'token', mockFetchSuccess);
   assert.equal(runs['CI'].id, 100);
   assert.equal(runs['Windows Installer'].id, 101);
-  includeAppleJobs = false;
+  androidConclusion = 'failure';
   await assert.rejects(
     () => findSuccessfulWorkflowRuns(sourceSha, repo, 'token', mockFetchSuccess),
-    /Required job "Build unsigned universal macOS app".*was not successful/
+    /Required job "Build Android debug arm64 APK".*was not successful/
   );
 });
 
@@ -562,8 +558,8 @@ test('CI mode checks its own run and waits for the Windows Installer of the same
         jobs_url: `https://api.github.com/repos/${EXPECTED_GITHUB_REPO}/actions/runs/7/jobs` });
     }
     if (url.includes('/runs/7/jobs')) {
-      return okJobs(['Build Linux amd64 Debian package', 'Build Android debug arm64 APK', 'Build unsigned universal macOS app',
-        'Compile unsigned iOS device and simulator archives', 'Portable checks', 'Build Web Client', 'Browser UI and workspace regression']);
+      return okJobs(['Build Linux amd64 Debian package', 'Build Android debug arm64 APK',
+        'Portable checks', 'Build Web Client', 'Browser UI and workspace regression']);
     }
     if (url.includes('/actions/runs?head_sha=')) {
       polls++;
