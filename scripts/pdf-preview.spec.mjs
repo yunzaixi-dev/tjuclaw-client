@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createServer } from 'vite';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createEdgeoneConfig } from './edgeone-config.mjs';
 
 // A real two-page PDF: the parser and canvas renderer must process its bytes.
@@ -137,7 +139,7 @@ test('legacy reader handles missing recent URL/Base64 APIs in the page and worke
   let workers = 0;
   const warnings = [];
   page.on('console', message => { if (message.type() === 'warning' || message.type() === 'error') warnings.push(message.text()); });
-  await page.route(url => /pdf\.worker.*\.mjs$/.test(url.pathname) && !url.search, async route => {
+  await page.route(url => /pdf\.worker.*\.(?:mjs|js)$/.test(url.pathname) && (!url.search || url.searchParams.has('worker_file')), async route => {
     workers++;
     const response = await route.fetch();
     await route.fulfill({ response, body: `delete URL.parse; delete Uint8Array.fromBase64; delete Uint8Array.prototype.setFromBase64; delete Promise.try;\n${await response.text()}` });
@@ -159,4 +161,25 @@ test('outdated WebViews get an update notice instead of a Promise.withResolvers 
   await expect(page.locator('canvas, iframe')).toHaveCount(0);
   expect(failures).toEqual([]);
   expect(await page.evaluate(() => 'withResolvers' in Promise)).toBe(false);
+});
+
+
+test('production PDF worker has a JavaScript extension and executes as a real module', async ({ page }) => {
+  test.skip(!process.env.PDF_PREVIEW_BUILD_DIR, 'Run with the production build directory to verify the emitted worker');
+  const directory = join(process.env.PDF_PREVIEW_BUILD_DIR, 'assets');
+  const filename = (await readdir(directory)).find(name => /^pdf\.worker.*\.js$/.test(name));
+  expect(filename, 'EdgeOne serves .mjs assets as octet-stream; emit a .js worker').toBeTruthy();
+  const body = await readFile(join(directory, filename));
+  await page.route('**/__built_pdf_worker.js', route => route.fulfill({ contentType: 'application/javascript', body }));
+  await page.route(`**/api/entries/${id}/file`, route => route.fulfill({ contentType: 'application/pdf', body: pdfBytes() }));
+  await page.goto('http://127.0.0.1:1437/__pdf_test');
+  expect(await page.evaluate(() => new Promise(resolve => {
+    const worker = new Worker('/__built_pdf_worker.js', { type: 'module' });
+    const timeout = setTimeout(() => { worker.terminate(); resolve(false); }, 5000);
+    worker.onerror = () => { clearTimeout(timeout); worker.terminate(); resolve(false); };
+    worker.onmessage = event => {
+      if (event.data?.action !== 'ready') return;
+      clearTimeout(timeout); worker.terminate(); resolve(true);
+    };
+  }))).toBe(true);
 });
