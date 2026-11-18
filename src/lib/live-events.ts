@@ -144,9 +144,18 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
   void (async () => {
     // The SSE endpoint waits for this request ID to register if the GET wins
     // the race with the POST. Only fall back when this path cannot stream.
+    let shortReconnectDelay = 0;
     while (!signal.aborted) {
+      const started = performance.now();
       const resume = await readLiveEvents(livePath(sessionId, cursor, requestId), signal, applyFrame);
       if (!resume || signal.aborted) break;
+      // Let a single short connection resume immediately, but don't spin if
+      // a proxy repeatedly sends one frame and closes, even with new data.
+      if (performance.now() - started >= 1000) shortReconnectDelay = 0;
+      else {
+        if (shortReconnectDelay) await pause(shortReconnectDelay);
+        shortReconnectDelay = Math.min(1000, shortReconnectDelay ? shortReconnectDelay * 2 : 250);
+      }
     }
     // Carry the last applied cursor into the long poll. A failed read has not
     // changed what is already on screen.

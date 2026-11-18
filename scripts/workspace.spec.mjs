@@ -4129,7 +4129,7 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await expect(dialog).toContainText('5 小时内 AI 额度');
 });
 
-test('a CDN 524 keeps waiting for the saved reply without sending the turn twice', async ({ page }) => {
+for (const status of [524, 502]) test(`a gateway ${status} recovers the saved reply without sending twice`, async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
   let posts = 0;
@@ -4156,7 +4156,8 @@ test('a CDN 524 keeps waiting for the saved reply without sending the turn twice
         { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
         { role: 'assistant', content: '沙箱已经整理好提纲。', created_at: '2026-01-01T00:00:40.000Z' }] };
     }, 4000);
-    await route.fulfill({ status: 524, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
+    if (status === 502) return json(route, 502, { error: { id: 'upstream_unavailable' } });
+    return route.fulfill({ status, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: '工作', exact: true }).click();
@@ -6040,7 +6041,8 @@ for (const [status, id, message] of [
     await page.route(`**/api/sessions/${sessionA.id}`, route => json(route, 401, { error: { id: 'auth_required' } }));
     await page.route(`**/api/sessions/${sessionA.id}/messages`, route => {
       posts.push(route.request().postDataJSON());
-      return json(route, status, { error: { id } });
+      return route.fulfill({ status, json: { error: { id } },
+        headers: status === 502 ? { 'X-TJUClaw-API-Response': 'forwarded' } : {} });
     });
     await composer.fill('  保留原始草稿  ');
     await page.getByRole('button', { name: '发送', exact: true }).click();

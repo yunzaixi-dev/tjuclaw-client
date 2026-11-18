@@ -29,6 +29,8 @@ export async function onRequest({ request }) {
     const response = new Response(upstream.body, upstream);
     for (const name of hopHeaders) response.headers.delete(name);
     response.headers.set('Cache-Control', 'no-store');
+    // Only a forwarded 502 has an upstream response to distinguish from our catch below.
+    if (response.status === 502) response.headers.set('X-TJUClaw-API-Response', 'forwarded');
     return response;
   } catch {
     return Response.json({ error: { id: 'upstream_unavailable' } }, {

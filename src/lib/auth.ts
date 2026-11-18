@@ -12,7 +12,7 @@ export type FlowState = {
 type ErrorBody = { error?: { id?: string } };
 
 export class AuthError extends Error {
-  constructor(public status: number, public body: ErrorBody = {}) {
+  constructor(public status: number, public body: ErrorBody = {}, public apiForwarded = false) {
     super(body.error?.id || 'auth_unavailable');
     this.name = 'AuthError';
   }
@@ -34,7 +34,8 @@ export async function authRequest<T>(path: string, init: RequestInit = {}, timeo
     const body: unknown = response.status === 204 ? {} : await response.json().catch(() => {
       throw new AuthError(response.ok ? 503 : response.status);
     });
-    if (!response.ok) throw new AuthError(response.status, body && typeof body === 'object' ? body as ErrorBody : {});
+    if (!response.ok) throw new AuthError(response.status, body && typeof body === 'object' ? body as ErrorBody : {},
+      response.headers.get('X-TJUClaw-API-Response') === 'forwarded');
     return body as T;
   } finally {
     clearTimeout(timeout);
