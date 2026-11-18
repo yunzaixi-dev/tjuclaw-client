@@ -30,7 +30,7 @@ import { VaultError } from './lib/sealed-vault';
 import { attempt } from './lib/attempt';
 import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
-import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, savedTurnReply, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { cachedEntry, clearEntryCache, enableEntryReplica, hydrateEntryCache, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { syncLibrary } from './lib/library-sync';
 import { observeMarkdownImages, prepareMarkdownImage } from './lib/markdown-images';
@@ -574,8 +574,7 @@ export default function Workspace() {
   // A stop was asked for; cleared when the turn's send finishes.
   const [chatStopping, setChatStopping] = useState(false);
   // The message being sent, shown optimistically until the server confirms it.
-  const [pendingText, setPendingText] = useState('');
-  const [pendingRequestId, setPendingRequestId] = useState<string>();
+  const [pendingTurn, setPendingTurn] = useState<{ sessionId: string; since: number; requestId?: string; content?: string; onReply?: (session: ChatSession) => void }>();
   const [chatError, setChatError] = useState('');
   const [draft, setDraft] = useState('');
   const [tabs, setTabs] = useState<WorkspaceTab[]>(boot?.selected
@@ -1726,11 +1725,13 @@ export default function Workspace() {
    * for the turn to settle, link those notes under the reply, and read the
    * tree again so they appear in the sidebar.
    */
-  async function settleTurn(sessionId: string, entryId: string | null | undefined, libraryId: string | undefined, generation: number) {
+  async function settleTurn(sessionId: string, entryId: string | null | undefined, libraryId: string | undefined, generation: number,
+    reply?: { requestId: string; content: string }) {
     // A failure here still leaves the tree below worth reading again.
     await attempt(async () => {
-      const settled = await getSettledSession(sessionId);
-      if (generation !== identityGeneration.current) return;
+      const session = await getSettledSession(sessionId);
+      const settled = reply ? savedTurnReply(session, reply.requestId, reply.content) : session;
+      if (!settled || settled.id !== sessionId || generation !== identityGeneration.current) return;
       const count = settled.messages?.length ?? 0;
       // A newer turn may already be on screen; never replace it with less.
       if (entryId && chatCacheRef.current[entryId]?.id === sessionId && (chatCacheRef.current[entryId]?.messages?.length ?? 0) <= count) chatCacheRef.current[entryId] = settled;
@@ -2713,18 +2714,24 @@ export default function Workspace() {
     const pending = pendingChatRequestRef.current?.sessionId === currentId
       ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
     sendingRef.current = true;
+    const since = clockNow();
+    setPendingTurn({ sessionId: currentId, since });
     setChatSending(true);
     setChatStopping(false);
     const digest = await attempt(() => chatDigest(text), () => null);
     if (digest === null) {
       sendingRef.current = false;
       setChatSending(false);
+      setPendingTurn(undefined);
       setChatError('无法校验消息重试，请检查浏览器安全环境后再试。');
       return;
     }
     if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
       sendingRef.current = false;
-      if (generation === identityGeneration.current) setChatSending(false);
+      if (generation === identityGeneration.current) {
+        setChatSending(false);
+        setPendingTurn(undefined);
+      }
       return;
     }
     // Resending the same text reuses its request id, so a turn the server did
@@ -2738,12 +2745,10 @@ export default function Workspace() {
     // Optimistic: the message leaves the composer at once and returns to it
     // only if the send fails.
     let delivered = false;
-    setPendingRequestId(requestId);
-    setPendingText(text);
-    setDraft('');
-    return await attempt(async () => {
-      // The desktop app may run the turn in the user's own Docker sandbox.
-      const next = agentRuntime() === 'local' ? await sendLocalTurn(currentId, text, requestId) : await sendMessage(currentId, text, requestId);
+    let recovered = false;
+    const send = new AbortController();
+    const local = agentRuntime() === 'local';
+    const receive = (next: ChatSession, fromRead = false) => {
       delivered = true;
       clearPendingChat(identity, currentId, requestId);
       if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
@@ -2752,8 +2757,30 @@ export default function Workspace() {
         showChat(next);
         setDraft('');
       }
-      void settleTurn(currentId, entryId, libraries[0]?.id, generation);
+      void settleTurn(currentId, entryId, libraries[0]?.id, generation, fromRead ? { requestId, content: text } : undefined);
+    };
+    const finishSend = () => {
+      sendingRef.current = false;
+      if (generation === identityGeneration.current) {
+        setChatSending(false);
+        setPendingTurn(undefined);
+        if (!delivered && request === chatRequestRef.current) setDraft(text);
+      }
+    };
+    setPendingTurn({ sessionId: currentId, since, content: text, requestId: local ? undefined : requestId, onReply: next => {
+      if (delivered || generation !== identityGeneration.current || request !== chatRequestRef.current) return;
+      recovered = true;
+      send.abort(); // The reply is already saved. Stop waiting on the original POST response.
+      receive(next, true);
+      finishSend();
+    } });
+    setDraft('');
+    return await attempt(async () => {
+      // The desktop app may run the turn in the user's own Docker sandbox.
+      const next = local ? await sendLocalTurn(currentId, text, requestId) : await sendMessage(currentId, text, requestId, send.signal);
+      if (!recovered) receive(next);
     }, async (cause) => {
+      if (recovered) return;
       // These are refused before the turn is stored, so the outcome is known:
       // say why and let the user send again instead of asking to confirm.
       const refused = cause instanceof AuthError ? cause.body?.error?.id ?? '' : '';
@@ -2770,26 +2797,18 @@ export default function Workspace() {
         const status = cause instanceof AuthError ? cause.status : 0;
         const pending = status === 0 || status === 502 || status === 504;
         const deadline = clockNow() + (pending ? 200_000 : 0);
-        let latest = await getSession(currentId);
-        const answered = (session: ChatSession) => {
-          const index = session.messages?.findIndex(message => message.role === 'user' && message.client_request_id === requestId && message.content === text) ?? -1;
-          return index >= 0 && Boolean(session.messages?.slice(index + 1).some(message => message.role === 'assistant' && message.content));
-        };
-        while (pending && !answered(latest) && clockNow() < deadline
+        let latest = await getSession(currentId, send.signal);
+        let reply = savedTurnReply(latest, requestId, text);
+        while (pending && !reply && !recovered && clockNow() < deadline
           && generation === identityGeneration.current && request === chatRequestRef.current) {
           await new Promise(resolve => setTimeout(resolve, 3000));
-          latest = await getSession(currentId);
+          if (recovered) return true;
+          latest = await getSession(currentId, send.signal);
+          reply = savedTurnReply(latest, requestId, text);
         }
-        if (latest.messages?.some(message => message.role === 'user' && message.client_request_id === requestId && message.content === text)) {
-          clearPendingChat(identity, currentId, requestId);
-          if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
-          delivered = true;
-          if (generation === identityGeneration.current && request === chatRequestRef.current) {
-            if (entryId) { chatCacheRef.current[entryId] = latest; draftsRef.current[entryId] = ''; }
-            showChat(latest);
-            setDraft('');
-          }
-          void settleTurn(currentId, entryId, libraries[0]?.id, generation);
+        if (recovered) return true;
+        if (latest.id === currentId && reply) {
+          receive(reply, true);
           return true;
         }
         if (!pending && cause instanceof AuthError) {
@@ -2801,16 +2820,10 @@ export default function Workspace() {
         }
         return false;
       }, () => false);
-      if (settled) return;
+      if (settled || recovered) return;
       if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
     }, async () => {
-      sendingRef.current = false;
-      if (generation === identityGeneration.current) {
-        setChatSending(false);
-        setPendingText('');
-        setPendingRequestId(undefined);
-        if (!delivered && request === chatRequestRef.current) setDraft(text);
-      }
+      if (!recovered) finishSend();
     });
   }
 
@@ -3388,7 +3401,7 @@ export default function Workspace() {
       {saveFailedId ? <div className="workspace-save-conflict" role="alert"><span>「{entries.find(entry => entry.id === saveFailedId)?.title || '未命名笔记'}」尚未保存。请重试，成功前不要关闭页面。</span>{selectedId !== saveFailedId ? <button type="button" onClick={() => void openEntry(saveFailedId)}>返回未保存笔记</button> : null}<button type="button" onClick={retryFailedSave}>重试保存</button></div> : null}
       <div className="workspace-view" key={view}>
       <Suspense fallback={<OperationProgress label="正在加载分区界面" />}>
-      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} loading={chatLoading} error={chatError} draft={draft} sending={chatSending} stopping={chatSending && chatStopping} onStop={agentRuntime() === 'local' ? undefined : () => void stopTurn()} pending={pendingText} requestId={pendingRequestId} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
+      {view === 'tools' ? <CampusTools key={session.id} identity={session.id} activeId={activeToolId} onOpenAccounts={() => { setSettingsSection('campus'); setSettingsOpen(true); }} suspended={settingsOpen} /> : view === 'sessions' && selected?.kind === 'agent' ? <AgentThread renderMarkdown={renderMarkdown} title="TJUClaw" chat={chat} loading={chatLoading} visible={!(settingsOpen || graphOpen || extensionsTab || (isMobile && (sidebarOpen || railOpen || tabSheetOpen)))} error={chatError} draft={draft} sending={chatSending} stopping={chatSending && chatStopping} onStop={agentRuntime() === 'local' || pendingTurn?.sessionId !== chat?.id ? undefined : () => void stopTurn()} pending={pendingTurn?.sessionId === chat?.id ? pendingTurn : undefined} modelVersion={settingsOpen ? 1 : 0} onDraftChange={changeDraft} onSubmit={handleChat} onRetry={() => void openEntry(selected.id)} onManageModels={() => { setSettingsSection('model'); setSettingsOpen(true); }} onNewChat={() => void startNewChat()} onShowHistory={() => setSidebarOpen(true)} onOpenNote={id => void openAgentNote(id)} /> : view === 'plugins' ? <WorkspacePlugins activeId={activePluginId} onOpen={id => {
         if (id === 'graph') { setGraphOpen(true); return; }
         switchView(id === 'flashcards' ? 'anki' : 'notes');
       }} /> : view === 'anki' ? ankiRemoteReady

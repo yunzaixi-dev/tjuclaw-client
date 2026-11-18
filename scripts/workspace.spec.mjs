@@ -2391,6 +2391,54 @@ test.describe('Workspace mocked contract suite', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`recovers the saved Agent reply without replaying the send at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const state = defaultState();
+      await mockWorkspace(page, state);
+      const post = [];
+      let liveReads = 0;
+      // Keep both the send and live polling pending; only the saved session has the reply.
+      await page.route(`**/api/sessions/${sessionA.id}/messages`, route => { post.push(route.request().postDataJSON()); });
+      await page.route(`**/api/sessions/${sessionA.id}/live?*`, route => {
+        liveReads++;
+        return route.request().headers().accept === 'text/event-stream'
+          ? route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\ndata: invalid\n\n' })
+          : undefined;
+      });
+      await page.goto('/workspace');
+      if (viewport.width < 720) await page.getByRole('button', { name: '打开侧栏' }).click();
+      await page.getByRole('button', { name: '工作', exact: true }).click();
+      if (viewport.width < 720) await page.locator('.conversation-row').getByRole('button', { name: '新对话', exact: true }).click();
+      const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+      await expect(composer).toBeEnabled();
+      await composer.fill('本轮问题');
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      await expect(page.locator('.agent-working-text')).toHaveText('等待回复');
+      await expect(page.locator('.agent-working-time')).toHaveText(/已等 [1-9]\d* 秒/);
+      await expect(page.locator('.agent-working-time')).toHaveText(/已等 [6-9]\d* 秒/);
+      await expect(page.locator('.agent-working-text')).toHaveText('等待回复');
+      await page.screenshot({ path: test.info().outputPath('waiting.png') });
+      expect(liveReads).toBe(2);
+      expect(post).toHaveLength(1);
+      const at = '2026-01-01T00:00:10.000Z';
+      state.sessionById[sessionA.id] = { ...sessionA, messages: [
+        { role: 'user', ...post[0], created_at: at },
+        { role: 'assistant', content: '**本轮正文**', created_at: at },
+        { role: 'user', content: '下一轮问题', client_request_id: 'b'.repeat(32), created_at: at },
+        { role: 'assistant', content: '下一轮正文', created_at: at },
+      ] };
+      await expect(page.locator('.chat-message.assistant strong')).toHaveText('本轮正文');
+      await expect(page.locator('.chat-message.assistant')).toHaveCount(1);
+      await expect(page.locator('.chat-message.user')).toHaveCount(1);
+      await expect(page.locator('.agent-working')).toHaveCount(0);
+      await expect(composer).toBeEnabled();
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      expect(post).toHaveLength(1);
+      await page.screenshot({ path: test.info().outputPath('saved-reply.png') });
+    });
+  }
+
   test('reconciles a committed Agent turn after both the response and readback fail', async ({ page }) => {
     const state = defaultState();
     state.dropReply = true;
@@ -4888,12 +4936,11 @@ test('a note already on this device opens without waiting, and a newer server co
   await expect(editor).not.toContainText('第三个版本');
 });
 
-test('a running turn writes the model\'s thinking and reply as they arrive, and typing warms the sandbox once', async ({ page }) => {
+test('a visible Agent session warms once before typing and renders the live thinking and reply', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
-  let prepared = 0;
-  await page.route('**/api/sessions/*/prepare', route => { prepared += 1; return route.fulfill({ status: 202 }); });
-  // Each answer is what a client with that cursor has not seen yet; offsets are bytes.
+  const prepared = [];
+  await page.route('**/api/sessions/*/prepare', route => { prepared.push(new URL(route.request().url()).pathname); return route.fulfill({ status: 204 }); });
   // Each answer is what a client with that cursor has not seen yet; offsets are bytes.
   const frame = (version, count, stage, item) => ({ version, count, stage: { id: stage, ms: 0 }, rate: { tokens: 30, ms: 1000 }, items: [item] });
   const cursors = [];
@@ -4915,11 +4962,26 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   const held = new Promise(resolve => { release = resolve; });
   await page.route('**/api/sessions/*/messages', async route => { await held; return route.fallback(); });
   await page.goto('/workspace');
+  await expect(page.getByRole('button', { name: '工作', exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+  });
+  expect(prepared).toEqual([]);
   await page.getByRole('button', { name: '工作', exact: true }).click();
   const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+  await expect(composer).toBeEnabled();
+  expect(prepared).toEqual([]);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => prepared).toEqual([`/api/sessions/${sessionA.id}/prepare`]);
+  await expect(composer).toHaveValue('');
+  await page.getByRole('button', { name: '主页', exact: true }).click();
+  await page.getByRole('button', { name: '工作', exact: true }).click();
+  await expect(composer).toBeEnabled();
   await composer.fill('什么是');
   await composer.fill('什么是基尔霍夫定律');
-  await expect.poll(() => prepared).toBe(1);
   await page.getByRole('button', { name: '发送', exact: true }).click();
 
   const working = page.getByRole('status', { name: /正在处理/ });
@@ -4941,7 +5003,7 @@ test('a running turn writes the model\'s thinking and reply as they arrive, and 
   release();
   await expect(working).toHaveCount(0);
   await expect(page.locator('.chat-message.assistant').last()).toBeVisible();
-  expect(prepared).toBe(1);
+  expect(prepared).toEqual([`/api/sessions/${sessionA.id}/prepare`]);
 });
 
 test('a running turn shows the thinking alone until the reply begins', async ({ page }) => {

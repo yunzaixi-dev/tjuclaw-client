@@ -12,8 +12,10 @@ import { BrandIcon } from './brand-icon';
 import './agent-thread.css';
 
 
-/** Conversations whose sandbox this page already asked to warm. */
-const warmed = new Set<string>();
+// Match the server's per-session preparation cooldown. Prune expired entries
+// on demand; never send again just because the open thread rerenders.
+const PREPARE_COOLDOWN_MS = 5 * 60_000;
+const preparedUntil = new Map<string, number>();
 
 /** Closes a chip menu on an outside press or Escape. */
 function useMenuDismiss(open: boolean, close: () => void, ref: { current: HTMLElement | null }) {
@@ -149,18 +151,18 @@ const ReplyText = memo(function ReplyText({ content, renderMarkdown }: { content
   return <div className="chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
 });
 
-export function AgentThread({ title, chat, loading, error, draft, sending, stopping, pending, requestId, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
+export function AgentThread({ title, chat, loading, visible, error, draft, sending, stopping, pending, modelVersion, onDraftChange, onSubmit, onStop, onRetry, onManageModels, onNewChat, onShowHistory, onOpenNote, renderMarkdown }: {
   title: string;
   chat: ChatSession | null;
   loading: boolean;
+  visible: boolean;
   error: string;
   draft: string;
   sending: boolean;
   /** A stop was requested and the turn is winding down. */
   stopping?: boolean;
   /** The message being sent, shown at once before the server confirms it. */
-  pending?: string;
-  requestId?: string;
+  pending?: { sessionId: string; since: number; requestId?: string; content?: string; onReply?: (session: ChatSession) => void };
   /** Changes when model settings may have changed, to re-read the model. */
   modelVersion: number;
   onDraftChange: (value: string) => void;
@@ -242,15 +244,24 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
     if (area && area.scrollHeight - area.scrollTop - area.clientHeight < 200) area.scrollTop = area.scrollHeight;
   }, []);
 
-  // Starting to write is the signal a message is coming: warm the cloud
-  // sandbox now, once per conversation, so the first reply does not wait for it.
   const chatId = chat?.id;
-  const writing = Boolean(draft.trim());
+  // Warm only the concrete session on screen, not the list or a cached session
+  // that is being replaced. A hidden page waits until the user can see it.
   useEffect(() => {
-    if (!chatId || !writing || warmed.has(chatId) || agentRuntime() !== 'cloud') return;
-    warmed.add(chatId);
-    void prepareSession(chatId);
-  }, [chatId, writing]);
+    if (!chatId || loading || !visible) return;
+    const prepareVisible = () => {
+      if (document.visibilityState !== 'visible' || agentRuntime() !== 'cloud') return;
+      document.removeEventListener('visibilitychange', prepareVisible);
+      const now = Date.now();
+      for (const [id, until] of preparedUntil) if (until <= now) preparedUntil.delete(id);
+      if (preparedUntil.has(chatId)) return;
+      preparedUntil.set(chatId, now + PREPARE_COOLDOWN_MS);
+      void prepareSession(chatId);
+    };
+    document.addEventListener('visibilitychange', prepareVisible);
+    prepareVisible();
+    return () => document.removeEventListener('visibilitychange', prepareVisible);
+  }, [chatId, loading, visible]);
 
   const runCommand = (command: PiCommand) => {
     if (!command.available || !command.action) {
@@ -416,8 +427,8 @@ export function AgentThread({ title, chat, loading, error, draft, sending, stopp
         </article>)}
       {/* The draft stays in the composer until the reply is confirmed, so a
           failed send never loses it; the transcript shows the work under way. */}
-      {pending ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending}</p></article> : null}
-      {sending ? <Working key={requestId ?? 'preparing'} name={title} sessionId={chat?.id} requestId={requestId} stopping={stopping} direct={phone} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
+      {pending?.content ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending.content}</p></article> : null}
+      {pending ? <Working key={`${pending.sessionId}:${pending.since}`} name={title} {...pending} stopping={stopping} direct={phone} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

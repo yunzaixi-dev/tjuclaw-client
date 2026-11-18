@@ -168,7 +168,7 @@ export function decodeLiveTurn(payload: unknown, requestId?: string): LiveTurn {
     });
   }
   return {
-    version: Number.isSafeInteger(data.version) ? data.version as number : null,
+    version: Number.isSafeInteger(data.version) && (data.version as number) >= 0 ? data.version as number : null,
     items, count: whole(data.count),
     stage: typeof data.stage?.id === 'string' ? data.stage.id : '',
     stageMs: typeof data.stage?.ms === 'number' && data.stage.ms >= 0 ? data.stage.ms : 0,
@@ -485,6 +485,15 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Chat
   const data = await authRequest<{ session: unknown }>(`/api/sessions/${id}`, { signal });
   if (!isSession(data.session)) throw new AuthError(503);
   return data.session;
+}
+
+/** Returns the saved conversation through this turn, never another user's turn boundary. */
+export function savedTurnReply(session: ChatSession, requestId: string, content: string): ChatSession | undefined {
+  const messages = session.messages ?? [];
+  const index = messages.findIndex(message => message.role === 'user' && message.client_request_id === requestId && message.content === content);
+  const reply = index >= 0 ? messages[index + 1] : undefined;
+  if (reply?.role !== 'assistant' || !reply.content.trim() || (reply.client_request_id && reply.client_request_id !== requestId)) return;
+  return index + 2 === messages.length ? session : { ...session, messages: messages.slice(0, index + 2) };
 }
 
 /**

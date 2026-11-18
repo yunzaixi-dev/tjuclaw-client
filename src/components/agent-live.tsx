@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { Brain, ChevronRight } from 'lucide-react';
 import { SaidText, ToolRow, groupSteps, toolView } from './agent-steps';
 import { followLiveEvents } from '../lib/live-events';
+import type { ChatSession } from '../lib/library';
 import { formatTokenRate, stageText, type TimelineItem } from '../lib/live-stream';
 import './agent-live.css';
 
@@ -157,7 +158,7 @@ function WorkingHead({ name, since, stage, stageAt, hasTools, toolLabel, tailKin
   name: string; since: number; stage: string; stageAt: number; hasTools: boolean; toolLabel: string;
   tailKind: TimelineItem['kind'] | null; stopping?: boolean; speed: string;
 }) {
-  const [now, setNow] = useState(since);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
@@ -169,10 +170,10 @@ function WorkingHead({ name, since, stage, stageAt, hasTools, toolLabel, tailKin
   const reported = stageText(stage, now - stageAt, hasTools, toolLabel);
   // A stop takes effect when the running step ends: say so rather than a stage.
   const phase = stopping ? (toolLabel ? `正在停止，等${toolLabel}结束` : '正在停止') : reported || (toolLabel ? `正在${toolLabel}`
-    : tailKind === 'text' ? '正在回答' : tailKind === 'thinking' ? '正在思考' : hasTools ? '正在整理结果' : seconds < 6 ? '正在理解你的问题' : '正在思考');
+    : tailKind === 'text' ? '正在回答' : tailKind === 'thinking' ? '正在思考' : '等待回复');
   return <header className="agent-reply-head agent-working-head">
     <span className="agent-reply-name agent-working-name">{name}</span><span className="agent-working-text">{phase}</span>
-    {speed ? <span className="agent-working-rate">{speed}</span> : null}<span className="agent-working-time">{seconds} 秒</span>
+    {speed ? <span className="agent-working-rate">{speed}</span> : null}<span className="agent-working-time" aria-hidden="true">{phase === '等待回复' ? '已等 ' : ''}{seconds} 秒</span>
   </header>;
 }
 
@@ -185,10 +186,13 @@ const WRITING_STAGES = ['thinking', 'writing', 'preparing'];
  * they happen. Nothing shown is taken back; when the turn ends the saved
  * reply takes this place with the same rows.
  */
-export function Working({ name, sessionId, requestId, stopping, direct, renderMarkdown, onProgress }: {
+export function Working({ name, sessionId, requestId, since, content, onReply, stopping, direct, renderMarkdown, onProgress }: {
   name: string;
-  sessionId?: string;
+  sessionId: string;
   requestId?: string;
+  since: number;
+  content?: string;
+  onReply?: (session: ChatSession) => void;
   /** The user stopped the turn; it ends once the current step is done. */
   stopping?: boolean;
   direct: boolean;
@@ -196,27 +200,22 @@ export function Working({ name, sessionId, requestId, stopping, direct, renderMa
   /** Called as the live output grows, to keep it in view. */
   onProgress?: () => void;
 }) {
-  // Mounted when sending starts, so the first render marks the start.
-  const [since] = useState(() => Date.now());
   const [items, setItems] = useState<TimelineItem[]>([]);
   // The server's stage and when it began on this device's clock.
   const [stage, setStage] = useState<{ id: string; at: number }>({ id: '', at: since });
   const [rate, setRate] = useState({ tokens: 0, ms: 0 });
   // Follow only this send, including across a stream reconnect.
   useEffect(() => {
-    if (!sessionId || !requestId) return;
+    if (!requestId || content === undefined || !onReply) return;
     return followLiveEvents(sessionId, requestId, (shown, live) => {
       if (shown) {
         setItems(shown);
         setRate({ tokens: live.rateTokens, ms: live.rateMs });
       }
-      // An idle snapshot at the end of the turn keeps the last stage shown.
-      if (live.stage) {
-        const began = Date.now() - live.stageMs;
-        setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
-      }
-    });
-  }, [sessionId, requestId]);
+      const began = Date.now() - live.stageMs;
+      setStage(current => current.id === live.stage ? current : { id: live.stage, at: began });
+    }, { content, onReply });
+  }, [sessionId, requestId, content, onReply]);
 
   const last = items.length - 1;
   const tail = last >= 0 ? items[last] : null;

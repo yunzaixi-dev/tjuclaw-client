@@ -1,21 +1,20 @@
-import { decodeLiveTurn, getLive, livePath, type LiveCursor, type LiveTurn } from './library';
-import { mergeTimeline, timelineCursor, type TimelineItem } from './live-stream';
+import { decodeLiveTurn, getLive, getSession, livePath, savedTurnReply, type ChatSession, type LiveCursor, type LiveTurn } from './library';
+import { mergeTimeline, stageText, timelineCursor, type TimelineItem } from './live-stream';
 
-// The server flushes on connect and sends heartbeats well before rotating the
-// stream. If bytes stop arriving, a buffering proxy can be as bad as no SSE.
-const STREAM_IDLE_MS = 10000;
+// A proxy can deliver heartbeats without delivering updates. Give SSE a short
+// window to make progress, then read from the same turn over JSON instead.
+const STREAM_PROGRESS_MS = 5000;
 const MAX_FRAME_CHARS = 16 << 20;
 const SSE = 'text/event-stream';
 
-async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload: unknown) => boolean): Promise<boolean> {
+type FrameResult = 'progress' | 'ignore' | 'resync';
+
+async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload: unknown) => FrameResult): Promise<boolean> {
   const connection = new AbortController();
   const abort = () => connection.abort();
   signal.addEventListener('abort', abort, { once: true });
-  let timeout = setTimeout(abort, STREAM_IDLE_MS);
-  let streaming = false;
-  const started = Date.now();
-  // Use the same request options as getLive, without authRequest's JSON reader
-  // or its fixed deadline (the heartbeat is our deadline instead).
+  let timeout = setTimeout(abort, STREAM_PROGRESS_MS);
+  let progressed = false;
   try {
     const response = await fetch(path, { headers: { Accept: SSE }, signal: connection.signal,
       credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
@@ -38,10 +37,8 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
       while (!connection.signal.aborted) {
         const { done, value } = await reader.read();
         if (connection.signal.aborted) return false;
-        if (done) return streaming || Date.now() - started >= STREAM_IDLE_MS;
+        if (done) return progressed && !buffered;
         if (!value?.length) continue;
-        clearTimeout(timeout);
-        timeout = setTimeout(abort, STREAM_IDLE_MS);
         buffered += decoder.decode(value, { stream: true });
         let end: RegExpExecArray | null;
         while ((end = boundary.exec(buffered))) {
@@ -49,12 +46,18 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
           buffered = buffered.slice(end.index + end[0].length);
           const data = event.split(/\r?\n/).filter(line => line.startsWith('data:'))
             .map(line => line.slice(5).replace(/^ /, ''));
-          if (!data.length && !event.startsWith(':')) continue;
           if (event.length > MAX_FRAME_CHARS) return false;
-          const payload: unknown = data.length ? JSON.parse(data.join('\n')) : undefined;
-          streaming ||= data.length > 0;
-          if (data.length && !apply(payload)) return true; // reconnect without the broken cursor
-          if (connection.signal.aborted) return false;
+          if (!data.length) continue;
+          let payload: unknown;
+          try { payload = JSON.parse(data.join('\n')); }
+          catch { continue; }
+          const result = apply(payload);
+          if (result === 'resync' || connection.signal.aborted) return false;
+          if (result === 'progress') {
+            progressed = true;
+            clearTimeout(timeout);
+            timeout = setTimeout(abort, STREAM_PROGRESS_MS);
+          }
         }
         if (buffered.length > MAX_FRAME_CHARS) return false;
       }
@@ -62,9 +65,7 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
       reader.releaseLock();
     }
   } catch {
-    // A working stream can be resumed after a network error. An opening
-    // failure or an expired heartbeat deadline needs the JSON path instead.
-    return streaming && !connection.signal.aborted;
+    return false;
   } finally {
     abort();
     clearTimeout(timeout);
@@ -73,8 +74,9 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
   return false;
 }
 
-/** Follow one turn's timeline until the caller stops it. Only the read is retried. */
-export function followLiveEvents(sessionId: string, requestId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void): () => void {
+/** Follow one turn until it is saved or the caller stops. Only reads are retried. */
+export function followLiveEvents(sessionId: string, requestId: string, onFrame: (shown: TimelineItem[] | null, live: LiveTurn) => void,
+  saved?: { content: string; onReply: (session: ChatSession) => void }): () => void {
   const controller = new AbortController();
   const { signal } = controller;
   let cursor: LiveCursor | undefined;
@@ -88,45 +90,72 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
     const timer = setTimeout(finish, ms);
     signal.addEventListener('abort', finish, { once: true });
   });
-  const apply = (live: LiveTurn) => {
-    if (signal.aborted) return false;
+  let appliedVersion = 0;
+  let stage = '';
+  const apply = (live: LiveTurn): FrameResult => {
+    if (signal.aborted || !live.version || live.version < appliedVersion || (cursor && live.version === appliedVersion)) return 'ignore';
     const merged = mergeTimeline(cursor ? shown : [], live);
     if (merged.resync) {
       cursor = undefined;
-      return false;
+      return 'resync';
     }
-    if (live.version) {
-      shown = merged.items;
-      cursor = timelineCursor(live.version, shown);
-    }
-    onFrame(live.version ? shown : null, live);
-    return true;
+    const progress = (stageText(live.stage, 0, false) !== '' && live.stage !== stage) || live.items.some(({ i }) => {
+      const previous = shown[i];
+      const item = merged.items[i];
+      return !previous || (Object.keys(item) as (keyof TimelineItem)[]).some(key => previous[key] !== item[key]);
+    });
+    shown = merged.items;
+    cursor = timelineCursor(live.version, shown);
+    appliedVersion = live.version;
+    stage = live.stage;
+    if (progress) onFrame(shown, live);
+    return progress ? 'progress' : 'ignore';
   };
+  const applyFrame = (payload: unknown): FrameResult => {
+    if (!payload || typeof payload !== 'object') return 'ignore';
+    const frame = payload as Record<string, unknown>;
+    if (frame.client_request_id !== requestId || !Number.isSafeInteger(frame.version) || (frame.version as number) <= 0 ||
+      !Number.isSafeInteger(frame.count) || (frame.count as number) < 0 || !Array.isArray(frame.items)) return 'ignore';
+    const live = decodeLiveTurn(frame, requestId);
+    if (live.items.length !== frame.items.length) return 'ignore';
+    return apply(live);
+  };
+  async function readSavedReply() {
+    if (!saved) return;
+    // A /live long poll may block, or its timeline may already be cleared.
+    // Independently check the stored session without waiting for either event.
+    while (!signal.aborted) {
+      try {
+        const session = await getSession(sessionId, signal);
+        if (signal.aborted) return;
+        const reply = session.id === sessionId && savedTurnReply(session, requestId, saved.content);
+        if (reply) {
+          controller.abort();
+          saved.onReply(reply);
+          return;
+        }
+      } catch { /* The original send can still settle normally. */ }
+      if (!signal.aborted) await pause(2500);
+    }
+  }
   void (async () => {
     // Let the send register its request ID before the first read, as before.
     await pause(300);
-    let reconnectMs = 300;
     while (!signal.aborted) {
-      const resume = await readLiveEvents(livePath(sessionId, cursor, requestId), signal, payload => {
-        const live = decodeLiveTurn(payload, requestId);
-        const applied = apply(live);
-        if (applied && live.version) reconnectMs = 300;
-        return applied;
-      });
+      const resume = await readLiveEvents(livePath(sessionId, cursor, requestId), signal, applyFrame);
       if (!resume || signal.aborted) break;
-      await pause(reconnectMs);
-      reconnectMs = Math.min(reconnectMs * 2, 1500);
+      await pause(300);
     }
-    // Stay on one transport at a time, carrying the last applied cursor into
-    // the long poll. A failed read has not changed what is already on screen.
+    void readSavedReply();
+    // Carry the last applied cursor into the long poll. A failed read has not
+    // changed what is already on screen.
     while (!signal.aborted) {
       try {
         const live = await getLive(sessionId, cursor, signal, requestId);
         const applied = apply(live);
         if (signal.aborted) break;
-        if (!applied) await pause(200);
-        else if (live.version === null) await pause(1200);
-        else if (live.version === 0) await pause(500);
+        if (applied === 'resync') await pause(200);
+        else if (applied === 'ignore') await pause(750);
       } catch {
         if (signal.aborted) break;
         await pause(1500);

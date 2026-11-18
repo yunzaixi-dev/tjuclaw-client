@@ -21,7 +21,7 @@ const hooks = registerHooks({
 const { followLiveEvents } = await import('../src/lib/live-events.ts');
 hooks.deregister();
 
-const session = 'abc';
+const session = 'a'.repeat(32);
 const request = '0123456789abcdef0123456789abcdef';
 const sse = 'text/event-stream';
 const json = 'application/json';
@@ -42,7 +42,7 @@ function stream(signal) {
   };
 }
 
-function follow(t, reply) {
+function follow(t, reply, saved) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   // authRequest's existing JSON timeout uses the browser global.
   globalThis.window = globalThis;
@@ -50,15 +50,15 @@ function follow(t, reply) {
   const calls = [], frames = [];
   t.mock.method(globalThis, 'fetch', async (path, init) => {
     const url = new URL(path, 'https://claw.example');
-    const call = { accept: new Headers(init.headers).get('accept'), query: Object.fromEntries(url.searchParams), signal: init.signal };
+    const call = { path: url.pathname, accept: new Headers(init.headers).get('accept'), query: Object.fromEntries(url.searchParams), signal: init.signal };
     calls.push(call);
-    assert.equal(path.split('?')[0], `/api/sessions/${session}/live`);
+    assert.equal(url.pathname, `/api/sessions/${session}${saved && !url.pathname.endsWith('/live') ? '' : '/live'}`);
     assert.equal(init.method ?? 'GET', 'GET');
     assert.equal(init.credentials, 'same-origin');
-    assert.equal(call.query.client_request_id, request);
+    if (url.pathname.endsWith('/live')) assert.equal(call.query.client_request_id, request);
     return reply(call, calls.length);
   });
-  const stop = followLiveEvents(session, request, (shown, live) => frames.push({ shown, live }));
+  const stop = followLiveEvents(session, request, (shown, live) => frames.push({ shown, live }), saved);
   t.after(stop);
   const tick = async ms => { t.mock.timers.tick(ms); await setImmediate(); };
   return { calls, frames, stop, tick };
@@ -144,7 +144,7 @@ test('a stalled SSE body or an early connection failure falls back without a POS
   }
 });
 
-test('heartbeats keep the stream alive and a later stall passes its cursor to JSON polling', async t => {
+test('heartbeats cannot delay fallback or reset the last applied byte cursor', async t => {
   let connection;
   const { calls, frames, tick } = follow(t, ({ signal }, index) => {
     if (index === 1) {
@@ -157,10 +157,10 @@ test('heartbeats keep the stream alive and a later stall passes its cursor to JS
   await tick(300);
   connection.write(wire(frame(3, 1, [text(0, '答', 3)])));
   await tick(0);
-  await tick(8000);
+  await tick(3000);
   connection.write(': pulse\n\n');
   await tick(0);
-  await tick(8000);
+  await tick(1000);
   assert.equal(calls.length, 1);
   await tick(2500);
   assert.equal(calls[0].signal.aborted, true);
@@ -180,9 +180,11 @@ test('a proxy closing immediately after the opening comment falls back to JSON',
   assert.equal(frames.at(-1)?.shown?.[0].name, 'read');
 });
 
-test('actively arriving partial bytes do not time out a large SSE frame', async t => {
+test('a first frame that keeps trickling in still falls back by the progress deadline', async t => {
   let connection;
-  const { calls, frames, tick } = follow(t, ({ signal }) => {
+  const { calls, frames, tick } = follow(t, ({ signal }, index) => {
+    if (index === 2) return Response.json(frame(1, 1, [text(0, '正文', 6)]));
+    if (index > 2) return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     connection = stream(signal);
     return connection.response;
   });
@@ -190,20 +192,70 @@ test('actively arriving partial bytes do not time out a large SSE frame', async 
   const payload = wire(frame(1, 1, [text(0, '正文', 6)]));
   connection.write(payload.slice(0, 10));
   await tick(0);
-  await tick(8500);
+  await tick(3500);
   connection.write(payload.slice(10, 20));
   await tick(0);
-  await tick(3000);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].signal.aborted, false);
-  connection.write(payload.slice(20));
-  await tick(0);
+  await tick(2000);
+  assert.equal(calls[0].signal.aborted, true);
+  assert.equal(calls[1]?.accept, json);
   assert.equal(frames.at(-1)?.shown?.[0].text, '正文');
 });
 
-test('an unjoinable delta reconnects without a cursor and retains the task timeline until the full snapshot', async t => {
+test('invalid, foreign, and duplicate frames neither update the screen nor postpone fallback', async t => {
+  let connection;
+  const { calls, frames, tick } = follow(t, ({ signal }, index) => {
+    if (index === 1) { connection = stream(signal); return connection.response; }
+    if (index === 2) return Response.json(frame(2, 1, [text(0, '案', 6, 3)]));
+    return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  });
+  await tick(300);
+  connection.write(wire(frame(1, 1, [text(0, '答', 3)])));
+  await tick(0);
+  await tick(3000);
+  connection.write('data: bad-json\n\n');
+  connection.write(wire(frame(2, 0, [], { client_request_id: 'wrong', stage: { id: 'thinking' } })));
+  connection.write(wire(frame(2, 0, [], { items: 'broken', stage: { id: 'thinking' } })));
+  connection.write(wire(frame(1, 1, [text(0, '旧', 3)], { stage: { id: 'thinking' } })));
+  await tick(0);
+  assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答']);
+  await tick(2500);
+  assert.equal(calls[1]?.accept, json);
+  assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答', '答案']);
+});
+
+test('fallback reads the saved answer without waiting for the live GET or crossing the next user message', async t => {
+  const date = '2026-11-18T12:00:00Z';
+  const user = (id, content) => ({ role: 'user', content, client_request_id: id, created_at: date });
+  const assistant = content => ({ role: 'assistant', content, created_at: date });
+  const ask = user(request, '本轮问题');
+  const prev = [user('f'.repeat(32), '上一轮'), assistant('旧正文')];
+  const next = [user('e'.repeat(32), '下一轮'), assistant('后续正文')];
+  const saved = [];
+  let reads = 0;
+  const { calls, tick } = follow(t, ({ signal, path }, index) => {
+    if (index === 1) return stream(signal).response;
+    if (path.endsWith('/live')) return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    reads++;
+    const messages = reads === 1 ? [...prev, ask, ...next] : [...prev, ask, assistant('本轮正文'), ...next];
+    return Response.json({ session: { id: session, entry_id: 'b'.repeat(32), created_at: date, updated_at: date, messages } });
+  }, { content: ask.content, onReply: value => saved.push(value) });
+  await tick(300);
+  await tick(5500);
+  assert.equal(reads, 1);
+  assert.deepEqual(saved, []);
+  await tick(3000);
+  assert.equal(reads, 2);
+  assert.deepEqual(saved[0]?.messages, [...prev, ask, assistant('本轮正文')]);
+  assert.equal(calls.find(call => call.path.endsWith('/live') && call.accept === json).signal.aborted, true);
+  await tick(30000);
+  assert.equal(reads, 2);
+});
+
+test('an unjoinable delta falls back without a cursor and retains the task timeline until the full snapshot', async t => {
   const connections = [];
-  const { calls, frames, tick } = follow(t, ({ signal }) => {
+  const { calls, frames, tick } = follow(t, ({ signal }, index) => {
+    if (index === 2) return Response.json(frame(3, 2, [tool(0, 'done'), text(1, '答案', 6)]));
+    if (index > 2) return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     const connection = stream(signal);
     connections.push(connection);
     return connection.response;
@@ -213,12 +265,9 @@ test('an unjoinable delta reconnects without a cursor and retains the task timel
   connections[0].write(wire(frame(1, 2, [tool(0), text(1, '答', 3)])));
   connections[0].write(wire(frame(2, 2, [text(1, '案', 12, 9)])));
   await setImmediate();
-  assert.deepEqual(frames.flatMap(({ shown }) => shown ? [shown[1].text] : []), ['答']);
+  assert.deepEqual(frames.flatMap(({ shown }) => shown ? [shown[1].text] : []), ['答', '答案']);
   assert.equal(calls[0].signal.aborted, true);
-  await tick(1500);
-  assert.equal(calls[1]?.accept, sse);
+  assert.equal(calls[1]?.accept, json);
   assert.deepEqual(calls[1]?.query, { client_request_id: request });
-  connections[1].write(wire(frame(3, 2, [tool(0, 'done'), text(1, '答案', 6)])));
-  await setImmediate();
   assert.deepEqual(frames.at(-1)?.shown?.map(item => item.text || item.status), ['done', '答案']);
 });
