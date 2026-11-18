@@ -24,3 +24,26 @@ test('EdgeOne gives chat requests time to outlive its default response timeout',
     assert.equal(init.eo?.timeoutSetting.readTimeout, timeout, `${method} ${path}`);
   }
 });
+
+test('EdgeOne forwards a live frame before upstream closes and does not cache it', async t => {
+  let frames;
+  const upstream = new Response(new ReadableStream({ start(controller) { frames = controller; } }), {
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+  const fetch = t.mock.method(globalThis, 'fetch', async () => upstream);
+  const response = await onRequest({ request: new Request(`https://app.example.invalid${session}/live`, {
+    headers: { Accept: 'text/event-stream' },
+  }) });
+  assert.equal(response.headers.get('Content-Type'), 'text/event-stream');
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  const stream = response.body.getReader();
+  try {
+    const frame = new TextEncoder().encode('data: {"text":"你好"}\n\n');
+    frames.enqueue(frame);
+    assert.deepEqual(await stream.read(), { value: frame, done: false });
+    assert.equal(fetch.mock.callCount(), 1);
+  } finally {
+    frames.close();
+    stream.releaseLock();
+  }
+});
