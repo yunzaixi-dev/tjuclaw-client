@@ -4,6 +4,7 @@ import { registerHooks } from 'node:module';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import ts from 'typescript';
+import { onRequest } from '../functions/api/[[path]].js';
 
 // Resolve the client's extensionless Vite imports inside Node.
 const source = new URL('../src/', import.meta.url).href;
@@ -19,6 +20,8 @@ const hooks = registerHooks({
   },
 });
 const { followLiveEvents } = await import('../src/lib/live-events.ts');
+const { recoverSend } = await import('../src/lib/chat-readback.ts');
+const { sendMessage } = await import('../src/lib/library.ts');
 hooks.deregister();
 
 const session = 'a'.repeat(32);
@@ -39,11 +42,12 @@ function stream(signal) {
     response: new Response(body, { headers: { 'content-type': `${sse}; charset=utf-8` } }),
     write: chunk => controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk),
     close: () => controller.close(),
+    fail: () => controller.error(new TypeError('connection dropped')),
   };
 }
 
 function follow(t, reply, saved) {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   // authRequest's existing JSON timeout uses the browser global.
   globalThis.window = globalThis;
   t.after(() => { delete globalThis.window; });
@@ -58,11 +62,65 @@ function follow(t, reply, saved) {
     if (url.pathname.endsWith('/live')) assert.equal(call.query.client_request_id, request);
     return reply(call, calls.length);
   });
-  const stop = followLiveEvents(session, request, (shown, live) => frames.push({ shown, live }), saved);
+const stop = followLiveEvents(session, request, (shown, live) => frames.push({ shown, live }), saved);
   t.after(stop);
   const tick = async ms => { t.mock.timers.tick(ms); await setImmediate(); };
   return { calls, frames, stop, tick };
 }
+
+for (const lostResponse of [true, false]) {
+  test(lostResponse ? 'a proxy 502 with the model error name still reads back a saved POST' : 'a forwarded model 502 is an explicit refusal', async t => {
+    globalThis.window = globalThis;
+    t.after(() => { delete globalThis.window; });
+    const at = '2026-11-18T12:00:00Z';
+    const content = '回复已保存';
+    const requests = [];
+    let saved;
+    t.mock.method(globalThis, 'fetch', async (path, init) => {
+      if (typeof path === 'string') return onRequest({ request: new Request(new URL(path, 'https://claw.example'), init) });
+      const method = init.method;
+      requests.push(method);
+      if (method === 'POST') {
+        if (!lostResponse) return Response.json({ error: { id: 'upstream_unavailable' } }, { status: 502 });
+        const posted = await new Response(init.body).json();
+        saved = { id: session, entry_id: 'b'.repeat(32), created_at: at, updated_at: at, messages: [
+          { role: 'user', content: posted.content, client_request_id: posted.client_request_id, created_at: at },
+          { role: 'assistant', content: '已完成', created_at: at },
+        ] };
+        throw new TypeError('lost upstream response after saving');
+      }
+      return Response.json({ session: saved });
+    });
+    const signal = new AbortController().signal;
+    let cause;
+    await assert.rejects(sendMessage(session, content, request, signal), error => {
+      cause = error;
+      return error.status === 502 && error.body.error.id === 'upstream_unavailable';
+    });
+    assert.deepEqual(await recoverSend(cause, session, request, content, signal, () => true), lostResponse ? saved : 'refused');
+    assert.deepEqual(requests, lostResponse ? ['POST', 'GET'] : ['POST']);
+  });
+}
+
+test('repeated short SSE connections back off without delaying the first resume', async t => {
+  t.mock.method(performance, 'now', () => Date.now());
+  const { calls, stop, tick } = follow(t, ({ signal }, index) => index <= 6
+    ? new Response(wire(frame(index, 1, [text(0, '字'.repeat(index), 3 * index)])), { headers: { 'content-type': sse } })
+    : stream(signal).response);
+  await tick(0);
+  assert.equal(calls.length, 2);
+  for (const delay of [250, 500, 1000, 1000]) {
+    const count = calls.length;
+    await tick(delay - 1);
+    assert.equal(calls.length, count);
+    await tick(1);
+    assert.equal(calls.length, count + 1);
+    assert.deepEqual(calls.at(-1).query, { version: String(count), tail: '0', at: String(3 * count), client_request_id: request });
+  }
+  stop();
+  await tick(1000);
+  assert.equal(calls.length, 6);
+});
 
 test('delivers separated SSE frames before EOF and reconnects with the applied byte cursor', async t => {
   const connections = [];
@@ -94,8 +152,6 @@ test('delivers separated SSE frames before EOF and reconnects with the applied b
 
   first.close();
   await setImmediate();
-  assert.equal(calls.length, 1);
-  await tick(1500);
   assert.equal(calls[1]?.accept, sse);
   assert.deepEqual(calls[1]?.query, { version: '11', tail: '2', at: '0', client_request_id: request });
   connections[1].write(wire(frame(12, 3, [tool(1, 'done'), text(2, '答案', 6)])));
@@ -144,7 +200,7 @@ test('a stalled SSE body or an early connection failure falls back without a POS
   }
 });
 
-test('heartbeats cannot delay fallback or reset the last applied byte cursor', async t => {
+test('a transport going silent after a heartbeat falls back from the last applied byte cursor', async t => {
   let connection;
   const { calls, frames, tick } = follow(t, ({ signal }, index) => {
     if (index === 1) {
@@ -158,11 +214,11 @@ test('heartbeats cannot delay fallback or reset the last applied byte cursor', a
   connection.write(wire(frame(3, 1, [text(0, '答', 3)])));
   await tick(0);
   await tick(3000);
-  connection.write(': pulse\n\n');
+  connection.write(': heartbeat\n\n');
   await tick(0);
-  await tick(1000);
+  await tick(11999);
   assert.equal(calls.length, 1);
-  await tick(2500);
+  await tick(1);
   assert.equal(calls[0].signal.aborted, true);
   assert.equal(calls[1]?.accept, json);
   assert.deepEqual(calls[1].query, { version: '3', tail: '0', at: '3', client_request_id: request });
@@ -218,9 +274,52 @@ test('invalid, foreign, and duplicate frames neither update the screen nor postp
   connection.write(wire(frame(1, 1, [text(0, '旧', 3)], { stage: { id: 'thinking' } })));
   await tick(0);
   assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答']);
-  await tick(2500);
+  await tick(9000);
   assert.equal(calls[1]?.accept, json);
   assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答', '答案']);
+});
+
+test('opens immediately and keeps a healthy SSE connection through a quiet model wait', async t => {
+  let connection;
+  const { calls, frames, tick } = follow(t, ({ signal }) => {
+    connection = stream(signal);
+    return connection.response;
+  });
+  await tick(0);
+  assert.equal(calls[0]?.accept, sse, 'do not delay the first stream request');
+  connection.write(': connected\n\n');
+  connection.write(wire(frame(1, 0, [], { stage: { id: 'model' } })));
+  await tick(0);
+  await tick(8000);
+  assert.equal(calls.length, 1, 'the client must outlive the server heartbeat interval');
+  connection.write(': heartbeat\n\n');
+  await tick(0);
+  await tick(8000);
+  connection.write(wire(frame(2, 1, [text(0, '答案', 6)], { stage: { id: 'writing' } })));
+  await tick(0);
+  assert.equal(calls.length, 1);
+  assert.equal(frames.at(-1)?.shown?.[0].text, '答案');
+});
+
+test('a broken body immediately reconnects SSE from the last fully applied UTF-8 offset', async t => {
+  const connections = [];
+  const { calls, frames, tick } = follow(t, ({ signal }) => {
+    const connection = stream(signal);
+    connections.push(connection);
+    return connection.response;
+  });
+  await tick(300);
+  connections[0].write(wire(frame(1, 1, [text(0, '先🐱', 7)])));
+  await tick(0);
+  connections[0].write('data: {"version":2');
+  await tick(0);
+  connections[0].fail();
+  await tick(0);
+  assert.equal(calls[1]?.accept, sse);
+  assert.deepEqual(calls[1]?.query, { version: '1', tail: '0', at: '7', client_request_id: request });
+  connections[1].write(wire(frame(2, 1, [text(0, '看', 10, 7)])));
+  await tick(0);
+  assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['先🐱', '先🐱看']);
 });
 
 test('fallback reads the saved answer without waiting for the live GET or crossing the next user message', async t => {
@@ -239,14 +338,13 @@ test('fallback reads the saved answer without waiting for the live GET or crossi
     const messages = reads === 1 ? [...prev, ask, ...next] : [...prev, ask, assistant('本轮正文'), ...next];
     return Response.json({ session: { id: session, entry_id: 'b'.repeat(32), created_at: date, updated_at: date, messages } });
   }, { content: ask.content, onReply: value => saved.push(value) });
-  await tick(300);
-  await tick(5500);
+  await tick(0);
   assert.equal(reads, 1);
   assert.deepEqual(saved, []);
   await tick(3000);
   assert.equal(reads, 2);
   assert.deepEqual(saved[0]?.messages, [...prev, ask, assistant('本轮正文')]);
-  assert.equal(calls.find(call => call.path.endsWith('/live') && call.accept === json).signal.aborted, true);
+  assert.equal(calls[0].signal.aborted, true);
   await tick(30000);
   assert.equal(reads, 2);
 });

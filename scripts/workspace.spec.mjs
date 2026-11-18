@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { strToU8, zipSync } from 'fflate';
 import { readFile } from 'node:fs/promises';
 import { createEdgeoneConfig } from './edgeone-config.mjs';
@@ -2446,7 +2447,6 @@ test.describe('Workspace mocked contract suite', () => {
     let failReadback = false;
     await page.route(`**/api/sessions/${sessionA.id}`, route => {
       if (failReadback && route.request().method() === 'GET') {
-        failReadback = false;
         return json(route, 403, { error: { id: 'forbidden' } });
       }
       return route.fallback();
@@ -2462,6 +2462,7 @@ test.describe('Workspace mocked contract suite', () => {
     expect(state.sentRequests).toHaveLength(1);
     await expect(composer).toHaveValue('总结课程');
 
+    failReadback = false;
     await page.evaluate(id => sessionStorage.removeItem(`tjuclaw.chat.pending.v1.user-identity-uuid-aaaa.${id}`), sessionA.id);
     await page.getByRole('button', { name: '确认发送结果' }).click();
     await expect(page.locator('.chat-message.user')).toContainText('总结课程');
@@ -4128,7 +4129,7 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await expect(dialog).toContainText('5 小时内 AI 额度');
 });
 
-test('a CDN 524 keeps waiting for the saved reply without sending the turn twice', async ({ page }) => {
+for (const status of [524, 502]) test(`a gateway ${status} recovers the saved reply without sending twice`, async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
   let posts = 0;
@@ -4155,7 +4156,8 @@ test('a CDN 524 keeps waiting for the saved reply without sending the turn twice
         { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
         { role: 'assistant', content: '沙箱已经整理好提纲。', created_at: '2026-01-01T00:00:40.000Z' }] };
     }, 4000);
-    await route.fulfill({ status: 524, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
+    if (status === 502) return json(route, 502, { error: { id: 'upstream_unavailable' } });
+    return route.fulfill({ status, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: '工作', exact: true }).click();
@@ -5945,6 +5947,109 @@ for (const width of [390, 1280]) {
       await append(3, 'writing', { kind: 'text', text: '**找到讲义**', next: 16 });
       await expect(working.locator('.agent-live-text strong')).toHaveText('找到讲义');
     } finally { release(); }
+  });
+}
+
+test('real HTTP stream shows each update after a quiet wait and resumes an interrupted event', async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  const posts = [];
+  const live = [];
+  const server = createServer((req, res) => {
+    const query = new URL(req.url, 'http://127.0.0.1').searchParams;
+    live.push({ query: Object.fromEntries(query), accept: req.headers.accept, res, socket: req.socket });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+    res.write(': connected\n\n');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await page.route(`**/api/sessions/${sessionA.id}/live?*`, route => {
+      const url = new URL(route.request().url());
+      return route.continue({ url: `http://127.0.0.1:${server.address().port}${url.pathname}${url.search}` });
+    });
+    await page.route(`**/api/sessions/${sessionA.id}/messages`, route => { posts.push(route.request().postDataJSON()); });
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '工作', exact: true }).click();
+    const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+    await composer.fill('测试断线续读');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    await expect.poll(() => live.length).toBe(1);
+    const id = posts[0].client_request_id;
+    const write = (connection, version, stage, count, items) => {
+      connection.res.write(`data: ${JSON.stringify({ client_request_id: id, version, stage: { id: stage }, count, items })}\n\n`);
+    };
+    const working = page.getByRole('status', { name: /正在处理/ });
+    const phase = working.locator('.agent-working-text');
+    const thought = '收到的思考🐱'.repeat(12);
+    const thoughtBytes = Buffer.byteLength(thought);
+    await page.evaluate(() => {
+      const observer = new MutationObserver(() => {
+        const value = document.querySelector('.agent-live-thought p')?.textContent;
+        if (value && !window.__firstThought) window.__firstThought = value;
+      });
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    write(live[0], 1, 'thinking', 1, [{ i: 0, kind: 'thinking', text: thought, next: thoughtBytes }]);
+    await expect.poll(() => page.evaluate(() => window.__firstThought)).toBe(thought);
+    write(live[0], 2, 'model', 1, []);
+    await expect(phase).toContainText('等待模型回复');
+    await expect(working.getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'false');
+    // Wait for the server's real heartbeat interval, past the old 5s fallback.
+    await new Promise(resolve => setTimeout(resolve, 8000));
+    expect(live.map(connection => connection.accept)).toEqual(['text/event-stream']);
+    live[0].res.write(': heartbeat\n\n');
+    write(live[0], 3, 'writing', 2, [{ i: 1, kind: 'text', text: '答🐱', next: 7 }]);
+    await expect(working.locator('.agent-live-text')).toHaveText('答🐱');
+    await info.attach('before-disconnect', { body: await page.screenshot(), contentType: 'image/png' });
+    live[0].res.write('data: {"version":4');
+    live[0].socket.destroy();
+    await expect.poll(() => live.length).toBe(2);
+    expect(live[1].accept).toBe('text/event-stream');
+    expect(live[1].query).toEqual({ client_request_id: id, version: '3', tail: '1', at: '7' });
+    write(live[1], 4, 'writing', 2, [{ i: 1, kind: 'text', text: '案', from: 7, next: 10 }]);
+    await expect(working.locator('.agent-live-text')).toHaveText('答🐱案');
+    await expect(phase).toHaveText('正在回答');
+    const at = '2026-01-01T00:00:10.000Z';
+    state.sessionById[sessionA.id] = { ...sessionA, messages: [
+      { role: 'user', ...posts[0], created_at: at },
+      { role: 'assistant', content: '答🐱案', created_at: at },
+    ] };
+    live[1].res.end();
+    await expect(page.locator('.chat-message.assistant .chat-message-content')).toHaveText('答🐱案');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(posts).toHaveLength(1);
+    await info.attach('saved-reply', { body: await page.screenshot(), contentType: 'image/png' });
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+for (const [status, id, message] of [
+  [502, 'upstream_unavailable', '模型上游暂时不可用'],
+  [401, 'auth_required', '登录状态已失效'],
+]) {
+  test(`an explicit Agent POST refusal (${status}) preserves the draft and shows why`, async ({ page }) => {
+    await mockWorkspace(page, defaultState());
+    const posts = [];
+    await page.goto('/workspace');
+    await page.getByRole('button', { name: '工作', exact: true }).click();
+    const composer = page.getByRole('textbox', { name: '发送给 Agent 的消息' });
+    await expect(composer).toBeEnabled();
+    await page.route(`**/api/sessions/${sessionA.id}`, route => json(route, 401, { error: { id: 'auth_required' } }));
+    await page.route(`**/api/sessions/${sessionA.id}/messages`, route => {
+      posts.push(route.request().postDataJSON());
+      return route.fulfill({ status, json: { error: { id } },
+        headers: status === 502 ? { 'X-TJUClaw-API-Response': 'forwarded' } : {} });
+    });
+    await composer.fill('  保留原始草稿  ');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText(message);
+    await expect(composer).toHaveValue('  保留原始草稿  ');
+    await expect(page.getByRole('status', { name: /正在处理/ })).toHaveCount(0);
+    expect(posts).toHaveLength(1);
   });
 }
 

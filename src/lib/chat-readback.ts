@@ -47,12 +47,16 @@ export async function pollSavedTurn(sessionId: string, requestId: string, conten
 
 export async function recoverSend(cause: unknown, sessionId: string, requestId: string, content: string,
   signal: AbortSignal, current: () => boolean): Promise<ChatSession | 'refused' | undefined> {
-  // These are refused before a turn can be stored.
-  const refused = cause instanceof AuthError ? cause.body?.error?.id : undefined;
-  if (refused && ['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded',
-    'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked'].includes(refused)) return 'refused';
-  const status = cause instanceof AuthError ? cause.status : 0;
-  const pending = status === 0 || status === 502 || status === 504 || status === 524;
+  const response = cause instanceof AuthError ? cause : undefined;
+  const errorId = response?.body?.error?.id;
+  const status = response?.status ?? 0;
+  // Older gateways can emit the same 502 body after losing the POST response.
+  if (status === 502 && response?.apiForwarded && errorId === 'upstream_unavailable') return 'refused';
+  if ([400, 401, 403, 404].includes(status) || (errorId && [
+    'local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded',
+    'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked',
+  ].includes(errorId))) return 'refused';
+  const pending = status === 0 || status === 408 || status === 502 || status === 504 || status >= 520 || (status >= 500 && !errorId);
   if (pending) return pollSavedTurn(sessionId, requestId, content, signal, current);
   if (signal.aborted || !current()) return;
   const session = await getSession(sessionId, signal);

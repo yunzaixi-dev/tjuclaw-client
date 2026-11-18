@@ -425,10 +425,9 @@ export function AgentThread({ title, chat, loading, visible, error, draft, sendi
             </div>
           </div>
         </article>)}
-      {/* The draft stays in the composer until the reply is confirmed, so a
-          failed send never loses it; the transcript shows the work under way. */}
+      {/* The transcript shows the draft while its send is pending. */}
       {pending?.content ? <article className="chat-message user is-pending" aria-label="正在发送"><p>{pending.content}</p></article> : null}
-      {pending ? <Working key={`${pending.sessionId}:${pending.since}`} name={title} {...pending} stopping={stopping} direct={phone} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
+      {pending ? <Working key={`${pending.sessionId}:${pending.since}`} name={title} {...pending} stopping={stopping} renderMarkdown={renderMarkdown} onProgress={followLive} /> : null}
     </div>;
   }
 

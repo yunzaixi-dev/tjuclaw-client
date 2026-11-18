@@ -2727,19 +2727,19 @@ export default function Workspace() {
     setChatSending(true);
     setChatStopping(false);
     const digest = await attempt(() => chatDigest(text), () => null);
+    if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
+      if (generation === identityGeneration.current) {
+        sendingRef.current = false;
+        setChatSending(false);
+        setPendingTurn(undefined);
+      }
+      return;
+    }
     if (digest === null) {
       sendingRef.current = false;
       setChatSending(false);
       setPendingTurn(undefined);
       setChatError('无法校验消息重试，请检查浏览器安全环境后再试。');
-      return;
-    }
-    if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
-      sendingRef.current = false;
-      if (generation === identityGeneration.current) {
-        setChatSending(false);
-        setPendingTurn(undefined);
-      }
       return;
     }
     // Resending the same text reuses its request id, so a turn the server did
@@ -2768,11 +2768,11 @@ export default function Workspace() {
       void settleTurn(currentId, entryId, libraries[0]?.id, generation, fromRead ? { requestId, content: text } : undefined);
     };
     const finishSend = () => {
-      sendingRef.current = false;
       if (generation === identityGeneration.current) {
+        sendingRef.current = false;
         setChatSending(false);
         setPendingTurn(undefined);
-        if (!delivered && request === chatRequestRef.current) setDraft(text);
+        if (!delivered && request === chatRequestRef.current) setDraft(draft);
       }
     };
     setPendingTurn({ sessionId: currentId, since, content: text, requestId: local ? undefined : requestId, onReply: next => {
