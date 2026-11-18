@@ -394,7 +394,7 @@ export async function createLibrary(name: string, signal?: AbortSignal): Promise
 export async function listEntries(libraryId: string, signal?: AbortSignal): Promise<Entry[]> {
   // A large library's list is megabytes; give a slow connection time to fetch it.
   const data = await authRequest<{ entries: unknown }>(`/api/libraries/${libraryId}/entries`, { signal }, 60_000);
-  if (!Array.isArray(data.entries) || !data.entries.every(isEntry)) throw new AuthError(503);
+  if (!Array.isArray(data.entries) || !data.entries.every(row => isEntry(row) && row.library_id === libraryId)) throw new AuthError(503);
   return data.entries;
 }
 

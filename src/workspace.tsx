@@ -1934,7 +1934,7 @@ export default function Workspace() {
   useEffect(() => {
     const identity = identityRef.current;
     const current = libraries[0];
-    if (!identity || !current || loading || workspaceGate || !entries.length || entries.some(row => row.library_id !== current.id)) return;
+    if (!identity || !current || loading || workspaceGate || readyLibraryId !== current.id || entries.some(row => row.library_id !== current.id)) return;
     const onHome = view === 'notes' && !selectedId;
     writeWorkspaceTree(identity, {
       library: { id: current.id, name: current.name, created_at: current.created_at, updated_at: current.updated_at },
@@ -1942,7 +1942,7 @@ export default function Workspace() {
       verification: treeVerification.current,
       focus: onHome ? 'home' : selected?.kind === 'note' || selected?.kind === 'rich_text' ? selected.id : undefined,
     });
-  }, [entries, libraries, loading, workspaceGate, view, selectedId, selected]);
+  }, [entries, libraries, loading, workspaceGate, readyLibraryId, view, selectedId, selected]);
 
   useEffect(() => {
     if (loading || !session) return;
@@ -1982,7 +1982,6 @@ export default function Workspace() {
     }
     const listed = await listEntries(id, signal);
     if (!canApply()) return false;
-    if (listed.some(row => row.library_id !== id)) throw new AuthError(503);
     const { selected } = libraryView.current;
     const request = noteRequestRef.current;
     const note = selected?.library_id === id && (selected.kind === 'note' || selected.kind === 'rich_text') ? selected : null;
@@ -2035,12 +2034,6 @@ export default function Workspace() {
       return { ...tab, kind: 'blank', title: '新建笔记', entryId: undefined, history: [], historyIndex: -1 };
     }));
     showTree(items);
-    // The normal cache effect skips empty trees, which can also mean loading.
-    // This empty list is authoritative; don't restore deleted rows next boot.
-    const identityId = identityRef.current;
-    if (!items.length && identityId && library?.id === id) {
-      writeWorkspaceTree(identityId, { library, entries: items, verification: treeVerification.current, focus: 'home' });
-    }
     setError(current => current === '工作区暂时无法连接，请稍后重试。' ? '' : current);
     return true;
   }
@@ -2098,10 +2091,7 @@ export default function Workspace() {
     setLoadStep('entries');
     // Flashcards do not depend on the note tree: both load at once.
     const flashcards = loadAnkiData(generation);
-    const listed = await listEntries(activeLibrary.id).then(rows => {
-      if (rows.some(row => row.library_id !== activeLibrary.id)) throw new AuthError(503);
-      return rows;
-    }).catch((error: unknown) => {
+    const listed = await listEntries(activeLibrary.id).catch((error: unknown) => {
       // The account and this library were already verified and unlocked. A
       // failed initial list must not prevent the sync loop from catching up.
       if (generation === identityGeneration.current && !(error instanceof AuthError && (error.status === 401 || error.status === 403))) {

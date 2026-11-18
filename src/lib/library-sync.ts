@@ -20,16 +20,11 @@ export async function syncLibrary(signal: AbortSignal, reconcile: () => Promise<
   let cursor: string | undefined;
   let retryMs = 1000;
   while (!signal.aborted) {
+    let readingFeed = true;
     try {
       const started = performance.now();
-      const next = await getLibraryChanges(cursor, signal).catch(async (error: unknown) => {
-        // During maintenance the directory can recover before the change
-        // feed. Reconcile from the authoritative list, then re-handshake.
-        if (!signal.aborted && (!(error instanceof AuthError) || error.status >= 500 || error.status === 409)) {
-          await reconcile();
-        }
-        throw error;
-      });
+      const next = await getLibraryChanges(cursor, signal);
+      readingFeed = false;
       if (signal.aborted) return;
       if (next !== cursor) {
         // A canceled or superseded read must not consume this notification.
@@ -46,6 +41,10 @@ export async function syncLibrary(signal: AbortSignal, reconcile: () => Promise<
       retryMs = 1000;
     } catch (error) {
       if (signal.aborted || (error instanceof AuthError && (error.status === 401 || error.status === 403))) return;
+      // The directory can recover before the feed. Reconcile, then re-handshake.
+      if (readingFeed && (!(error instanceof AuthError) || error.status >= 500 || error.status === 409)) {
+        await reconcile().catch(() => undefined);
+      }
       cursor = undefined; // After a network error, handshake and catch up again.
       await wait(retryMs, signal);
       retryMs = Math.min(retryMs * 2, 30_000);
