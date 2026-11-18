@@ -47,12 +47,14 @@ export async function pollSavedTurn(sessionId: string, requestId: string, conten
 
 export async function recoverSend(cause: unknown, sessionId: string, requestId: string, content: string,
   signal: AbortSignal, current: () => boolean): Promise<ChatSession | 'refused' | undefined> {
-  // These are refused before a turn can be stored.
-  const refused = cause instanceof AuthError ? cause.body?.error?.id : undefined;
-  if (refused && ['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded',
-    'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked'].includes(refused)) return 'refused';
+  // An API refusal is not the same as a gateway dropping the POST response.
+  const errorId = cause instanceof AuthError ? cause.body?.error?.id : undefined;
   const status = cause instanceof AuthError ? cause.status : 0;
-  const pending = status === 0 || status === 502 || status === 504 || status === 524;
+  if ([400, 401, 403, 404].includes(status) || (errorId && [
+    'local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded',
+    'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked', 'upstream_unavailable',
+  ].includes(errorId))) return 'refused';
+  const pending = status === 0 || status === 408 || status === 502 || status === 504 || status >= 520 || (status >= 500 && !errorId);
   if (pending) return pollSavedTurn(sessionId, requestId, content, signal, current);
   if (signal.aborted || !current()) return;
   const session = await getSession(sessionId, signal);

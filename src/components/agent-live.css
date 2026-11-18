@@ -4,6 +4,7 @@
    body close from whatever height the text had. */
 .agent-live-thought { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 320ms var(--ease-out), opacity 220ms var(--ease-out); }
 .agent-step.is-open > .agent-live-thought { grid-template-rows: 1fr; opacity: 1; }
+.agent-step.is-active > .agent-live-thought { transition: none; }
 /* Folded, the body takes no room at all: its own padding would keep a few pixels. */
 .agent-live-thought > p { min-height: 0; margin-bottom: 0; padding-block: 0; overflow: hidden; }
 .agent-step.is-open > .agent-live-thought > p { margin-bottom: 8px; padding-block: 2px; }
@@ -15,9 +16,6 @@
 .agent-step.is-active > .agent-live-thought > p::-webkit-scrollbar { display: none; }
 .agent-step.is-thinking.is-active > button { cursor: default; }
 .agent-step.is-thinking.is-active .agent-step-chevron { visibility: hidden; }
-/* The newest characters of the reply fade in; see fadeTail. */
-.agent-tail { transition: opacity 90ms linear; }
-.agent-live-text { animation: agent-in 240ms var(--ease-out) both; }
 /* A caret after the last written character while the reply is still coming. */
 .agent-live-text > :last-child::after {
   content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -0.12em;
@@ -25,7 +23,6 @@
 }
 @keyframes agent-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .agent-live-text { animation: none; }
-  .agent-live-thought, .agent-tail { transition: none; }
+  .agent-live-thought { transition: none; }
   .agent-live-text > :last-child::after { animation: none; }
 }

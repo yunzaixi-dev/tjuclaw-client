@@ -39,6 +39,7 @@ function stream(signal) {
     response: new Response(body, { headers: { 'content-type': `${sse}; charset=utf-8` } }),
     write: chunk => controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk),
     close: () => controller.close(),
+    fail: () => controller.error(new TypeError('connection dropped')),
   };
 }
 
@@ -94,8 +95,6 @@ test('delivers separated SSE frames before EOF and reconnects with the applied b
 
   first.close();
   await setImmediate();
-  assert.equal(calls.length, 1);
-  await tick(1500);
   assert.equal(calls[1]?.accept, sse);
   assert.deepEqual(calls[1]?.query, { version: '11', tail: '2', at: '0', client_request_id: request });
   connections[1].write(wire(frame(12, 3, [tool(1, 'done'), text(2, '答案', 6)])));
@@ -144,7 +143,7 @@ test('a stalled SSE body or an early connection failure falls back without a POS
   }
 });
 
-test('heartbeats cannot delay fallback or reset the last applied byte cursor', async t => {
+test('a transport going silent after a heartbeat falls back from the last applied byte cursor', async t => {
   let connection;
   const { calls, frames, tick } = follow(t, ({ signal }, index) => {
     if (index === 1) {
@@ -158,11 +157,11 @@ test('heartbeats cannot delay fallback or reset the last applied byte cursor', a
   connection.write(wire(frame(3, 1, [text(0, '答', 3)])));
   await tick(0);
   await tick(3000);
-  connection.write(': pulse\n\n');
+  connection.write(': heartbeat\n\n');
   await tick(0);
-  await tick(1000);
+  await tick(11999);
   assert.equal(calls.length, 1);
-  await tick(2500);
+  await tick(1);
   assert.equal(calls[0].signal.aborted, true);
   assert.equal(calls[1]?.accept, json);
   assert.deepEqual(calls[1].query, { version: '3', tail: '0', at: '3', client_request_id: request });
@@ -218,9 +217,52 @@ test('invalid, foreign, and duplicate frames neither update the screen nor postp
   connection.write(wire(frame(1, 1, [text(0, '旧', 3)], { stage: { id: 'thinking' } })));
   await tick(0);
   assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答']);
-  await tick(2500);
+  await tick(9000);
   assert.equal(calls[1]?.accept, json);
   assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['答', '答案']);
+});
+
+test('opens immediately and keeps a healthy SSE connection through a quiet model wait', async t => {
+  let connection;
+  const { calls, frames, tick } = follow(t, ({ signal }) => {
+    connection = stream(signal);
+    return connection.response;
+  });
+  await tick(0);
+  assert.equal(calls[0]?.accept, sse, 'do not delay the first stream request');
+  connection.write(': connected\n\n');
+  connection.write(wire(frame(1, 0, [], { stage: { id: 'model' } })));
+  await tick(0);
+  await tick(8000);
+  assert.equal(calls.length, 1, 'the client must outlive the server heartbeat interval');
+  connection.write(': heartbeat\n\n');
+  await tick(0);
+  await tick(8000);
+  connection.write(wire(frame(2, 1, [text(0, '答案', 6)], { stage: { id: 'writing' } })));
+  await tick(0);
+  assert.equal(calls.length, 1);
+  assert.equal(frames.at(-1)?.shown?.[0].text, '答案');
+});
+
+test('a broken body immediately reconnects SSE from the last fully applied UTF-8 offset', async t => {
+  const connections = [];
+  const { calls, frames, tick } = follow(t, ({ signal }) => {
+    const connection = stream(signal);
+    connections.push(connection);
+    return connection.response;
+  });
+  await tick(300);
+  connections[0].write(wire(frame(1, 1, [text(0, '先🐱', 7)])));
+  await tick(0);
+  connections[0].write('data: {"version":2');
+  await tick(0);
+  connections[0].fail();
+  await tick(0);
+  assert.equal(calls[1]?.accept, sse);
+  assert.deepEqual(calls[1]?.query, { version: '1', tail: '0', at: '7', client_request_id: request });
+  connections[1].write(wire(frame(2, 1, [text(0, '看', 10, 7)])));
+  await tick(0);
+  assert.deepEqual(frames.map(({ shown }) => shown?.[0].text), ['先🐱', '先🐱看']);
 });
 
 test('fallback reads the saved answer without waiting for the live GET or crossing the next user message', async t => {
@@ -239,14 +281,13 @@ test('fallback reads the saved answer without waiting for the live GET or crossi
     const messages = reads === 1 ? [...prev, ask, ...next] : [...prev, ask, assistant('本轮正文'), ...next];
     return Response.json({ session: { id: session, entry_id: 'b'.repeat(32), created_at: date, updated_at: date, messages } });
   }, { content: ask.content, onReply: value => saved.push(value) });
-  await tick(300);
-  await tick(5500);
+  await tick(0);
   assert.equal(reads, 1);
   assert.deepEqual(saved, []);
   await tick(3000);
   assert.equal(reads, 2);
   assert.deepEqual(saved[0]?.messages, [...prev, ask, assistant('本轮正文')]);
-  assert.equal(calls.find(call => call.path.endsWith('/live') && call.accept === json).signal.aborted, true);
+  assert.equal(calls[0].signal.aborted, true);
   await tick(30000);
   assert.equal(reads, 2);
 });

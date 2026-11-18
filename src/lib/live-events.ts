@@ -2,9 +2,10 @@ import { decodeLiveTurn, getLive, livePath, type ChatSession, type LiveCursor, t
 import { CHAT_READBACK_WINDOW_MS, pollSavedTurn } from './chat-readback';
 import { mergeTimeline, stageText, timelineCursor, type TimelineItem } from './live-stream';
 
-// A proxy can deliver heartbeats without delivering updates. Give SSE a short
-// window to make progress, then read from the same turn over JSON instead.
-const STREAM_PROGRESS_MS = 5000;
+// The current API flushes an opening comment, then a heartbeat every 8s even
+// while the model has nothing to say. Time out transport silence, not thinking.
+const STREAM_OPEN_MS = 5000;
+const STREAM_IDLE_MS = 12000;
 const MAX_FRAME_CHARS = 16 << 20;
 const SSE = 'text/event-stream';
 
@@ -14,8 +15,12 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
   const connection = new AbortController();
   const abort = () => connection.abort();
   signal.addEventListener('abort', abort, { once: true });
-  let timeout = setTimeout(abort, STREAM_PROGRESS_MS);
-  let progressed = false;
+  let timeout = setTimeout(abort, STREAM_OPEN_MS);
+  let received = false;
+  const keepAlive = () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(abort, STREAM_IDLE_MS);
+  };
   try {
     const response = await fetch(path, { headers: { Accept: SSE }, signal: connection.signal,
       credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
@@ -38,16 +43,21 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
       while (!connection.signal.aborted) {
         const { done, value } = await reader.read();
         if (connection.signal.aborted) return false;
-        if (done) return progressed && !buffered;
+        if (done) return received;
         if (!value?.length) continue;
         buffered += decoder.decode(value, { stream: true });
         let end: RegExpExecArray | null;
         while ((end = boundary.exec(buffered))) {
           const event = buffered.slice(0, end.index);
           buffered = buffered.slice(end.index + end[0].length);
+          if (event.length > MAX_FRAME_CHARS) return false;
+          if (event === ': connected' || event === ': heartbeat') {
+            if (event === ': heartbeat') received = true;
+            keepAlive();
+            continue;
+          }
           const data = event.split(/\r?\n/).filter(line => line.startsWith('data:'))
             .map(line => line.slice(5).replace(/^ /, ''));
-          if (event.length > MAX_FRAME_CHARS) return false;
           if (!data.length) continue;
           let payload: unknown;
           try { payload = JSON.parse(data.join('\n')); }
@@ -55,9 +65,8 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
           const result = apply(payload);
           if (result === 'resync' || connection.signal.aborted) return false;
           if (result === 'progress') {
-            progressed = true;
-            clearTimeout(timeout);
-            timeout = setTimeout(abort, STREAM_PROGRESS_MS);
+            received = true;
+            keepAlive();
           }
         }
         if (buffered.length > MAX_FRAME_CHARS) return false;
@@ -66,7 +75,9 @@ async function readLiveEvents(path: string, signal: AbortSignal, apply: (payload
       reader.releaseLock();
     }
   } catch {
-    return false;
+    // A broken body can leave an incomplete frame. Resume from the last
+    // applied cursor, never from those buffered bytes.
+    return received && !connection.signal.aborted;
   } finally {
     abort();
     clearTimeout(timeout);
@@ -125,21 +136,17 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
   };
   async function readSavedReply() {
     if (!saved) return;
-    // Give a quick POST time to finish, but do not wait for the stream to end.
-    await pause(5000);
     const reply = await pollSavedTurn(sessionId, requestId, saved.content, signal).catch(() => undefined);
     if (!reply || signal.aborted) return;
     controller.abort();
     saved.onReply(reply);
   }
-  void readSavedReply();
   void (async () => {
-    // Let the send register its request ID before the first read, as before.
-    await pause(300);
+    // The SSE endpoint waits for this request ID to register if the GET wins
+    // the race with the POST. Only fall back when this path cannot stream.
     while (!signal.aborted) {
       const resume = await readLiveEvents(livePath(sessionId, cursor, requestId), signal, applyFrame);
       if (!resume || signal.aborted) break;
-      await pause(300);
     }
     // Carry the last applied cursor into the long poll. A failed read has not
     // changed what is already on screen.
@@ -156,5 +163,6 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
       }
     }
   })();
+  void readSavedReply();
   return () => controller.abort();
 }
