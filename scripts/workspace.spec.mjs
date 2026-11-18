@@ -4128,12 +4128,13 @@ test('an exhausted 5h window explains the block and shows both rolling quotas', 
   await expect(dialog).toContainText('5 小时内 AI 额度');
 });
 
-test('a CDN timeout keeps waiting for the reply the server saved under the request id', async ({ page }) => {
+test('a CDN 524 keeps waiting for the saved reply without sending the turn twice', async ({ page }) => {
   const state = defaultState();
   await mockWorkspace(page, state);
-  let sent = null;
+  let posts = 0;
   await page.route('**/api/sessions/*/messages', async route => {
-    sent = JSON.parse(route.request().postData());
+    posts += 1;
+    const sent = JSON.parse(route.request().postData());
     // The CDN gives up; the server finishes and saves the turn a little later.
     setTimeout(() => {
       const session = state.sessionById[sessionA.id];
@@ -4141,7 +4142,7 @@ test('a CDN timeout keeps waiting for the reply the server saved under the reque
         { role: 'user', content: sent.content, client_request_id: sent.client_request_id, created_at: '2026-01-01T00:00:10.000Z' },
         { role: 'assistant', content: '沙箱已经整理好提纲。', created_at: '2026-01-01T00:00:40.000Z' }] };
     }, 4000);
-    await route.fulfill({ status: 504, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
+    await route.fulfill({ status: 524, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
   });
   await page.goto('/workspace');
   await page.getByRole('button', { name: '工作', exact: true }).click();
@@ -4151,6 +4152,7 @@ test('a CDN timeout keeps waiting for the reply the server saved under the reque
   await expect(page.locator('.chat-message.assistant')).toContainText('沙箱已经整理好提纲', { timeout: 15000 });
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toHaveValue('');
+  expect(posts).toBe(1);
 });
 
 test('a reply shows its thinking and each tool call with its own view, and sending is optimistic', async ({ page }) => {

@@ -31,7 +31,7 @@ export async function recoverSend(cause: unknown, sessionId: string, requestId: 
   if (refused && ['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded',
     'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked'].includes(refused)) return 'refused';
   const status = cause instanceof AuthError ? cause.status : 0;
-  const pending = status === 0 || status === 502 || status === 504;
+  const pending = status === 0 || status === 502 || status === 504 || status === 524;
   const reply = await readTurnAfterSendError(sessionId, requestId, content, pending, signal, current);
   return reply ?? (!pending && cause instanceof AuthError ? 'refused' : undefined);
 }
