@@ -1,5 +1,5 @@
-import { decodeLiveTurn, getLive, getSession, livePath, type ChatSession, type LiveCursor, type LiveTurn } from './library';
-import { savedTurnReply } from './chat-readback';
+import { decodeLiveTurn, getLive, livePath, type ChatSession, type LiveCursor, type LiveTurn } from './library';
+import { CHAT_READBACK_WINDOW_MS, pollSavedTurn } from './chat-readback';
 import { mergeTimeline, stageText, timelineCursor, type TimelineItem } from './live-stream';
 
 // A proxy can deliver heartbeats without delivering updates. Give SSE a short
@@ -80,6 +80,8 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
   saved?: { content: string; onReply: (session: ChatSession) => void }): () => void {
   const controller = new AbortController();
   const { signal } = controller;
+  const deadline = setTimeout(() => controller.abort(), CHAT_READBACK_WINDOW_MS);
+  signal.addEventListener('abort', () => clearTimeout(deadline), { once: true });
   let cursor: LiveCursor | undefined;
   let shown: TimelineItem[] = [];
   const pause = (ms: number) => new Promise<void>(resolve => {
@@ -123,22 +125,14 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
   };
   async function readSavedReply() {
     if (!saved) return;
-    // A /live long poll may block, or its timeline may already be cleared.
-    // Independently check the stored session without waiting for either event.
-    while (!signal.aborted) {
-      try {
-        const session = await getSession(sessionId, signal);
-        if (signal.aborted) return;
-        const reply = savedTurnReply(session, sessionId, requestId, saved.content);
-        if (reply) {
-          controller.abort();
-          saved.onReply(reply);
-          return;
-        }
-      } catch { /* The original send can still settle normally. */ }
-      if (!signal.aborted) await pause(2500);
-    }
+    // Give a quick POST time to finish, but do not wait for the stream to end.
+    await pause(5000);
+    const reply = await pollSavedTurn(sessionId, requestId, saved.content, signal).catch(() => undefined);
+    if (!reply || signal.aborted) return;
+    controller.abort();
+    saved.onReply(reply);
   }
+  void readSavedReply();
   void (async () => {
     // Let the send register its request ID before the first read, as before.
     await pause(300);
@@ -147,7 +141,6 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
       if (!resume || signal.aborted) break;
       await pause(300);
     }
-    void readSavedReply();
     // Carry the last applied cursor into the long poll. A failed read has not
     // changed what is already on screen.
     while (!signal.aborted) {

@@ -2447,7 +2447,7 @@ test.describe('Workspace mocked contract suite', () => {
     await page.route(`**/api/sessions/${sessionA.id}`, route => {
       if (failReadback && route.request().method() === 'GET') {
         failReadback = false;
-        return json(route, 503, { error: { id: 'library_storage_unavailable' } });
+        return json(route, 403, { error: { id: 'forbidden' } });
       }
       return route.fallback();
     });
@@ -4132,9 +4132,22 @@ test('a CDN 524 keeps waiting for the saved reply without sending the turn twice
   const state = defaultState();
   await mockWorkspace(page, state);
   let posts = 0;
+  let reads = 0;
+  let sent;
+  await page.route(`**/api/sessions/${sessionA.id}`, route => {
+    if (!sent || route.request().method() !== 'GET') return route.fallback();
+    reads += 1;
+    if (reads === 1) return route.fulfill({ status: 524, contentType: 'text/html', body: '<html>Tencent Edgeone</html>' });
+    // An earlier turn with identical text does not confirm this send.
+    if (reads === 2) return json(route, 200, { session: { ...sessionA, messages: [
+      { role: 'user', content: sent.content, client_request_id: 'a'.repeat(32), created_at: '2026-01-01T00:00:00.000Z' },
+      { role: 'assistant', content: '较早的回复。', created_at: '2026-01-01T00:00:05.000Z' },
+    ] } });
+    return route.fallback();
+  });
   await page.route('**/api/sessions/*/messages', async route => {
     posts += 1;
-    const sent = JSON.parse(route.request().postData());
+    sent = route.request().postDataJSON();
     // The CDN gives up; the server finishes and saves the turn a little later.
     setTimeout(() => {
       const session = state.sessionById[sessionA.id];
@@ -4152,7 +4165,50 @@ test('a CDN 524 keeps waiting for the saved reply without sending the turn twice
   await expect(page.locator('.chat-message.assistant')).toContainText('沙箱已经整理好提纲', { timeout: 15000 });
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: '发送给 Agent 的消息' })).toHaveValue('');
+  expect(reads).toBeGreaterThanOrEqual(3);
   expect(posts).toBe(1);
+});
+
+test('reads the exact saved turn even while the live stream keeps making progress', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  await page.addInitScript(() => {
+    const fetchOriginal = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = new URL(String(input), location.href);
+      if (!url.pathname.endsWith('/live') || new Headers(init?.headers).get('accept') !== 'text/event-stream') return fetchOriginal(input, init);
+      const id = url.searchParams.get('client_request_id');
+      const encoder = new TextEncoder();
+      let timer;
+      const stop = () => clearInterval(timer);
+      const stream = new ReadableStream({ start(controller) {
+        let version = 0;
+        const frame = () => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ client_request_id: id,
+          version: ++version, count: 0, items: [], stage: { id: version % 2 ? 'thinking' : 'writing', ms: 0 } })}\n\n`));
+        frame();
+        timer = setInterval(frame, 250);
+        init?.signal?.addEventListener('abort', () => { stop(); controller.close(); }, { once: true });
+      }, cancel: stop });
+      return Promise.resolve(new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }));
+    };
+  });
+  const posts = [];
+  await page.route('**/api/sessions/*/messages', route => { posts.push(route.request().postDataJSON()); });
+  await page.goto('/workspace');
+  await page.getByRole('button', { name: '工作', exact: true }).click();
+  await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('模拟排队的本轮');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  const at = '2026-01-01T00:00:10.000Z';
+  state.sessionById[sessionA.id] = { ...sessionA, messages: [
+    { role: 'user', ...posts[0], created_at: at },
+    { role: 'assistant', content: '本轮已保存', created_at: at },
+    { role: 'user', content: '下一轮问题', client_request_id: 'b'.repeat(32), created_at: at },
+    { role: 'assistant', content: '下一轮正文', created_at: at },
+  ] };
+  await expect(page.locator('.chat-message.assistant .chat-message-content')).toHaveText('本轮已保存', { timeout: 12000 });
+  await expect(page.locator('.agent-working')).toHaveCount(0);
+  expect(posts).toHaveLength(1);
 });
 
 test('a reply shows its thinking and each tool call with its own view, and sending is optimistic', async ({ page }) => {

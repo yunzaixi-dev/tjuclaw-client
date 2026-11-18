@@ -11,16 +11,37 @@ export function savedTurnReply(session: ChatSession, sessionId: string, requestI
   return index + 2 === messages.length ? session : { ...session, messages: messages.slice(0, index + 2) };
 }
 
-/** A timed-out POST may still finish. Read without ever sending the turn again. */
-async function readTurnAfterSendError(sessionId: string, requestId: string, content: string, pending: boolean,
-  signal: AbortSignal, current: () => boolean): Promise<ChatSession | undefined> {
-  const deadline = Date.now() + 200_000;
-  while (!signal.aborted) {
-    const session = await getSession(sessionId, signal);
-    if (signal.aborted) return;
-    const reply = savedTurnReply(session, sessionId, requestId, content);
-    if (reply || !pending || Date.now() >= deadline || !current()) return reply;
-    await new Promise(resolve => setTimeout(resolve, 3000));
+export const CHAT_READBACK_WINDOW_MS = 200_000;
+
+/** A timed-out POST can still finish. Retry only the read, within a fixed window. */
+export async function pollSavedTurn(sessionId: string, requestId: string, content: string,
+  signal: AbortSignal, current: () => boolean = () => true): Promise<ChatSession | undefined> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), CHAT_READBACK_WINDOW_MS);
+  const bounded = AbortSignal.any([signal, timeout.signal]);
+  try {
+    while (!bounded.aborted && current()) {
+      try {
+        const session = await getSession(sessionId, bounded);
+        if (bounded.aborted || !current()) return;
+        const reply = savedTurnReply(session, sessionId, requestId, content);
+        if (reply) return reply;
+      } catch (error) {
+        if (bounded.aborted || !current()) return;
+        if (error instanceof AuthError && error.status < 500 && error.status !== 408 && error.status !== 429) throw error;
+      }
+      await new Promise<void>(resolve => {
+        const finish = () => {
+          clearTimeout(delay);
+          bounded.removeEventListener('abort', finish);
+          resolve();
+        };
+        const delay = setTimeout(finish, 3000);
+        bounded.addEventListener('abort', finish, { once: true });
+      });
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -32,6 +53,9 @@ export async function recoverSend(cause: unknown, sessionId: string, requestId: 
     'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked'].includes(refused)) return 'refused';
   const status = cause instanceof AuthError ? cause.status : 0;
   const pending = status === 0 || status === 502 || status === 504 || status === 524;
-  const reply = await readTurnAfterSendError(sessionId, requestId, content, pending, signal, current);
-  return reply ?? (!pending && cause instanceof AuthError ? 'refused' : undefined);
+  if (pending) return pollSavedTurn(sessionId, requestId, content, signal, current);
+  if (signal.aborted || !current()) return;
+  const session = await getSession(sessionId, signal);
+  if (signal.aborted || !current()) return;
+  return savedTurnReply(session, sessionId, requestId, content) ?? 'refused';
 }
