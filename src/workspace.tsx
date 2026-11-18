@@ -233,28 +233,7 @@ const sampleCards: Array<{ front: string; back: string; tags: string }> = [
 ];
 const ANKI_REVIEW_ID = /^[0-9a-f]{32}$/;
 type PendingAnkiReview = { requestId: string; rating: 1 | 2 | 3 | 4; repsBefore: number };
-type PendingChatRequest = { sessionId: string; id: string; content?: string; digest?: string };
-function pendingChatKey(identity: string, sessionId: string) {
-  return `tjuclaw.chat.pending.v1.${identity}.${sessionId}`;
-}
-async function chatDigest(content: string): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
-  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
-}
-function readPendingChat(identity: string, sessionId: string): PendingChatRequest | null {
-  try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(pendingChatKey(identity, sessionId)) ?? '');
-    if (!value || typeof value !== 'object') return null;
-    const pending = value as Record<string, unknown>;
-    return pending.sessionId === sessionId && typeof pending.id === 'string' && ANKI_REVIEW_ID.test(pending.id) &&
-      !Object.hasOwn(pending, 'content') &&
-      (pending.digest === undefined || typeof pending.digest === 'string' && /^[0-9a-f]{64}$/.test(pending.digest))
-      ? pending as PendingChatRequest : null;
-  } catch { return null; }
-}
-function clearPendingChat(identity: string, sessionId: string, id: string) {
-  if (readPendingChat(identity, sessionId)?.id === id) sessionStorage.removeItem(pendingChatKey(identity, sessionId));
-}
+type PendingChatRequest = import('./lib/chat-readback').PendingChatRequest;
 function ankiReviewKey(identity: string, cardId: string) {
   return `tjuclaw.anki.review.pending.v1.${identity}.${cardId}`;
 }
@@ -1591,6 +1570,8 @@ export default function Workspace() {
         }
         if (generation === identityGeneration.current && request === chatRequestRef.current) sessionChoiceRef.current[item.id] = next.id;
         if (generation === identityGeneration.current && request === chatRequestRef.current) {
+          const { readPendingChat, clearPendingChat, chatDigest } = await import('./lib/chat-readback');
+          if (generation !== identityGeneration.current || request !== chatRequestRef.current) return;
           const pending = (identityRef.current ? readPendingChat(identityRef.current, next.id) : null) ??
             (pendingChatRequestRef.current?.sessionId === next.id ? pendingChatRequestRef.current : null);
           const saved = pending && next.messages?.find(message => message.role === 'user' && message.client_request_id === pending.id);
@@ -2719,36 +2700,36 @@ export default function Workspace() {
     const generation = identityGeneration.current;
     const identity = identityRef.current;
     if (!identity) return;
-    const pending = pendingChatRequestRef.current?.sessionId === currentId
-      ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
     sendingRef.current = true;
     const since = clockNow();
     setPendingTurn({ sessionId: currentId, since });
     setChatSending(true);
     setChatStopping(false);
-    const digest = await attempt(() => chatDigest(text), () => null);
-    if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
-      if (generation === identityGeneration.current) {
-        sendingRef.current = false;
-        setChatSending(false);
-        setPendingTurn(undefined);
-      }
-      return;
-    }
-    if (digest === null) {
+    const clearSending = () => {
       sendingRef.current = false;
       setChatSending(false);
       setPendingTurn(undefined);
+    };
+    const recovery = await attempt(() => import('./lib/chat-readback'), () => null);
+    const digest = recovery && await attempt(() => recovery.chatDigest(text), () => null);
+    if (generation !== identityGeneration.current || identity !== identityRef.current || request !== chatRequestRef.current) {
+      if (generation === identityGeneration.current) clearSending();
+      return;
+    }
+    if (!recovery || digest === null) {
+      clearSending();
       setChatError('无法校验消息重试，请检查浏览器安全环境后再试。');
       return;
     }
+    const { readPendingChat, clearPendingChat, savePendingChat, recoverSend } = recovery;
+    const pending = pendingChatRequestRef.current?.sessionId === currentId
+      ? pendingChatRequestRef.current : readPendingChat(identity, currentId);
     // Resending the same text reuses its request id, so a turn the server did
     // store is not stored twice; different text is simply a new message.
     const same = pending?.sessionId === currentId && (pending.digest ? pending.digest === digest : pending.content === text);
     const requestId = same ? pending!.id : crypto.randomUUID().replaceAll('-', '');
     pendingChatRequestRef.current = { sessionId: currentId, content: text, id: requestId, digest };
-    // In-memory retries still work when browser storage is disabled.
-    storeItem(sessionStorage, pendingChatKey(identity, currentId), JSON.stringify({ sessionId: currentId, id: requestId, digest }));
+    savePendingChat(identity, currentId, requestId, digest);
     setChatError('');
     // Optimistic: the message leaves the composer at once and returns to it
     // only if the send fails.
@@ -2769,9 +2750,7 @@ export default function Workspace() {
     };
     const finishSend = () => {
       if (generation === identityGeneration.current) {
-        sendingRef.current = false;
-        setChatSending(false);
-        setPendingTurn(undefined);
+        clearSending();
         if (!delivered && request === chatRequestRef.current) setDraft(draft);
       }
     };
@@ -2790,7 +2769,7 @@ export default function Workspace() {
     }, async (cause) => {
       if (recovered) return;
       const current = () => generation === identityGeneration.current && request === chatRequestRef.current;
-      const result = await attempt(async () => (await import('./lib/chat-readback')).recoverSend(cause, currentId, requestId, text, send.signal, current), () => undefined);
+      const result = await attempt(() => recoverSend(cause, currentId, requestId, text, send.signal, current), () => undefined);
       if (recovered) return;
       if (result && result !== 'refused') receive(result, true);
       else if (result === 'refused') {

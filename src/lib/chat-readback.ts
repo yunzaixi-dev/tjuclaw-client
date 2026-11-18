@@ -1,5 +1,38 @@
 import { AuthError } from './auth';
 import { getSession, type ChatSession } from './library';
+import { storeItem } from './safe-storage';
+
+export type PendingChatRequest = { sessionId: string; id: string; content?: string; digest?: string };
+
+function pendingChatKey(identity: string, sessionId: string) {
+  return `tjuclaw.chat.pending.v1.${identity}.${sessionId}`;
+}
+
+export function readPendingChat(identity: string, sessionId: string): PendingChatRequest | null {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(pendingChatKey(identity, sessionId)) ?? '');
+    if (!value || typeof value !== 'object') return null;
+    const pending = value as Record<string, unknown>;
+    return pending.sessionId === sessionId && typeof pending.id === 'string' && /^[0-9a-f]{32}$/.test(pending.id) &&
+      !Object.hasOwn(pending, 'content') &&
+      (pending.digest === undefined || typeof pending.digest === 'string' && /^[0-9a-f]{64}$/.test(pending.digest))
+      ? pending as PendingChatRequest : null;
+  } catch { return null; }
+}
+
+export function clearPendingChat(identity: string, sessionId: string, id: string) {
+  if (readPendingChat(identity, sessionId)?.id === id) sessionStorage.removeItem(pendingChatKey(identity, sessionId));
+}
+
+export function savePendingChat(identity: string, sessionId: string, id: string, digest: string) {
+  // In-memory retries still work when browser storage is disabled.
+  storeItem(sessionStorage, pendingChatKey(identity, sessionId), JSON.stringify({ sessionId, id, digest }));
+}
+
+export async function chatDigest(content: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 /** Returns the saved conversation through this turn, never across the next user message. */
 export function savedTurnReply(session: ChatSession, sessionId: string, requestId: string, content: string): ChatSession | undefined {
