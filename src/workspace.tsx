@@ -30,7 +30,7 @@ import { VaultError } from './lib/sealed-vault';
 import { attempt } from './lib/attempt';
 import { useDrawerGesture } from './lib/use-drawer-gesture';
 import { dismissSheet, useSheetGesture } from './lib/use-sheet-gesture';
-import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, savedTurnReply, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
+import { createEntry, deleteLibrary, describeLibraryError, renameLibrary, createLibrary, createFolder as createFolderRemote, createSession, deleteEntry, deleteSession, deleteFolder as deleteFolderRemote, getEntry, getSession, getSettledSession, renameSession, interruptSession, listEntries, listLibraries, listSessions, moveEntry as moveEntryRemote, patchEntry, patchFolder, reorderEntries, sendMessage, uploadFile, type ChatSession, type Entry, type Library } from './lib/library';
 import { cachedEntry, clearEntryCache, enableEntryReplica, hydrateEntryCache, listedWithCache, loadEntry, localNote, openEntryCache, peekNote, pruneEntryCache, readWorkspaceTree, rememberEntry, warmEntry, writeWorkspaceTree, type WorkspaceTree } from './lib/entry-cache';
 import { syncLibrary } from './lib/library-sync';
 import { observeMarkdownImages, prepareMarkdownImage } from './lib/markdown-images';
@@ -464,7 +464,6 @@ function renderMarkdown(markdown: string, externalImages = false, sourceId?: str
 }
 
 /** Message errors the API returns before storing the turn. */
-const definiteChatRefusals = new Set(['local_docker_unavailable', 'local_sandbox_unavailable', 'model_unconfigured', 'quota_exceeded', 'quota_5h_exceeded', 'quota_7d_exceeded', 'quota_unavailable', 'sandbox_model_unavailable', 'upstream_blocked']);
 
 const SESSION_SNAPSHOT_KEY = 'tjuclaw.workspace-session.v1';
 
@@ -1730,7 +1729,7 @@ export default function Workspace() {
     // A failure here still leaves the tree below worth reading again.
     await attempt(async () => {
       const session = await getSettledSession(sessionId);
-      const settled = reply ? savedTurnReply(session, reply.requestId, reply.content) : session;
+      const settled = reply ? (await import('./lib/chat-readback')).savedTurnReply(session, sessionId, reply.requestId, reply.content) : session;
       if (!settled || settled.id !== sessionId || generation !== identityGeneration.current) return;
       const count = settled.messages?.length ?? 0;
       // A newer turn may already be on screen; never replace it with less.
@@ -2781,47 +2780,15 @@ export default function Workspace() {
       if (!recovered) receive(next);
     }, async (cause) => {
       if (recovered) return;
-      // These are refused before the turn is stored, so the outcome is known:
-      // say why and let the user send again instead of asking to confirm.
-      const refused = cause instanceof AuthError ? cause.body?.error?.id ?? '' : '';
-      if (definiteChatRefusals.has(refused)) {
+      const current = () => generation === identityGeneration.current && request === chatRequestRef.current;
+      const result = await attempt(async () => (await import('./lib/chat-readback')).recoverSend(cause, currentId, requestId, text, send.signal, current), () => undefined);
+      if (recovered) return;
+      if (result && result !== 'refused') receive(result, true);
+      else if (result === 'refused') {
         clearPendingChat(identity, currentId, requestId);
         if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
-        if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
-        return;
-      }
-      // Whether the outcome was read back; when it cannot be, the request id is kept.
-      const settled = await attempt(async () => {
-        // A CDN may time out a long turn (504) while the server finishes and
-        // saves it; wait for the reply under this request id before giving up.
-        const status = cause instanceof AuthError ? cause.status : 0;
-        const pending = status === 0 || status === 502 || status === 504;
-        const deadline = clockNow() + (pending ? 200_000 : 0);
-        let latest = await getSession(currentId, send.signal);
-        let reply = savedTurnReply(latest, requestId, text);
-        while (pending && !reply && !recovered && clockNow() < deadline
-          && generation === identityGeneration.current && request === chatRequestRef.current) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          if (recovered) return true;
-          latest = await getSession(currentId, send.signal);
-          reply = savedTurnReply(latest, requestId, text);
-        }
-        if (recovered) return true;
-        if (latest.id === currentId && reply) {
-          receive(reply, true);
-          return true;
-        }
-        if (!pending && cause instanceof AuthError) {
-          // An error response (not a timeout) and nothing stored: the turn failed.
-          clearPendingChat(identity, currentId, requestId);
-          if (pendingChatRequestRef.current?.id === requestId) pendingChatRequestRef.current = null;
-          if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError(describeLibraryError(cause));
-          return true;
-        }
-        return false;
-      }, () => false);
-      if (settled || recovered) return;
-      if (generation === identityGeneration.current && request === chatRequestRef.current) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
+        if (current()) setChatError(describeLibraryError(cause));
+      } else if (current()) setChatError('发送结果未确认，草稿已保留；重试会沿用同一请求编号。');
     }, async () => {
       if (!recovered) finishSend();
     });

@@ -1,4 +1,5 @@
-import { decodeLiveTurn, getLive, getSession, livePath, savedTurnReply, type ChatSession, type LiveCursor, type LiveTurn } from './library';
+import { decodeLiveTurn, getLive, getSession, livePath, type ChatSession, type LiveCursor, type LiveTurn } from './library';
+import { savedTurnReply } from './chat-readback';
 import { mergeTimeline, stageText, timelineCursor, type TimelineItem } from './live-stream';
 
 // A proxy can deliver heartbeats without delivering updates. Give SSE a short
@@ -128,7 +129,7 @@ export function followLiveEvents(sessionId: string, requestId: string, onFrame: 
       try {
         const session = await getSession(sessionId, signal);
         if (signal.aborted) return;
-        const reply = session.id === sessionId && savedTurnReply(session, requestId, saved.content);
+        const reply = savedTurnReply(session, sessionId, requestId, saved.content);
         if (reply) {
           controller.abort();
           saved.onReply(reply);

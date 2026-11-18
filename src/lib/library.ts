@@ -487,15 +487,6 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Chat
   return data.session;
 }
 
-/** Returns the saved conversation through this turn, never another user's turn boundary. */
-export function savedTurnReply(session: ChatSession, requestId: string, content: string): ChatSession | undefined {
-  const messages = session.messages ?? [];
-  const index = messages.findIndex(message => message.role === 'user' && message.client_request_id === requestId && message.content === content);
-  const reply = index >= 0 ? messages[index + 1] : undefined;
-  if (reply?.role !== 'assistant' || !reply.content.trim() || (reply.client_request_id && reply.client_request_id !== requestId)) return;
-  return index + 2 === messages.length ? session : { ...session, messages: messages.slice(0, index + 2) };
-}
-
 /**
  * Reads the session once its running turn has settled. A reply is returned
  * before the notes the Agent wrote reach the library; this waits for that and
