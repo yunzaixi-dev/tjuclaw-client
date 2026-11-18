@@ -5834,7 +5834,7 @@ test('the conversation background is still by default, and the Game of Life is a
   await expect(page.locator('canvas.life-background')).toHaveCount(1);
 });
 
-test('with motion on, the newest characters of a streamed reply fade in and settle fully opaque', async ({ page }) => {
+test('desktop live Markdown shows the complete received batch on its first update', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await mockWorkspace(page, defaultState());
   const text = '基尔霍夫电流定律说的是：**流入节点的电流之和为零**，这是电荷守恒的直接结果。';
@@ -5853,28 +5853,16 @@ test('with motion on, the newest characters of a streamed reply fade in and sett
   await page.goto('/workspace');
   await page.getByRole('button', { name: '工作', exact: true }).click();
   await page.getByRole('textbox', { name: '发送给 Agent 的消息' }).fill('什么是 KCL');
-  // Catch the reply while it is still being revealed.
   await page.evaluate(() => {
-    window.__tails = [];
-    new MutationObserver(() => {
-      const spans = [...document.querySelectorAll('.agent-live-text .agent-tail')];
-      if (spans.length) window.__tails.push(spans.map(span => Number(span.style.opacity)));
-    }).observe(document.body, { subtree: true, childList: true, attributes: true });
+    const observer = new MutationObserver(() => {
+      const first = document.querySelector('.agent-live-text')?.textContent?.trim();
+      if (first) { window.__firstLiveText = first; observer.disconnect(); }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
   });
   await page.getByRole('button', { name: '发送', exact: true }).click();
-  const reply = page.locator('.agent-live-text');
-  // The text is complete and, once the fade has run out, plain again: nothing is left dimmed.
-  await expect(reply).toHaveText(text.replaceAll('**', ''));
-  await expect(reply.locator('.agent-tail')).toHaveCount(0);
-  await expect(reply.locator('strong')).toHaveText('流入节点的电流之和为零');
-  const tails = await page.evaluate(() => window.__tails);
-  expect(tails.length).toBeGreaterThan(3);
-  // While it was written, the newest characters were the lightest, never invisible, and at most a short tail.
-  for (const tail of tails) {
-    expect(tail.length).toBeLessThanOrEqual(14);
-    expect(Math.min(...tail)).toBeGreaterThan(0);
-    expect([...tail].sort((a, b) => b - a)).toEqual(tail);
-  }
+  await expect.poll(() => page.evaluate(() => window.__firstLiveText)).toBe(text.replaceAll('**', ''));
+  await expect(page.locator('.agent-live-text strong')).toHaveText('流入节点的电流之和为零');
   // The thought before it folded into a row in place.
   await expect(page.getByRole('status', { name: /正在处理/ }).getByRole('button', { name: /思考过程/ })).toHaveAttribute('aria-expanded', 'false');
   finish();

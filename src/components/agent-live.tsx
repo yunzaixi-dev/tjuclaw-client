@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import { SaidText, ToolRow, groupSteps, toolView } from './agent-steps';
 import { followLiveEvents } from '../lib/live-events';
@@ -60,47 +60,6 @@ function FadingText({ text, lead }: { text: string; lead: number }) {
 }
 
 /**
- * Fades in the newest characters of rendered Markdown: the last text of the
- * element is split into one span per character, each lighter the newer it
- * is. Spans from the previous frame are folded back into plain text first.
- */
-function fadeTail(root: HTMLElement, lead: number) {
-  for (const span of Array.from(root.querySelectorAll('span.agent-tail'))) {
-    const parent = span.parentNode;
-    span.replaceWith(document.createTextNode(span.textContent ?? ''));
-    parent?.normalize();
-  }
-  let fading = Math.max(0, TAIL - lead);
-  let distance = 0;
-  // Walk the text backwards from the end, leaving formulas and drawings whole.
-  const visit = (node: Node): boolean => {
-    if (fading <= 0) return false;
-    if (node.nodeType === Node.TEXT_NODE) {
-      const chars = Array.from((node as Text).data);
-      const take = Math.min(fading, chars.length);
-      if (!take) return true;
-      const fragment = document.createDocumentFragment();
-      fragment.append(chars.slice(0, chars.length - take).join(''));
-      chars.slice(chars.length - take).forEach((char, index) => {
-        const span = document.createElement('span');
-        span.className = 'agent-tail';
-        span.style.opacity = String(tailOpacity(distance + take - 1 - index, lead));
-        span.textContent = char;
-        fragment.append(span);
-      });
-      (node as Text).replaceWith(fragment);
-      fading -= take;
-      distance += take;
-      return fading > 0;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE || (node as Element).matches('math, svg, .math-block, .mermaid-block, button')) return true;
-    for (const child of Array.from(node.childNodes).reverse()) if (!visit(child)) return false;
-    return true;
-  };
-  visit(root);
-}
-
-/**
  * One stretch of the model's thinking in the running turn. While it is being
  * written it is open and flows; once the turn has moved on it folds into a
  * row, in place, that opens again on demand.
@@ -127,17 +86,9 @@ const LiveThought = memo(function LiveThought({ text, active, direct, onProgress
   </li>;
 });
 
-const LiveText = memo(function LiveText({ text, renderMarkdown, direct, onProgress }: { text: string; renderMarkdown: (markdown: string) => string; direct: boolean; onProgress?: () => void }) {
-  const { shown, lead } = useFlowingText(text, direct);
-  const box = useRef<HTMLDivElement | null>(null);
-  // Rendered again only when more text is shown, not while the fade moves on.
-  const html = useMemo(() => renderMarkdown(shown), [renderMarkdown, shown]);
-  useEffect(() => { onProgress?.(); }, [shown, onProgress]);
-  // After React has written the Markdown, and again as the fade moves on.
-  useLayoutEffect(() => {
-    if (box.current && (!direct || box.current.querySelector('.agent-tail'))) fadeTail(box.current, lead);
-  }, [html, lead, direct]);
-  return <div ref={box} className="agent-live-text chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />;
+const LiveText = memo(function LiveText({ text, renderMarkdown }: { text: string; renderMarkdown: (markdown: string) => string }) {
+  const html = useMemo(() => renderMarkdown(text), [renderMarkdown, text]);
+  return <div className="agent-live-text chat-message-content markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />;
 });
 
 const asStep = (item: TimelineItem) => ({ kind: 'tool' as const, name: item.name, input: item.input, output: item.output,
@@ -239,7 +190,7 @@ export function Working({ name, sessionId, requestId, since, content, onReply, s
             : <LiveThought key={index} text={item.text} active={index === last} direct={direct} onProgress={onProgress} />)}
         </ol>)}
       {/* The text being written now is the reply unless a tool call follows it. */}
-      {tail?.kind === 'text' ? <LiveText key={`text:${last}`} text={tail.text} renderMarkdown={renderMarkdown} direct={direct} onProgress={onProgress} /> : null}
+      {tail?.kind === 'text' ? <LiveText key={`text:${last}`} text={tail.text} renderMarkdown={renderMarkdown} /> : null}
     </div>
   </article>;
 }
