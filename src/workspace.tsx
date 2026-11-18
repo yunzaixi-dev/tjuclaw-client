@@ -1934,7 +1934,7 @@ export default function Workspace() {
   useEffect(() => {
     const identity = identityRef.current;
     const current = libraries[0];
-    if (!identity || !current || loading || workspaceGate || !entries.length) return;
+    if (!identity || !current || loading || workspaceGate || !entries.length || entries.some(row => row.library_id !== current.id)) return;
     const onHome = view === 'notes' && !selectedId;
     writeWorkspaceTree(identity, {
       library: { id: current.id, name: current.name, created_at: current.created_at, updated_at: current.updated_at },
@@ -1985,7 +1985,7 @@ export default function Workspace() {
     if (listed.some(row => row.library_id !== id)) throw new AuthError(503);
     const { selected } = libraryView.current;
     const request = noteRequestRef.current;
-    const note = selected && (selected.kind === 'note' || selected.kind === 'rich_text') ? selected : null;
+    const note = selected?.library_id === id && (selected.kind === 'note' || selected.kind === 'rich_text') ? selected : null;
     const remote = note && listed.find(row => row.id === note.id);
     const version = note ? saveVersions.current[note.id] : undefined;
     let fresh: Entry | undefined;
@@ -1996,7 +1996,7 @@ export default function Workspace() {
     // A save or a selection may have raced with the body request. Re-read
     // rather than repaint older bytes or swallow the change for the new tab.
     if (!canApply() || request !== noteRequestRef.current || (note && version !== saveVersions.current[note.id])) return false;
-    const local = new Map(libraryView.current.entries.map(row => [row.id, row]));
+    const local = new Map(libraryView.current.entries.filter(row => row.library_id === id).map(row => [row.id, row]));
     const items = listed.map(row => {
       const prior = local.get(row.id);
       local.delete(row.id);
@@ -2035,6 +2035,13 @@ export default function Workspace() {
       return { ...tab, kind: 'blank', title: '新建笔记', entryId: undefined, history: [], historyIndex: -1 };
     }));
     showTree(items);
+    // The normal cache effect skips empty trees, which can also mean loading.
+    // This empty list is authoritative; don't restore deleted rows next boot.
+    const identityId = identityRef.current;
+    if (!items.length && identityId && library?.id === id) {
+      writeWorkspaceTree(identityId, { library, entries: items, verification: treeVerification.current, focus: 'home' });
+    }
+    setError(current => current === '工作区暂时无法连接，请稍后重试。' ? '' : current);
     return true;
   }
 
@@ -2091,7 +2098,17 @@ export default function Workspace() {
     setLoadStep('entries');
     // Flashcards do not depend on the note tree: both load at once.
     const flashcards = loadAnkiData(generation);
-    const listed = await listEntries(activeLibrary.id);
+    const listed = await listEntries(activeLibrary.id).then(rows => {
+      if (rows.some(row => row.library_id !== activeLibrary.id)) throw new AuthError(503);
+      return rows;
+    }).catch((error: unknown) => {
+      // The account and this library were already verified and unlocked. A
+      // failed initial list must not prevent the sync loop from catching up.
+      if (generation === identityGeneration.current && !(error instanceof AuthError && (error.status === 401 || error.status === 403))) {
+        setReadyLibraryId(activeLibrary.id);
+      }
+      throw error;
+    });
     if (generation !== identityGeneration.current) return;
     const protectedRows = new Map(libraryView.current.entries.filter(row => row.library_id === activeLibrary.id && protectsNote(row.id)).map(row => [row.id, row]));
     const items = listed.map(row => {
@@ -2190,7 +2207,9 @@ export default function Workspace() {
     // A locked vault still waits, so another person at this browser does not see notes.
     // A return visit already painted this tree. Painting again would undo a
     // home or note the user opened while the session check was in flight.
-    if (identity && cached && !paintedNoteRef.current && isWorkspaceUnlocked(identity, cached.library.id, cached.verification)) paintCachedTree(cached);
+    const requestedLibrary = identity ? rememberedLibrary(identity) : '';
+    if (identity && cached && (!requestedLibrary || requestedLibrary === cached.library.id) && !paintedNoteRef.current &&
+      isWorkspaceUnlocked(identity, cached.library.id, cached.verification)) paintCachedTree(cached);
     return await attempt(async () => {
       setLoadStep('library');
       // Neither answer depends on the other, and the first page load already

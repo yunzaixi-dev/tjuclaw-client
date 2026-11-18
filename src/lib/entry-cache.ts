@@ -265,7 +265,6 @@ export function readWorkspaceTree(identity: string): WorkspaceTree | null {
     if (!parsed.library || typeof parsed.library.id !== 'string' || typeof parsed.library.name !== 'string') return null;
     if (!Array.isArray(parsed.entries)) return null;
     const entries = parsed.entries.filter(entry => entry && typeof entry.id === 'string' && typeof entry.kind === 'string' && typeof entry.title === 'string' && typeof entry.updated_at === 'string');
-    if (!entries.length) return null;
     return {
       library: {
         id: parsed.library.id,
@@ -283,7 +282,7 @@ export function readWorkspaceTree(identity: string): WorkspaceTree | null {
 /** Remembers the tree so the next visit can paint before the network answers. */
 export function writeWorkspaceTree(identity: string, tree: WorkspaceTree) {
   const storage = browserStorage();
-  if (!storage || !tree.entries.length) return;
+  if (!storage) return;
   const payload: WorkspaceTree = {
     library: tree.library,
     entries: tree.entries.slice(0, 800).map(bareEntry),

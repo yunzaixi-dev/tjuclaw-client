@@ -22,7 +22,14 @@ export async function syncLibrary(signal: AbortSignal, reconcile: () => Promise<
   while (!signal.aborted) {
     try {
       const started = performance.now();
-      const next = await getLibraryChanges(cursor, signal);
+      const next = await getLibraryChanges(cursor, signal).catch(async (error: unknown) => {
+        // During maintenance the directory can recover before the change
+        // feed. Reconcile from the authoritative list, then re-handshake.
+        if (!signal.aborted && (!(error instanceof AuthError) || error.status >= 500 || error.status === 409)) {
+          await reconcile();
+        }
+        throw error;
+      });
       if (signal.aborted) return;
       if (next !== cursor) {
         // A canceled or superseded read must not consume this notification.

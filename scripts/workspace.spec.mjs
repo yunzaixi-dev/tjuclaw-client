@@ -4924,6 +4924,88 @@ test('a cached workspace paints before the cloud answers, including on a phone s
   await expect(menu.getByRole('menuitem', { name: '压缩上下文' })).toHaveCount(0);
 });
 
+test('a cached directory retries after a maintenance error and removes deleted entries after reconnect', async ({ page, context }) => {
+  const state = defaultState();
+  state.entries = [guideA, noteA, noteC];
+  state.entryById = Object.fromEntries(state.entries.map(item => [item.id, { ...item }]));
+  await mockWorkspace(page, state);
+  const sidebar = page.locator('.obsidian-sidebar');
+  const oldRow = sidebar.getByRole('button', { name: noteC.title, exact: true });
+  await page.goto('/workspace');
+  await expect(oldRow).toBeVisible();
+  const treeKey = `tjuclaw.workspace-tree.v1.${state.session.id}`;
+  await expect.poll(() => page.evaluate(key => Boolean(localStorage.getItem(key)), treeKey)).toBe(true);
+  let reads = 0;
+  let releaseInitialList;
+  const initialList = new Promise(resolve => { releaseInitialList = resolve; });
+  await page.route(`**/api/libraries/${libA.id}/entries`, async route => {
+    if (++reads === 1) {
+      await initialList;
+      return json(route, 503, { error: { id: 'library_storage_unavailable' } });
+    }
+    return route.fallback();
+  });
+  let feedDisabled = false;
+  let epoch = 'process-before';
+  const cursors = [];
+  await page.route('**/api/libraries/changes*', route => {
+    const cursor = new URL(route.request().url()).searchParams.get('cursor');
+    cursors.push(cursor);
+    if (feedDisabled) return json(route, 503, { error: { id: 'maintenance' } });
+    if (cursor && cursor !== epoch) return json(route, 409, { error: { id: 'cursor_expired' } });
+    return json(route, 200, { cursor: epoch });
+  });
+  state.entries = [guideA, noteA];
+  await page.reload();
+  try { await expect(oldRow).toBeVisible(); }
+  finally { releaseInitialList(); }
+  await expect.poll(() => reads).toBeGreaterThan(1);
+  await expect(oldRow).toHaveCount(0);
+  await expect.poll(() => cursors.includes(epoch)).toBe(true);
+  await expect(page.locator('.cm-content')).toContainText(noteA.body);
+  expect(new URL(page.url()).pathname).toBe('/workspace');
+
+  // Repopulate via the new process cursor, then delete while offline. The
+  // entries endpoint recovers before the changes endpoint does.
+  state.entries = [guideA, noteA, noteC];
+  epoch = 'process-after';
+  await expect(oldRow).toBeVisible();
+  await expect.poll(() => cursors.includes(epoch)).toBe(true);
+  await context.setOffline(true);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
+  state.patchError = true;
+  await page.locator('.cm-content').fill('Unsaved edit during maintenance');
+  state.entries = [guideA, noteA];
+  feedDisabled = true;
+  await expect(oldRow).toBeVisible();
+  await context.setOffline(false);
+  await expect(oldRow).toHaveCount(0);
+  await expect(page.locator('.cm-content')).toHaveText('Unsaved edit during maintenance');
+  expect(new URL(page.url()).pathname).toBe('/workspace');
+  await expect.poll(() => page.evaluate(({ key, id }) => JSON.parse(localStorage.getItem(key)).entries.some(entry => entry.id === id),
+    { key: treeKey, id: noteC.id })).toBe(false);
+});
+
+test('an authoritative empty directory does not resurrect the previous cache', async ({ page }) => {
+  const state = defaultState();
+  await mockWorkspace(page, state);
+  let cursor = 'before-delete';
+  const seen = [];
+  await page.route('**/api/libraries/changes*', route => {
+    seen.push(new URL(route.request().url()).searchParams.get('cursor'));
+    return json(route, 200, { cursor });
+  });
+  await page.goto('/workspace');
+  const row = page.locator('.obsidian-sidebar').getByRole('button', { name: noteA.title, exact: true });
+  await expect(row).toBeVisible();
+  await expect.poll(() => seen.includes(cursor)).toBe(true);
+  state.entries = [];
+  cursor = 'after-delete';
+  await expect(row).toHaveCount(0);
+  const treeKey = `tjuclaw.workspace-tree.v1.${state.session.id}`;
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key))?.entries, treeKey)).toEqual([]);
+});
+
 test('a note already on this device opens without waiting, and a newer server copy replaces it only if untouched', async ({ page }) => {
   const state = defaultState();
   state.entries = [guideA, noteA, noteC];
